@@ -8,7 +8,8 @@
     "db:setup": "node supabase/setup.mjs",
     "test": "node supabase/test.mjs",
     "env:check": "node scripts/check-env.mjs",
-    "serve": "python -m http.server 8787 --directory crm"
+    "serve": "python -m http.server 8787 --directory crm",
+    "login": "node scripts/login.mjs"
   },
   "dependencies": {
     "postgres": "3.4.7"
