@@ -20,6 +20,11 @@ const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener')
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound'};
+// X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
+// read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
+const PLATS=['X','LinkedIn'];const LI_PAGES=['calendar','tracker'];
+const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:Object.keys(PAGES);
+const secsFor=plat=>plat==='LinkedIn'?SECS.map(x=>({...x,pages:x.pages.filter(k=>LI_PAGES.includes(k))})).filter(x=>x.pages.length):SECS;
 const ACC={home:{c:'var(--ink)',ink:'var(--ink-2)',soft:'var(--n-soft)',btn:'primary'},out:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},mid:{c:'var(--mid)',ink:'var(--mid-ink)',soft:'var(--mid-soft)',btn:'mid'},in:{c:'var(--in)',ink:'var(--in-ink)',soft:'var(--in-soft)',btn:'in'}};
 const CFG=window.CRM_CONFIG||{};const BRAND=CFG.brand||'CRM';
 const OWNERS=['Everyone',...Object.keys(AK.HANDLES)];
@@ -67,6 +72,12 @@ const dfmt=d=>d.getDate()+' '+AK.MON[d.getMonth()]+' '+d.getFullYear();
 const verdictOf=e=>{const v=String(e.Verdict||'').trim();if(v)return v;return /Core buyer|Good fit/.test(e.Fit||'')?'DM + reply':/Related/.test(e.Fit||'')?'Reply only':'Skip';};
 const VERD_T={'DM + reply':'solid','Reply only':'mid',Skip:'ghost'};
 const openStatus=e=>!/^(Messaged|Dismissed|Do not contact)$/.test(e.Status||'');
+const TRK_X={chart:'Total views over time',noChart:'The chart fills in after the tracker’s second check. It runs every 3 hours.',noTop:'Shows up once a post has 30 or more views.',
+  noPat:'Patterns show up once a few more posts have 30 or more views.',c1:'Views',c2:'Engagement',c3:'Per 1K views',
+  weekTip:'Green: 3 posts and engagement went up. Yellow: fewer posts, or engagement stayed flat. Red: nothing posted, or engagement fell by more than half.'};
+const TRK_LI={chart:'Reactions per post, oldest to newest',noChart:'The chart fills in once two posts have reactions.',noTop:'Shows up once a post has reactions.',
+  noPat:'Patterns show up once a few more posts have reactions.',c1:'Reactions',c2:'Post type',c3:'Checked',
+  weekTip:'Green: a LinkedIn post went out that day (by the sheet’s date). Yellow: still queued, or today with nothing yet. Red: no post that day. Underneath: that day’s reactions.'};
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
 
 /* sheet <-> design */
@@ -108,11 +119,12 @@ function person(c){
 
 class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
+    const plat=store.get('plat','X')==='LinkedIn'?'LinkedIn':'X';if(!pagesFor(plat).includes(page))page='calendar';
     const dow=(new Date().getDay()+6)%7;
-    return {page,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
-    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',calPlat:store.get('calPlat','X')==='LinkedIn'?'LinkedIn':'X',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
+    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
     const el=this.rootRef.current;
@@ -130,7 +142,7 @@ class Component extends DCLogic {
     else this.setState({v:AK.version()});
   }
   load(ms){clearTimeout(this.lt);this.setState({loading:true,entered:false});this.lt=setTimeout(()=>{this.setState({loading:false});requestAnimationFrame(()=>requestAnimationFrame(()=>this.setState({entered:true})));},ms);}
-  go(page,extra){try{localStorage.setItem('ak-crm-page',page);}catch(e){} this.setState({page,cid:null,pal:false,cmpOn:false,...(extra||{})}); if(this.mainRef.current)this.mainRef.current.scrollTop=0; if(this.ready)this.load(380);}
+  go(page,extra){if(!pagesFor(this.state.plat).includes(page))page=pagesFor(this.state.plat)[0];try{localStorage.setItem('ak-crm-page',page);}catch(e){} this.setState({page,cid:null,pal:false,cmpOn:false,...(extra||{})}); if(this.mainRef.current)this.mainRef.current.scrollTop=0; if(this.ready)this.load(380);}
   toast(msg,undo,err){clearTimeout(this.tt);this.setState({toastMsg:msg,toastUndo:undo||null,toastErr:!!err,toastOn:true});this.tt=setTimeout(()=>this.setState({toastOn:false}),err?7000:undo?5000:3400);}
   copy(text,key,msg){
     if(!text){this.toast('There’s nothing to copy here yet.',null,true);return;}
@@ -217,9 +229,13 @@ class Component extends DCLogic {
   engagers(){return AK.M.engagers.filter(e=>this.own(e.Account));}
   counts(P){const L=this.lists(P);return{send:L.ts.length+L.fu.length,inbox:L.rep.length+L.calls.length+this.postReplies().length,pdm:this.pdmCards().filter(p=>p.status==='To message').length};}
   navVals(c){const s=this.state;const badges={send:c.send,inbox:c.inbox,pdm:c.pdm};
-    return SECS.map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
+    return secsFor(s.plat).map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
   ownerVals(){return OWNERS.map(o=>{const on=this.state.owner===o;const a=o==='Everyone'?{avBg:'var(--n-soft-2)',avFg:'var(--ink-2)',ini:'∗'}:avatar(avName(o));return{label:o,...a,pick:()=>this.setOwner(o),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setOwner(o){if(o===this.state.owner)return;this.setState({owner:o});if(this.ready)this.load(320);}
+  platVals(){return PLATS.map(x=>{const on=this.state.plat===x;return{label:x,ini:x==='X'?'𝕏':'in',avBg:x==='X'?'var(--ink)':'#0a66c2',avFg:'#fff',pick:()=>this.setPlat(x),
+    bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
+  setPlat(x){if(x===this.state.plat||!PLATS.includes(x))return;store.set('plat',x);const ok=pagesFor(x).includes(this.state.page);
+    this.setState({plat:x,cid:null,pal:false,calPick:null,calLink:null,linkFor:null,...(ok?{}:{page:'calendar'})});if(this.mainRef.current)this.mainRef.current.scrollTop=0;if(this.ready)this.load(320);}
 
   /* ---------- posts ---------- */
   trackedBy(){const v=AK.version();if(this._tv!==v){this._tv=v;this._tracked=AK.trackedPosts();this._tmap=new Map(this._tracked.map(t=>[t.key,t]));}return this._tmap;}
@@ -244,7 +260,8 @@ class Component extends DCLogic {
         thumb:'https://drive.google.com/thumbnail?id='+((sugUrl.match(/\/d\/([\w-]{20,})/)||[])[1]||'')+'&sz=w600'}:null,q:o['Founder question']||'',link:o['Posted link']||'',
       ourViews:ov!=null?fmtK(ov):'',ourLikes:ol!=null?fmtK(ol):'0',when:(o._date?o._date.getTime():9e15)+AK.minutesOf(o['Time (IST)'])*6e4};
   }
-  postList(){const v=AK.version();if(this._opv!==v){this._opv=v;this._posts=AK.M.ours.map(o=>this.postObj(o));}return this._posts;}
+  postList(){const k=AK.version()+'|'+this.state.plat;if(this._opv!==k){this._opv=k;const li=this.state.plat==='LinkedIn';
+    this._posts=(li?AK.M.li:AK.M.ours).map(o=>this.postObj(o));}return this._posts;}
   ownPosts(){const ORD={'To post':0,'Scheduled':1,'Posted':2,'Later':3};
     const pl=this.state.postPlat;
     return this.postList().filter(p=>this.own(p.account)&&(pl==='All'||platOf(p.o)===pl)).sort((a,b)=>(ORD[a.status]-ORD[b.status])||(a.status==='Posted'?b.when-a.when:a.when-b.when));}
@@ -270,7 +287,13 @@ class Component extends DCLogic {
     if(page==='posts'){const tp=this.ownPosts().filter(p=>p.status==='To post');const n=tp[0];
       h.next=n?tp.length+' post'+(tp.length===1?' is':'s are')+' ready to go out. '+n.acc+'’s '+n.comp+' copy ('+n.time.replace(/^[A-Z][a-z]/,x=>x.toLowerCase())+') is next'+(n.q?', and it has a question for the founders.':'.'):'Nothing is waiting to go out. Pick one of the best posts below to copy next.';
       h.cta=n?'Copy our version':'';h.go=n?()=>this.copy(n.text,'hdr','Our version copied'):null;}
-    if(page==='tracker'){const W=AK.weekGrid(this.accs().map(a=>a.acc));const miss=[];
+    if(page==='tracker'&&s.plat==='LinkedIn'){const st=AK.liState();const C=this.liWeek().flatMap(r=>r.cells).filter(c=>c.k!=='future');
+      const miss=C.filter(c=>c.k==='red').map(c=>AK.DOW[c.day.getDay()]),done=C.filter(c=>c.n>0).length,wait=C.filter(c=>!c.n&&c.queued).length;
+      const and=a=>a.length>1?a.slice(0,-1).join(', ')+' and '+a[a.length-1]:a[0];
+      h.next=!st.loaded?(st.err||'Loading the LinkedIn sheet…'):miss.length?'No LinkedIn post on '+and(miss)+' this week. One a day is the plan.':
+        done?done+(done===1?' day has':' days have')+' had a LinkedIn post this week'+(wait?', and '+wait+' more '+(wait===1?'is':'are')+' queued.':'.'):wait?'Nothing has gone out on LinkedIn this week yet. '+wait+(wait===1?' post is':' posts are')+' queued.':'Nothing is planned on LinkedIn this week yet.';
+      h.cta='Open Calendar';h.go=()=>this.go('calendar');}
+    else if(page==='tracker'){const W=AK.weekGrid(this.accs().map(a=>a.acc));const miss=[];
       const and=a=>a.length>1?a.slice(0,-1).join(', ')+' and '+a[a.length-1]:a[0];
       for(const r of W){const d=r.cells.filter(c=>c.k!=='future'&&!c.today&&c.n===0).map(c=>AK.DOW[c.day.getDay()]);if(d.length)miss.push(ownerName(r.account)+' posted nothing on '+and(d));}
       h.next=miss.length?miss.join('. ')+'. Each account posts 3 a day.':'Every account has posted every day this week so far.';h.cta='Open Calendar';h.go=()=>this.go('calendar');}
@@ -350,9 +373,10 @@ class Component extends DCLogic {
       msgs,dates,callAt:s.callAt[p.id]??p.callIso,setCall:e=>{const v=e.target.value;this.setState(st=>({callAt:{...st.callAt,[p.id]:v}}));},saveCall:()=>this.saveCall(p),
       note:s.notes[p.id]??p.notes,setNote:e=>{const v=e.target.value;this.setState(st=>({notes:{...st.notes,[p.id]:v}}));},saveNote:()=>this.saveNote(p),ro};}
   palVals(){const s=this.state;const q=s.palQ.trim().toLowerCase();
-    const ppl=this.allPeople().filter(p=>!q||(p.name+' '+p.company+' '+p.role).toLowerCase().includes(q)).slice(0,q?6:4).map(p=>({...avatar(p.name),title:p.name,sub:(p.role?p.role+' · ':'')+p.company,tag:pill(p.stage,STAGE_T[p.stage]),go:()=>{this.setState({pal:false});this.openC(p.id);}}));
-    const comps=this.compList().filter(c=>!q||(c.name+' '+c.handle).toLowerCase().includes(q)).slice(0,q?5:3).map(c=>({...avatar(c.name),title:c.name,sub:c.handle||c.groupLabel,go:()=>this.openComp(c.id)}));
-    const pages=Object.keys(PAGES).filter(k=>!q||PAGES[k].label.toLowerCase().includes(q)).slice(0,q?5:4).map(k=>({title:PAGES[k].label,sub:SECLBL[PAGES[k].sec],dot:ACC[PAGES[k].sec].c,go:()=>this.go(k)}));
+    const liM=s.plat==='LinkedIn';
+    const ppl=(liM?[]:this.allPeople()).filter(p=>!q||(p.name+' '+p.company+' '+p.role).toLowerCase().includes(q)).slice(0,q?6:4).map(p=>({...avatar(p.name),title:p.name,sub:(p.role?p.role+' · ':'')+p.company,tag:pill(p.stage,STAGE_T[p.stage]),go:()=>{this.setState({pal:false});this.openC(p.id);}}));
+    const comps=(liM?[]:this.compList()).filter(c=>!q||(c.name+' '+c.handle).toLowerCase().includes(q)).slice(0,q?5:3).map(c=>({...avatar(c.name),title:c.name,sub:c.handle||c.groupLabel,go:()=>this.openComp(c.id)}));
+    const pages=pagesFor(s.plat).filter(k=>!q||PAGES[k].label.toLowerCase().includes(q)).slice(0,q?5:4).map(k=>({title:PAGES[k].label,sub:SECLBL[PAGES[k].sec],dot:ACC[PAGES[k].sec].c,go:()=>this.go(k)}));
     return{q:s.palQ,onQ:e=>this.setState({palQ:e.target.value}),onKey:e=>{if(e.key==='Enter'){const f=ppl[0]||comps[0]||pages[0];f&&f.go();}},ppl,comps,pages,hasPpl:ppl.length>0,hasComps:comps.length>0,hasPages:pages.length>0,none:!ppl.length&&!comps.length&&!pages.length,close:()=>this.setState({pal:false}),stop:e=>e.stopPropagation()};}
 
   /* ---------- outbound ---------- */
@@ -451,12 +475,11 @@ class Component extends DCLogic {
     const days=DOW.map((dw,i)=>{const dt=new Date(start.getTime()+i*AK.DAY);const today=AK.sameDay(dt,new Date());
       return{dow:dw,date:dt,key:dkey(dt.getFullYear(),dt.getMonth(),dt.getDate()),num:String(dt.getDate()),mon:MON[dt.getMonth()],rel:Math.round((dt-t0)/AK.DAY),today};});
     const keys=new Set(days.map(d=>d.key));const accs=this.accs();
-    const plat=s.calPlat;const isLi=plat==='LinkedIn';
+    const plat=s.plat;const isLi=plat==='LinkedIn';
     const placed=this.postList().filter(p=>onCal(p)&&platOf(p.o)===plat).map(p=>({p,w:calWhere(p.o,zone)})).filter(x=>x.w&&keys.has(x.w.key)&&accs.some(a=>a.acc===x.p.account));
-    const kind=s.calKind;const shown=kind==='All'?placed:placed.filter(x=>x.p.kind===kind);
-    const kinds=['All',...POST_KINDS].map(k=>{const on=kind===k;const n=k==='All'?placed.length:placed.filter(x=>x.p.kind===k).length;
+    const kind=isLi?'All':s.calKind;const shown=kind==='All'?placed:placed.filter(x=>x.p.kind===kind);
+    const kinds=(isLi?[]:['All',...POST_KINDS]).map(k=>{const on=kind===k;const n=k==='All'?placed.length:placed.filter(x=>x.p.kind===k).length;
       return{label:k,count:String(n)+(!isLi&&SLOTS3.includes(k)?'/'+(accs.length*7):''),go:()=>this.setState({calKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink)',bd:on?'var(--ink)':'var(--hairline-strong)',dot:KIND_DOT[k]||'transparent',hasDot:k!=='All'};});
-    const plats=['X','LinkedIn'].map(x=>{const on=plat===x;return{label:x==='X'?'𝕏  X':'in  LinkedIn',go:()=>{store.set('calPlat',x);this.setState({calPlat:x,calPick:null});},bg:on?'var(--ink)':'transparent',fg:on?'#fff':'var(--ink-2)',sh:on?'var(--shadow-sm)':'none'};});
     const zones=['ist','pst'].map(z=>{const on=zone===z;return{label:ZONES[z].label,go:()=>{store.set('calZone',z);this.setState({calZone:z});},bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm)':'none'};});
     const has=(acc,key)=>placed.some(x=>x.p.account===acc&&x.w.key===key);
     const empty=accs.reduce((n,a)=>n+days.filter(d=>d.rel>=0&&!has(a.acc,d.key)).length,0);
@@ -473,7 +496,7 @@ class Component extends DCLogic {
               slotNew:()=>{const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat,sl);},slotPick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:sl})});}
           items.push(...list.filter(x=>!SLOTS3.includes(x.p.slot)).map(card));}
         return{dow:d.dow,date:d.num+' '+d.mon,today:d.today,hfg:d.today?'var(--in-ink)':'var(--ink)',bg:d.today?'var(--in-soft)':'var(--n-soft)',cards:items,
-          canAdd:!f,add:()=>{const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat);},pick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:'All'}),
+          canAdd:!f&&!isLi,add:()=>{const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat);},pick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:'All'}),
           over:e=>{e.preventDefault();},drop:e=>{e.preventDefault();this.calDrop(a,d);}};});
       const ti=days.findIndex(d=>d.today);
       return{...a,...avatar(avName(a.name)),icon:isLi?'in':'𝕏',iconBg:isLi?'#0a66c2':'var(--ink)',chip:isLi?LI_NAME[a.acc]||a.name:a.handle,strip:days.map((d,i)=>({l:d.dow[0],full:d.dow+' '+d.num+' '+d.mon,go:()=>this.calScroll(a.acc,i),bg:has(a.acc,d.key)?'var(--ink)':'var(--n-soft-2)',fw:d.today?'700':'500',fg:d.today?'var(--ink)':'var(--ink-3)'})),line,hasLine:!!line,cols,
@@ -483,7 +506,7 @@ class Component extends DCLogic {
       const go=()=>{if(accs.every(a=>document.getElementById('cal-'+a.acc))){accs.forEach(a=>this.calScroll(a.acc,ti<0?0:ti,true));}else if(n++<40)setTimeout(go,100);};setTimeout(go,50);}
     return{label:days[0].num+' '+days[0].mon+' – '+days[6].num+' '+days[6].mon,weekName:off===0?'This week':off===-1?'Last week':off===1?'Next week':off<0?Math.abs(off)+' weeks ago':'In '+off+' weeks',
       prev:()=>this.setState({week:off-1}),next:()=>this.setState({week:off+1}),now:()=>this.setState({week:0}),nowBg:off===0?'#fff':'transparent',nowSh:off===0?'var(--shadow-sm), var(--hi)':'none',
-      kinds,zones,plats,boards,summary:placed.length+(placed.length===1?' post':' posts')+' this week',hasEmpty:empty>0,empty:empty+(empty===1?' empty day':' empty days')+' left',pick:this.calPickVals()};}
+      kinds,hasKinds:kinds.length>0,zones,boards,summary:placed.length+(placed.length===1?' post':' posts')+' this week'+(isLi?(AK.liState().err?' · '+AK.liState().err:AK.liState().loaded?' · from the LinkedIn sheet':' · loading the LinkedIn sheet…'):''),hasEmpty:empty>0&&!(isLi&&!AK.liState().loaded),empty:empty+(empty===1?' empty day':' empty days')+' left',pick:this.calPickVals()};}
   // Hold and drag the board's empty space to move left and right (cards, fields and buttons keep working as usual).
   calPan(e){if(e.button!==0||e.target.closest('input,textarea,select,button,label,a,img,[draggable="true"]'))return;
     const el=e.currentTarget,x0=e.clientX,l0=el.scrollLeft;el.style.cursor='grabbing';e.preventDefault();
@@ -492,7 +515,7 @@ class Component extends DCLogic {
   // Scroll a board: 'l' / 'r' by two days, or to day i (0 = Monday).
   calScroll(acc,where,instant){const el=document.getElementById('cal-'+acc);if(!el||!el.children.length)return;const w=el.children[0].getBoundingClientRect().width+12;const behavior='auto';
     if(where==='l'||where==='r')el.scrollBy({left:(where==='l'?-2:2)*w,behavior});else el.scrollTo({left:Math.max(0,where-1)*w,behavior});}
-  calCard(p,w,a){const s=this.state;const f=this.founder;const o=p.o;const id=p.id;const ed=s.calEd[id]||{};
+  calCard(p,w,a){const s=this.state;const f=this.founder||!!p.o._li;const o=p.o;const id=p.id;const ed=s.calEd[id]||{};
     const st=p.link?'Posted':String(o.Status||'Draft');const pc=CAL_PILL[st]||['var(--warn-soft)','var(--warn-ink)'];
     const setEd=(k,v)=>this.setState(x=>({calEd:{...x.calEd,[id]:{...(x.calEd[id]||{}),[k]:v}}}));
     const takeEd=k=>{const v=(this.state.calEd[id]||{})[k];if(v==null)return null;this.setState(x=>{const e={...(x.calEd[id]||{})};delete e[k];return{calEd:{...x.calEd,[id]:e}};});return v;};
@@ -504,7 +527,7 @@ class Component extends DCLogic {
     const media=AK.mediaIds(o['Media file']).map(m=>({video:!!(p.sug&&p.sug.video&&p.sug.url.indexOf(m)>=0),src:AK.mediaThumb(m),open:()=>window.open(AK.mediaOpen(m),'_blank','noopener'),
       rm:stop(()=>{const keep=String(o['Media file']||'').split(/\s+/).filter(u=>u&&u.indexOf(m)<0).join('\n');AK.calSave(o,{media:keep});}),canRm:!f}));
     const cb=this.copyBtn('cal'+id,'Copy');const up=AK.S.busy.has('up'+o._key);
-    return{id,st,pbg:pc[0],pfg:pc[1],ro:f,canEdit:!f,txtRo:f||!!p.link,rows:p.link?'4':'7',notLive:!p.link,canUp:!f&&!p.link,
+    return{id,st,pbg:pc[0],pfg:pc[1],ro:f,notLi:!o._li,canEdit:!f,txtRo:f||!!p.link,rows:p.link?'4':'7',notLive:!p.link,canUp:!f&&!p.link,
       time:ed.time!=null?ed.time:w.hm,zone:ZONES[s.calZone].label,setTime:e=>setEd('time',e.target.value),
       saveTime:()=>{const v=takeEd('time');if(v!=null&&v!==w.hm){const r=toIst(w.key,v,s.calZone);AK.calSave(o,{date:r.date,time:r.time});}},
       type:CAL_TYPES.includes(p.ptype)?p.ptype:'',setType:e=>AK.calSave(o,{type:e.target.value}),slot:p.slot,setSlot:e=>AK.calSave(o,{slot:e.target.value}),
@@ -527,7 +550,7 @@ class Component extends DCLogic {
   // A card made on the calendar that is still empty is removed for good; any other post just leaves the calendar.
   calRemove(p){const blank=p.o['What we changed']==='Added in the calendar'&&!p.text.trim()&&!p.link;const was=p.o.Status||'Draft';const wasCal=p.o.Calendar||'';
     AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:'No'}).then(ok=>{if(ok)this.toast(blank?'Removed':'Taken off the calendar. It’s still in Our posts.',()=>AK.calSave(p.o,blank?{cal:'Yes',status:was}:{cal:wasCal}));});}
-  calDrop(a,d){if(this.founder)return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
+  calDrop(a,d){if(this.founder||this.state.plat==='LinkedIn')return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
     if(p.account!==a.acc){this.toast('Drag a post within its own account.',null,true);return;}
     const w=calWhere(p.o,this.state.calZone);if(!w||w.key===d.key)return;const r=toIst(d.key,w.hm,this.state.calZone);AK.calSave(p.o,{date:r.date,time:r.time});}
   // Link a card to a post that's live on X: paste its link, or pick a live post the tracker already found (that row joins the
@@ -542,7 +565,7 @@ class Component extends DCLogic {
     const blank=p.o['What we changed']==='Added in the calendar'&&!p.link;
     await AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:''});this.setState({calLink:null,calLinkVal:''});this.toast('Linked to the live post');}
   calPickVals(){const s=this.state;const pk=s.calPick;if(!pk)return{open:false};const acc=pk.acc;const kind=s.calPickKind||'All';
-    let C=this.postList().filter(p=>p.account===acc&&!p.link&&!onCal(p)&&platOf(p.o)===s.calPlat);
+    let C=this.postList().filter(p=>p.account===acc&&!p.link&&!onCal(p)&&platOf(p.o)===s.plat);
     const kinds=['All',...POST_KINDS].map(k=>{const on=kind===k;return{label:k==='All'?'All types':k,count:String(k==='All'?C.length:C.filter(p=>p.kind===k).length),go:()=>this.setState({calPickKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
     if(kind!=='All')C=C.filter(p=>p.kind===kind);
     C.sort((x,y)=>(y.o._date?y.o._date.getTime():0)-(x.o._date?x.o._date.getTime():0));
@@ -584,7 +607,8 @@ class Component extends DCLogic {
         if(ok)this.setState({addOpen:false,addF:null,postsTab:v.link||v.status==='Posted'?'Posted':v.status==='Scheduled'?'Scheduled':'To post'});}};}
   async restorePost(p,prev){const o=AK.M.ours.find(x=>x._key===p.id)||p.o;if(await AK.restorePost(o,prev,''))this.toast('Undone');}
   postsVals(){const s=this.state;const all=this.ownPosts();
-    const plats=['All','X','LinkedIn'].map(x=>{const on=s.postPlat===x;return{label:x==='All'?'X + LinkedIn':x==='X'?'𝕏 X':'in LinkedIn',go:()=>this.setState({postPlat:x,linkFor:null}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});const P=s.postType==='All'?all:all.filter(p=>p.kind===s.postType);
+    // The X / LinkedIn switch at the top replaced this page's platform filter (3 Nov).
+    const plats=[];const P=s.postType==='All'?all:all.filter(p=>p.kind===s.postType);
     const inTab=all.filter(p=>p.status===s.postsTab);
     const types=['All',...POST_KINDS].map(k=>{const n=k==='All'?inTab.length:inTab.filter(p=>p.kind===k).length;const on=s.postType===k;
       return{label:k==='All'?'All types':k,count:String(n),go:()=>this.setState({postType:k,linkFor:null}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)',cbg:on?'rgba(255,255,255,.18)':'var(--n-soft)'};});
@@ -600,7 +624,7 @@ class Component extends DCLogic {
   blankCmp(){return{rankLabel:'',st:pill('',''),pos:'',prev:()=>{},next:()=>{},close:()=>this.setState({cmpOn:false}),comp:'',compH:'',cText:'',cNums:'',accAv:{},accName:'',time:'',text:'',hasNums:false,noNums:true,ourViews:'',ourLikes:'',changed:'',media:'',ini:'',avBg:'',avFg:''};}
 
   /* ---------- post tracker ---------- */
-  trkVals(){const s=this.state;const E=s.entered;const accs=this.accs();const ids=accs.map(a=>a.acc);
+  trkVals(){if(this.state.plat==='LinkedIn')return this.liTrkVals();const s=this.state;const E=s.entered;const accs=this.accs();const ids=accs.map(a=>a.acc);
     const all=AK.trackedPosts();const live=all.filter(t=>ids.includes(t.account));
     const views=live.reduce((a,t)=>a+(t.views||0),0),eng=live.reduce((a,t)=>a+(t.eng||0),0),grew=live.reduce((a,t)=>a+(t.grew>0?t.grew:0),0);
     const wk=AK.weekStart(0).getTime();const rt=AK.rate(eng,views);
@@ -618,15 +642,67 @@ class Component extends DCLogic {
     const weekAgo=times.filter(t=>t<=Date.now()-7*AK.DAY).slice(-1)[0];const base=weekAgo!=null?totalAt(weekAgo):null;
     const totalD=!hasChart?'':base?((last>=base?'+':'')+Math.round((last-base)/base*100)+'% on last week'):'+'+fmtK(last-series[0])+' since '+dLabel(times[0]);
     const fol=this.followers().filter(f=>ids.includes(f.acc)).map(f=>{const base2=f.start!=null?f.start:f.first;const dd=f.v!=null&&base2!=null?f.v-base2:null;return{...f,...avatar(avName(f.name)),val:f.v==null?'–':f.v.toLocaleString(),w:E&&f.v?Math.min(100,f.v/f.tgt*100)+'%':'0%',d:dd==null?'No count yet':(dd>=0?'+':'')+dd+' since '+(f.start!=null?'the start':'the first check'),left:f.v==null?'Goal '+f.tgt.toLocaleString():Math.max(0,f.tgt-f.v).toLocaleString()+' to go'};});
-    const top=live.filter(t=>t.rate!=null&&(t.views||0)>=30).sort((a,b)=>b.rate-a.rate).slice(0,3).map((t,i)=>{const acc=ownerName(t.account);return{n:String(i+1).padStart(2,'0'),text:clip(firstLine(t.text)||'Post on X',140),acc,...avatar(avName(acc)),views:fmtK(t.views),eng:String(t.eng),why:AK.whyFor(t,all).slice(0,4)};});
+    const top=live.filter(t=>t.rate!=null&&(t.views||0)>=30).sort((a,b)=>b.rate-a.rate).slice(0,3).map((t,i)=>{const acc=ownerName(t.account);return{n:String(i+1).padStart(2,'0'),text:clip(firstLine(t.text)||'Post on X',140),acc,...avatar(avName(acc)),views:fmtK(t.views)+' views',eng:String(t.eng),why:AK.whyFor(t,all).slice(0,4)};});
     const pat=AK.patterns(live).map(p=>({label:p.label,v:p.label==='Best account'?ownerName(p.k):p.k,sub:p.sub}));
     const sorted=live.slice().sort((a,b)=>(b.first||0)-(a.first||0));const lim=s.trkMore?sorted.length:8;
     const sp=h=>{const v=h.map(r=>num(r.Views)||0);if(v.length<2)return '0,22 80,22';const mx=Math.max(1,...v);return v.map((y,k)=>(k*80/(v.length-1)).toFixed(1)+','+(22-y/mx*20).toFixed(1)).join(' ');};
     const rows=sorted.slice(0,lim).map((t,i)=>({text:clip(firstLine(t.text)||'Post on X',110),acc:ownerName(t.account),when:t.first?AK.dayWord(new Date(t.first))+' '+hhmm(t.first):'–',views:fmtK(t.views),eng:String(t.eng==null?'–':t.eng),rate:t.rate!=null?String(r1(t.rate)):'–',spark:sp(t.hist),deltaLabel:t.grew!=null?(t.grew>=0?'+':'')+fmtK(t.grew)+' since last check':t.pending?'Waiting for the first check':'First check',bt:i===0?'none':'1px solid var(--hairline)'}));
-    return{kpis:kpis.map(k=>({...k,hasTip:!!k.tipKey,tip:k.tipKey?this.tipFor(k.tipKey):{}})),week,days:['Mon','Tue','Wed','Thu','Fri'],
+    return{L:TRK_X,hasFol:true,kpis:kpis.map(k=>({...k,hasTip:!!k.tipKey,tip:k.tipKey?this.tipFor(k.tipKey):{}})),week,days:['Mon','Tue','Wed','Thu','Fri'],
       hasChart,noChart:!hasChart,total:fmtK(last),totalD,
       chart:{line:ch.line,area:ch.area,dash:E?'0':'1400',dots:hasChart?ch.dots.map((d,i)=>({...d,label:lab(times[i])+': '+fmtK(series[i])+' views in total',r:i===series.length-1?'5':'3.5'})):[],l0:hasChart?lab(times[0]):'',l1:hasChart&&times.length>2?lab(times[Math.floor((times.length-1)/2)]):'',l2:hasChart?lab(times[times.length-1]):''},
       fol,top,hasTop:top.length>0,noTop:!top.length,pat,hasPat:pat.length>0,noPat:!pat.length,rows,hasRows:rows.length>0,hasMore:!s.trkMore&&sorted.length>8,more:()=>this.setState({trkMore:true}),count:'Showing '+rows.length+' of '+sorted.length};}
+
+  /* ---------- LinkedIn post tracker (3 Nov) ----------
+     The LinkedIn sheet keeps one number per post, its reactions (Performance tab, checked daily), so this page works
+     from those: no views, no per-check history, no follower counts. One LinkedIn post a day is the plan. */
+  liWeek(){const ids=this.accs().map(a=>a.acc);const start=AK.weekStart(0);const now=new Date();
+    const posts=AK.M.li.filter(p=>p._date&&(p.Status==='Posted'||p.Status==='Scheduled')).map(p=>({account:p.Account,day:p._date,posted:p.Status==='Posted',reactions:p._reactions}));
+    return ids.map(acc=>({account:acc,cells:[0,1,2,3,4].map(i=>{const day=new Date(start.getTime()+i*AK.DAY);const today=AK.sameDay(day,now);
+      if(day>now&&!today)return{k:'future',day,today,tomorrow:AK.sameDay(day,new Date(now.getTime()+AK.DAY))};
+      const all=posts.filter(t=>t.account===acc&&AK.sameDay(t.day,day)),mine=all.filter(t=>t.posted);const r=mine.reduce((a,t)=>a+(t.reactions||0),0);
+      return{k:mine.length?'green':today||all.length?'yellow':'red',n:mine.length,queued:all.length-mine.length,r,day,today};})}));}
+  liTrkVals(){const s=this.state;const E=s.entered;const ids=this.accs().map(a=>a.acc);const st=AK.liState();
+    const live=AK.liTracked().filter(t=>ids.includes(t.account));const R=live.filter(t=>t.reactions!=null);
+    const wk=AK.weekStart(0).getTime();const tot=R.reduce((a,t)=>a+t.reactions,0);const avg=R.length?tot/R.length:null;
+    const byR=R.slice().sort((a,b)=>b.reactions-a.reactions);const t0=new Date();t0.setHours(0,0,0,0);
+    const queued=AK.M.li.filter(p=>p.Status==='Scheduled'&&ids.includes(p.Account)&&p._date&&p._date.getTime()>=t0.getTime()).length;
+    const posted=AK.M.li.filter(p=>p.Status==='Posted'&&ids.includes(p.Account));const noLink=posted.filter(p=>!p['Posted link']);
+    const kpis=[{label:'Posts live',v:String(live.length),d:!st.loaded?(st.err||'Loading the LinkedIn sheet…'):posted.filter(p=>p._date&&p._date.getTime()>=wk).length+' posted this week',tone:st.err?'var(--bad-ink)':'var(--ok-ink)'},
+      {label:'Reactions',v:fmtK(tot),d:'Across all live posts',tone:'var(--ink-3)'},
+      {label:'Reactions per post',v:avg!=null?String(r1(avg)):'–',d:R.length+' posts checked',tone:'var(--ink-3)'},
+      {label:'Best post',v:byR[0]?fmtK(byR[0].reactions):'–',d:byR[0]?clip(firstLine(byR[0].text),44):'No reactions yet',tone:'var(--ink-3)'},
+      {label:'Queued',v:String(queued),d:'Waiting in the LinkedIn sheet',tone:'var(--in-ink)'}];
+    // Rows the sheet marks POSTED without a live link can't be tracked; say so rather than count them as nothing.
+    if(noLink.length)kpis.push({label:'Posted, no link',v:String(noLink.length),d:'Marked POSTED in the sheet but no Live URL, so no reactions',tone:'var(--warn-ink)'});
+    const WK={good:{bg:'var(--ok-soft)',fg:'var(--ok-ink)',bd:'inset 0 0 0 1px var(--ok-line)'},meh:{bg:'var(--warn-soft)',fg:'var(--warn-ink)',bd:'inset 0 0 0 1px var(--warn-line)'},bad:{bg:'var(--bad-soft)',fg:'var(--bad-ink)',bd:'inset 0 0 0 1px var(--bad-line)'},future:{bg:'transparent',fg:'var(--ink-4)',bd:'inset 0 0 0 1px var(--hairline-strong)'}};
+    const week=this.liWeek().map(r=>{const name=ownerName(r.account);return{id:name,name,...avatar(avName(name)),cells:r.cells.map((c,i)=>{const sk=c.k==='green'?'good':c.k==='yellow'?'meh':c.k==='red'?'bad':'future';
+      const b=c.k==='future'?(c.tomorrow?'Tomorrow':'Coming up'):c.n?fmtK(c.r)+' reactions':c.queued?'Queued':c.today?'Not yet':'Nothing';
+      return{s:sk,a:c.k==='future'?'–':String(c.n),b,...WK[sk],dl:(i*60)+'ms',op:E?'1':'0',sc:E?'scale(1)':'scale(.92)'};})};});
+    // Chart: each post's reactions, oldest to newest.
+    const seq=R.slice().sort((a,b)=>a.first-b.first);const series=seq.map(t=>t.reactions);const hasChart=series.length>=2;const ch=mkChart(hasChart?series:[0,0],600,170);
+    const lab=t=>dLabel(t);
+    const hourOf=t=>{const m=String(t.plan&&t.plan['Time (IST)']||'').match(/^(\d{1,2}):\d{2}\s*([AP]M)/i);return m?m[1]+' '+m[2].toUpperCase()+' IST':null;};
+    const med=AK.median(R.map(t=>t.reactions));
+    const why=t=>{const o=[];if(med&&R.length>=3){const x=t.reactions/med;o.push(x>=1.2?(Math.round(x*10)/10)+'× your usual post ('+t.reactions+' vs '+r1(med)+' reactions).':x<=.8?'Below your usual: '+t.reactions+' reactions vs '+r1(med)+'.':'About your usual ('+r1(med)+' reactions).');}
+      const ty=t.plan&&t.plan['Post type'];if(ty)o.push('Post type: '+ty+'.');
+      o.push(t.plan&&t.plan['Media file']?'Posted with an image.':'Text only.');
+      const len=String(t.text||'').length;if(len)o.push(len<700?'Short: '+len+' characters.':'Long: '+len+' characters.');
+      const h=hourOf(t);if(h)o.push('Went out around '+h+'.');return o.slice(0,4);};
+    const top=byR.filter(t=>t.reactions>0).slice(0,3).map((t,i)=>{const acc=ownerName(t.account);return{n:String(i+1).padStart(2,'0'),text:clip(firstLine(t.text)||'Post on LinkedIn',140),acc,...avatar(avName(acc)),views:fmtK(t.reactions)+' reactions',eng:String(t.reactions),why:why(t)};});
+    // Patterns: median reactions by post type, hour and weekday (each needs 2+ groups with 2+ posts).
+    const best=(label,keyOf)=>{const by=new Map();for(const t of R){const k=keyOf(t);if(!k)continue;if(!by.has(k))by.set(k,[]);by.get(k).push(t.reactions);}
+      const rows=Array.from(by,([k,v])=>({k,n:v.length,m:AK.median(v)})).filter(x=>x.n>=2).sort((a,b)=>b.m-a.m);
+      return rows.length>=2?{label,v:rows[0].k,sub:r1(rows[0].m)+' reactions a post over '+rows[0].n+' posts (lowest: '+rows[rows.length-1].k+', '+r1(rows[rows.length-1].m)+')'}:null;};
+    const pat=[best('Best post type',t=>t.plan&&t.plan['Post type']),best('Best hour',hourOf),best('Best day',t=>t.plan&&t.plan._date?AK.DOW[t.plan._date.getDay()]:null)].filter(Boolean);
+    const sorted=live.slice().sort((a,b)=>(b.first||0)-(a.first||0));const lim=s.trkMore?sorted.length:8;
+    const rows=sorted.slice(0,lim).map((t,i)=>({text:clip(firstLine(t.text)||'Post on LinkedIn',110),acc:ownerName(t.account),when:t.first?AK.dayWord(new Date(t.first))+' '+hhmm(t.first):'–',
+      views:t.reactions!=null?fmtK(t.reactions):'–',eng:(t.plan&&t.plan['Post type'])||'–',rate:t.checked?String(t.checked).replace(/^\d{4}-(\d{2})-(\d{2})\s*/,(x,m,d)=>+d+' '+AK.MON[+m-1]+' '):'–',
+      spark:'0,22 80,22',deltaLabel:t.pending?'Not checked yet':'',bt:i===0?'none':'1px solid var(--hairline)'}));
+    return{L:TRK_LI,hasFol:false,kpis:kpis.map(k=>({...k,hasTip:false,tip:{}})),week,days:['Mon','Tue','Wed','Thu','Fri'],
+      hasChart,noChart:!hasChart,total:fmtK(tot),totalD:avg!=null?r1(avg)+' a post on average':'',
+      chart:{line:ch.line,area:ch.area,dash:E?'0':'1400',dots:hasChart?ch.dots.map((d,i)=>({...d,label:lab(seq[i].first)+': '+series[i]+' reactions · '+clip(firstLine(seq[i].text),60),r:i===series.length-1?'5':'3.5'})):[],
+        l0:hasChart?lab(seq[0].first):'',l1:hasChart&&seq.length>2?lab(seq[Math.floor((seq.length-1)/2)].first):'',l2:hasChart?lab(seq[seq.length-1].first):''},
+      fol:[],top,hasTop:top.length>0,noTop:!top.length,pat,hasPat:pat.length>0,noPat:!pat.length,rows,hasRows:rows.length>0,hasMore:!s.trkMore&&sorted.length>8,more:()=>this.setState({trkMore:true}),count:'Showing '+rows.length+' of '+sorted.length};}
 
   /* ---------- people to DM ---------- */
   pdmCards(){return this.engagers().filter(e=>verdictOf(e)==='DM + reply'&&!/^(Dismissed|Do not contact)$/.test(e.Status||'')).map(e=>({id:e._key,e,name:e.Name||e.Handle,handle:e.Handle,followers:fmtK(num(e.Followers)),fit:'DM + reply',dms:e['DMs open']==='Yes',bio:e.Why||e.Bio||'No bio.',said:String(e['What they said']||'').replace(/^(@\w+\s*)+/,'')||'(no text)',kind:e.How==='Quoted'?'Quoted':'Replied to',on:clip(e['Our post'],90),when:AK.dayWord(AK.parseDate(e['Found on']))||e['Found on']||'',msg:e['DM ready']||'',status:e.Status==='Messaged'?'Messaged':'To message',from:e['Send from']||e.Account}));}
@@ -717,7 +793,7 @@ class Component extends DCLogic {
     this.lastBy=this.lastBy||{};this.lastBy[sec]=page;
     const ambient=this.props.ambient??true;
     const amb=!ambient?{out:'0',mid:'0',in:'0'}:sec==='home'?{out:'.85',mid:'.75',in:'.75'}:{out:sec==='out'?'1':'.14',mid:sec==='mid'?'1':'.14',in:sec==='in'?'1':'.14'};
-    const secObj=SECS.find(x=>x.id===sec);
+    const secObj=secsFor(s.plat).find(x=>x.id===sec)||SECS.find(x=>x.id===sec);
     const tips={};TIPS.forEach(k=>tips[k]=this.tipFor(k));
     const at=AK.lastUpdate();const tm=at?hhmm(at):'…';const src='Live';
     const ready=this.ready&&!s.loading;
@@ -726,8 +802,9 @@ class Component extends DCLogic {
       wide:!narrow,narrow,isPhone:!!F.phone,phoneTime:hhmm(Date.now()),amb,nav:this.navVals(c),owners:this.ownerVals(),owner:s.owner,onOwnerSel:e=>this.setOwner(e.target.value),
       openPal:()=>this.openPal(),status:!at?(AK.gate()&&!AK.gate().wait?'Not connected':'Connecting…'):this.founder?'View only · updated '+tm:src+' · '+tm,statusShort:this.founder?'View only · '+tm:'Updated '+tm,
       refresh:()=>{AK.refresh();},openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
+      plats:this.platVals(),plat:s.plat,isLiMode:s.plat==='LinkedIn',onPlatSel:e=>this.setPlat(e.target.value),
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
-      tabbar:SECS.map(x=>{const on=x.id===sec;const b=x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;return{label:x.label,go:()=>this.go((this.lastBy&&this.lastBy[x.id])||x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
+      tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;return{label:x.label,go:()=>this.go((this.lastBy&&this.lastBy[x.id])||x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
       hdr:this.hdrVals(P),loading:L,notLoading:!L,E:{op:E?'1':'0',t:E?'none':'translateY(10px)'},gate,stale:AK.staleNote(),hasStale:!!AK.staleNote()&&ready,
       is:Object.fromEntries(Object.keys(PAGES).map(k=>[k,page===k&&ready&&!gate.on])),skel3:[1,2,3],skel6:[1,2,3,4,5,6],
       tips,hideTip:()=>this.state.tip&&this.setState({tip:null}),

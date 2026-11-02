@@ -1,5 +1,6 @@
 // Sets up the Supabase database: applies supabase/migrations/*.sql once each, then writes the accounts from
-// crm/config.json (Our Accounts rows 4-6, DM Templates rows 4-6) and the team emails from .env.local (CRM_TEAM_EMAILS).
+// crm/config.json (Our Accounts rows 4-6, DM Templates rows 4-6), and from .env.local the team emails (CRM_TEAM_EMAILS)
+// and the LinkedIn queue sheet (LINKEDIN_SHEET_ID, kept in the members-only Settings tab).
 // Reads DATABASE_URL from the environment or .env.local. Prints names only, never secrets.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -43,6 +44,14 @@ export async function setup(sql, { log = console.log } = {}) {
   log(`accounts: ${accounts.map((a) => a.name).join(", ") || "none"}`);
   await sql`insert into public.crm_state (key, value) values ('pilot_start', ${(cfg.pilot || {}).start || "2026-11-02"})
     on conflict (key) do update set value = excluded.value`;
+  // Settings tab (members only): the LinkedIn queue sheet the calendar and tracker read in LinkedIn mode.
+  const liSheet = String(process.env.LINKEDIN_SHEET_ID || env.LINKEDIN_SHEET_ID || "").trim();
+  const settings = [["Settings"], ["Private settings for the CRM page. Only signed-in team members can read this tab."], ["Key", "Value"]];
+  if (liSheet) settings.push(["LinkedIn sheet", liSheet]);
+  for (const [i, cells] of settings.entries())
+    await sql`insert into public.crm_sheet (tab, row, cells) values ('Settings', ${i + 1}, ${cells})
+      on conflict (tab, row) do update set cells = excluded.cells, updated_at = now()`;
+  log(`LinkedIn sheet: ${liSheet ? "set" : "not set"}`);
   for (const email of team) await sql`insert into public.crm_team (email) values (${email}) on conflict do nothing`;
   log(`team emails: ${team.length}`);
 }

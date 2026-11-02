@@ -67,7 +67,7 @@ const S={
   // Calendar edits (31 Oct): fields saved but not read back yet, cards still being created, and the last text we wrote per row.
   calLocal:{}, calTemp:[], calText:{}, calAlias:{},
 };
-const M={accounts:[],weekly:[],headers:[],contacts:[],targets:[],stats:[],templates:[],comps:[],people:[],theirs:[],ours:[],drafts:[],tracking:[],engagers:[]};
+const M={accounts:[],weekly:[],headers:[],contacts:[],targets:[],stats:[],templates:[],comps:[],people:[],theirs:[],ours:[],drafts:[],tracking:[],engagers:[],li:[]};
 let version=0;
 const subs=new Set();
 let emitT=null;
@@ -206,6 +206,7 @@ function build(){
     const mv=S.moveLocal[r._row];if(mv&&!r["Posted link"]&&Date.now()-mv.at<6e5){r.Date=mv.date;r["Time (IST)"]=mv.time;if(mv.status)r.Status=mv.status;r._date=parseDate(r.Date)}
     calOverlay(r,r._row);r._date=parseDate(r.Date);
     return r}).filter(r=>r.Status!=="Deleted"):[];
+  M.li=liPosts();
   // Cards made on the calendar that the sheet hasn't shown yet.
   S.calTemp=S.calTemp.filter(t=>!(t.row&&M.ours.some(r=>r._row===t.row)));
   for(const t of S.calTemp){const r={_row:t.key,_key:"o"+t.key,_temp:true,Date:t.date,"Time (IST)":t.time,Account:t.account,Platform:t.platform||"X","Daily slot":t.slot||"",Competitor:"Our own",
@@ -387,7 +388,10 @@ async function publicLoad(){
     S.raw[key]=trimGrid(g.slice(r.r0,r.r1+1).map(row=>row.slice(r.c0,r.c1+1).map(v=>v==null?"":v)));
     S.at[key]=Date.now();S.err[key]=null;
   }
+  LI.id=settingsFrom(grids.Settings)["LinkedIn sheet"]||null;
+  if(!LI.id)LI.err=new Error("No LinkedIn sheet is set up yet. Add LINKEDIN_SHEET_ID to .env.local and run pnpm db:setup.");
   build();emit();
+  if(LI.id)liLoad();
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -400,7 +404,7 @@ async function refresh(){
   if(S.pub){
     let asked=false;
     try{await scriptCall({action:"refresh"});asked=true}catch(e){}
-    await goLive();
+    await goLive();liLoad(true);
     toast(asked?"Up to date. New numbers and replies from X land once the tracker runs; this page keeps checking.":"Up to date.");
     return;
   }
@@ -892,6 +896,86 @@ function dmResults(list){
   return {tag:last.tag,date:new Date(last.t),sent,notSent,why:Array.from(why,([label,n])=>({label,n})).sort((a,b)=>b.n-a.n)};
 }
 
+/* ---------- LinkedIn (3 Nov) ----------
+   LinkedIn posts go out on their own from the LinkedIn queue sheet, so that sheet stays the source of truth and the CRM
+   only reads it: Queue (planned: Date + slot in ET), Posted (what went out, with the live link) and Performance
+   (reactions per post). Its id sits in the Settings tab, which only signed-in team members can read, never in this page. */
+const LI={id:null,raw:null,at:0,err:null,busy:false};
+const LI_TABS={queue:0,posted:1375424099,perf:102};
+function settingsFrom(grid){const out={};(grid||[]).slice(3).forEach(r=>{const k=String((r&&r[0])||"").trim();if(k)out[k]=String((r&&r[1])||"").trim()});return out}
+function parseCsv(t){
+  const rows=[];let row=[],cell="",q=false;
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){cell+='"';i++}else q=false}else cell+=ch}
+    else if(ch==='"')q=true;else if(ch===","){row.push(cell);cell=""}else if(ch==="\n"){row.push(cell);rows.push(row);row=[];cell=""}else if(ch!=="\r")cell+=ch}
+  if(cell||row.length){row.push(cell);rows.push(row)}
+  return rows;
+}
+// Reads the three tabs as CSV (every 5 minutes at most, or now when forced by Refresh).
+async function liLoad(force){
+  if(!LI.id||LI.busy||(!force&&Date.now()-LI.at<3e5))return;
+  LI.busy=true;
+  try{
+    const get=async gid=>{const r=await fetch("https://docs.google.com/spreadsheets/d/"+encodeURIComponent(LI.id)+"/export?format=csv&gid="+gid,{cache:"no-store"});
+      const t=r.ok?await r.text():"";if(!r.ok||/^\s*</.test(t))throw new Error("Couldn't read the LinkedIn sheet. Check it's shared as anyone with the link can view.");
+      return parseCsv(t)};
+    const [queue,posted,perf]=await Promise.all([LI_TABS.queue,LI_TABS.posted,LI_TABS.perf].map(get));
+    LI.raw={queue,posted,perf};LI.err=null;
+  }catch(e){LI.err=e}
+  finally{LI.at=Date.now();LI.busy=false}
+  build();emit();
+}
+// The sheet's slots are US Eastern ("2 (11:30 AM ET)"); the CRM keeps every time in IST.
+const ET_TZ="America/New_York",IST_TZ="Asia/Kolkata";
+function tzWall(ms,tz){const o={};new Intl.DateTimeFormat("en-US",{timeZone:tz,year:"numeric",month:"numeric",day:"numeric",hour:"numeric",minute:"numeric",hourCycle:"h23"}).formatToParts(new Date(ms)).forEach(x=>{o[x.type]=+x.value||0});return {y:o.year,m:o.month-1,d:o.day,H:o.hour%24,M:o.minute}}
+function wallMs(y,m,d,H,M,tz){let g=Date.UTC(y,m,d,H,M);for(let i=0;i<2;i++){const p=tzWall(g,tz);g+=Date.UTC(y,m,d,H,M)-Date.UTC(p.y,p.m,p.d,p.H,p.M)}return g}
+const t12=(H,M)=>((H%12)||12)+":"+String(M).padStart(2,"0")+" "+(H<12?"AM":"PM");
+// The CRM's rule (minutesOf): a time before 6 AM belongs to the night after its Date, so such posts are dated the day before.
+function istRow(at){const p=tzWall(at,IST_TZ),d=tzWall(at-(p.H<6?864e5:0),IST_TZ);return {date:d.d+" "+MON[d.m]+" "+d.y,time:t12(p.H,p.M),at}}
+// Where a row sits, in IST: its Date plus its slot's ET time; rows without a Date use "Posted at" (also ET: a 2:30 PM ET
+// slot shows "14:31" there).
+function liWhen(r){
+  const dm=String(r.Date||"").match(/(\d{4})-(\d{2})-(\d{2})/),tm=String(r["Slot (1-4)"]||"").match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);
+  if(dm){const y=+dm[1],mo=+dm[2]-1,d=+dm[3];
+    if(!tm)return {date:d+" "+MON[mo]+" "+y,time:"",at:new Date(y,mo,d).getTime()};
+    let H=+tm[1]%12;if(/pm/i.test(tm[3]))H+=12;
+    return istRow(wallMs(y,mo,d,H,+tm[2],ET_TZ))}
+  const pa=String(r["Posted at"]||"").match(/(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if(pa){if(pa[4]==null)return {date:+pa[3]+" "+MON[+pa[2]-1]+" "+pa[1],time:"",at:new Date(+pa[1],+pa[2]-1,+pa[3]).getTime()};
+    return istRow(wallMs(+pa[1],+pa[2]-1,+pa[3],+pa[4],+pa[5],ET_TZ))}
+  return null;
+}
+// Our Posts-shaped rows (Platform "LinkedIn"), so the calendar and tracker can show them. Posted first, then the queue;
+// a queued copy of a post that already went out is dropped. Skipped rows never show.
+function liPosts(){
+  if(!LI.raw)return [];
+  const acc=Object.keys(HANDLES)[0]||"";
+  const objs=g=>{const h=(g[0]||[]).map(x=>String(x||"").trim());return g.slice(1).map((r,i)=>{const o={_r:i+2};h.forEach((k,j)=>{if(k)o[k]=String(r[j]==null?"":r[j]).trim()});return o})};
+  const perf=new Map(objs(LI.raw.perf).filter(r=>r["Live URL"]).map(r=>[linkKey(r["Live URL"]),r]));
+  const out=[],seen=new Set();
+  const add=(r,tab)=>{
+    const text=r["Post text"]||"",link=safeUrl(r["Live URL"])?r["Live URL"]:"",st=String(r.Status||"").trim().toUpperCase();
+    if((!text&&!link)||st==="SKIP")return;
+    const when=liWhen(r);if(!when)return;
+    const kt=text?"t:"+text.replace(/\s+/g," ").slice(0,160):"",kl=link?linkKey(link):"";
+    if((kt&&seen.has(kt))||(kl&&seen.has(kl)))return;if(kt)seen.add(kt);if(kl)seen.add(kl);
+    const pf=kl?perf.get(kl):null;
+    const status=link||st==="POSTED"?"Posted":r.Error||st==="ERROR"?"Draft":"Scheduled";
+    out.push({_li:true,_row:"li-"+tab+r._r,_key:"oli"+tab+r._r,Account:acc,Platform:"LinkedIn",Date:when.date,"Time (IST)":when.time,_date:parseDate(when.date),_at:when.at,
+      "Our version":text,Status:status,"Posted link":link,Calendar:"Yes",Competitor:"Our own","What we changed":"LinkedIn queue sheet",
+      "Post type":pf?pf["Post type"]||"":"","Media file":r["Image URL"]||"",_reactions:pf?num(pf.Reactions):null,_checked:pf?pf["Checked at (IST)"]||"":"",_error:r.Error||""});
+  };
+  objs(LI.raw.posted).forEach(r=>add(r,"p"));objs(LI.raw.queue).forEach(r=>add(r,"q"));
+  return out;
+}
+// Posted LinkedIn posts with their latest reactions, shaped like trackedPosts() (LinkedIn shows no views here).
+function liTracked(){
+  return M.li.filter(p=>p["Posted link"]).map(p=>({key:linkKey(p["Posted link"]),link:p["Posted link"],account:p.Account,plan:p,hist:[],views:null,
+    eng:p._reactions,reactions:p._reactions,rate:null,grew:null,first:p._at||0,
+    text:p["Our version"],checked:p._checked,pending:p._reactions==null}));
+}
+const liState=()=>({on:!!LI.id,loaded:!!LI.raw,err:LI.err?String(LI.err.message||LI.err):"",at:LI.at});
+
 /* ---------- connection state for the page ---------- */
 function gate(){
   if(!SB_URL||!SB_KEY)return {title:"Supabase isn't connected yet",body:"Add the project URL and anon key to .env.local, rebuild the page, then reload.",action:"retry"};
@@ -969,6 +1053,7 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
+  liTracked,liState,liLoad,
 };
 start();
 })();

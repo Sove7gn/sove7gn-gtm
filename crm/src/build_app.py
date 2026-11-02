@@ -297,6 +297,37 @@ rep('title="Fetch the latest from the Google Sheet"', 'title="Fetch the latest d
 rep('title="Reload the sheet now and pull new numbers and replies from X"', 'title="Reload now and pull new numbers and replies from X"')
 rep('<option value="Data buyers">Data buyers</option><option value="Robot builders">Robot builders</option><option value="Robot deployers">Robot deployers</option><option value="Everyone in robotics">Everyone in robotics</option>',
     "".join('<option value="%s">%s</option>' % (a, a) for a in CFG.get("aimed") or ["Everyone"]))
+# ---------- X / LinkedIn switch (3 Nov): a second switch beside the account one, built from its markup so it looks the same ----------
+i0 = src.index('<div role="tablist" aria-label="Whose work to show"')
+i1 = src.index('</sc-for>\n</div>', i0) + len('</sc-for>\n</div>')
+own = src[i0:i1]
+assert own.count('list="{{ owners }}" as="o" hint-placeholder-count="4"') == 1
+src = src[:i1] + "\n" + own.replace('aria-label="Whose work to show"', 'aria-label="Which platform"').replace(
+    'list="{{ owners }}" as="o" hint-placeholder-count="4"', 'list="{{ plats }}" as="o" hint-placeholder-count="2"') + src[i1:]
+j0 = src.index('<div style="position:relative;">\n<select value="{{ owner }}"')
+j1 = src.index('</div>', src.index('</select>', j0)) + len('</div>')
+sel = src[j0:j1]
+opts = sel[sel.index('<option'):sel.index('</select>')]
+src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" aria-label="Whose work to show"',
+    'value="{{ plat }}" onChange="{{ onPlatSel }}" aria-label="Which platform"').replace(opts,
+    '<option value="X">X</option>\n<option value="LinkedIn">LinkedIn</option>\n').replace('max-width:132px;', 'max-width:110px;') + "\n" + src[j0:]
+
+# ---------- post tracker: labels come from the page logic, so the LinkedIn version can talk about reactions ----------
+rep('font-weight:600;">Total views over time</span>', 'font-weight:600;">{{ trk.L.chart }}</span>')
+rep('>The chart fills in after the tracker’s second check. It runs every 3 hours.<', '>{{ trk.L.noChart }}<')
+rep('{{ t.views }} views</span>', '{{ t.views }}</span>')
+rep('>Shows up once a post has 30 or more views.<', '>{{ trk.L.noTop }}<')
+rep('>Patterns show up once a few more posts have 30 or more views.<', '>{{ trk.L.noPat }}<')
+rep('background:rgba(255,255,255,.5);">Views</th>', 'background:rgba(255,255,255,.5);">{{ trk.L.c1 }}</th>')
+rep('background:rgba(255,255,255,.5);">Engagement</th>', 'background:rgba(255,255,255,.5);">{{ trk.L.c2 }}</th>')
+rep('background:rgba(255,255,255,.5);">Per 1K views</th>', 'background:rgba(255,255,255,.5);">{{ trk.L.c3 }}</th>')
+rep('>Green: 3 posts and engagement went up. Yellow: fewer posts, or engagement stayed flat. Red: nothing posted, or engagement fell by more than half.<',
+    '>{{ trk.L.weekTip }}<')
+f1 = src.index('Followers per account <span')
+f0 = src.rindex('<div style="flex:1 1 280px;', 0, f1)
+f2 = src.index('</sc-for>\n</div>', f1) + len('</sc-for>\n</div>')
+src = src[:f0] + '<sc-if value="{{ trk.hasFol }}">' + src[f0:f2] + '</sc-if>' + src[f2:]
+
 for word in ("Google Sheet", "WhatsApp", "Robot", "robotics", "robot "):
     assert word not in src.replace(CONFIG_JS, ""), "client copy left in the page: " + word
 for name in ("Aktoria", "Karan", "Shreenabh"):
