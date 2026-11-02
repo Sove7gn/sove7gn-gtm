@@ -1,0 +1,19 @@
+{
+  "name": "sove7gn-crm",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "scripts": {
+    "build": "python -I crm/src/build_app.py",
+    "db:setup": "node supabase/setup.mjs",
+    "test": "node supabase/test.mjs",
+    "env:check": "node scripts/check-env.mjs",
+    "serve": "python -m http.server 8787 --directory crm"
+  },
+  "dependencies": {
+    "postgres": "3.4.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13"
+  }
+}

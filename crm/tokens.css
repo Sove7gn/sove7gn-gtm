@@ -1,0 +1,155 @@
+/* Aktoria CRM — design tokens (light theme).
+   Every colour and size used by the mockups resolves to one of these.
+   Density and glass modes are switched with data attributes on the app root. */
+:root {
+  /* Canvas */
+  --bg: #F6F6F8;
+  --bg-raised: #FFFFFF;
+  --ambient-out: oklch(0.84 0.10 258 / 0.55);
+  --ambient-in: oklch(0.87 0.10 158 / 0.45);
+  --ambient-mid: oklch(0.84 0.10 300 / 0.50);
+
+  /* Glass */
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-faint: rgba(255, 255, 255, 0.40);
+  --glass-edge: rgba(255, 255, 255, 0.72);
+  --blur: blur(22px) saturate(180%);
+  --blur-strong: blur(40px) saturate(200%);
+  --scrim: rgba(19, 20, 24, 0.16);
+
+  /* Ink */
+  --ink: #131418;
+  --ink-2: #464953;
+  --ink-3: #6C707B;
+  --ink-4: #A2A5AE;
+  --ink-inverse: #FFFFFF;
+  --hairline: rgba(19, 20, 24, 0.07);
+  --hairline-strong: rgba(19, 20, 24, 0.13);
+  --n-soft: rgba(19, 20, 24, 0.045);
+  --n-soft-2: rgba(19, 20, 24, 0.08);
+  --tooltip-bg: rgba(19, 20, 24, 0.92);
+
+  /* Section accents — one per section */
+  --out: oklch(0.55 0.17 258);
+  --out-ink: oklch(0.46 0.16 258);
+  --out-soft: oklch(0.965 0.022 258);
+  --out-line: oklch(0.88 0.06 258);
+  --in: oklch(0.57 0.14 158);
+  --in-ink: oklch(0.44 0.11 158);
+  --in-soft: oklch(0.962 0.03 158);
+  --in-line: oklch(0.86 0.07 158);
+  --mid: oklch(0.55 0.17 300);
+  --mid-ink: oklch(0.47 0.17 300);
+  --mid-soft: oklch(0.965 0.022 300);
+  --mid-line: oklch(0.88 0.06 300);
+
+  /* Status */
+  --ok: oklch(0.64 0.14 150);
+  --ok-ink: oklch(0.44 0.11 150);
+  --ok-soft: oklch(0.955 0.04 150);
+  --ok-line: oklch(0.86 0.08 150);
+  --warn: oklch(0.77 0.14 75);
+  --warn-ink: oklch(0.49 0.11 60);
+  --warn-soft: oklch(0.965 0.045 85);
+  --warn-line: oklch(0.87 0.09 80);
+  --bad: oklch(0.61 0.19 25);
+  --bad-ink: oklch(0.5 0.17 25);
+  --bad-soft: oklch(0.962 0.025 25);
+  --bad-line: oklch(0.87 0.06 25);
+
+  /* Type */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-3xs: 10.5px;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fs-3xl: 30px;
+  --fs-display: 40px;
+  --lh-tight: 1.1;
+  --lh-snug: 1.35;
+  --lh-body: 1.5;
+  --tr-display: -0.035em;
+  --tr-tight: -0.02em;
+  --tr-caps: 0.07em;
+
+  /* Space (4px grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 56px;
+
+  /* Radii */
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-btn: 10px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* Elevation */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-xs: 0 1px 2px rgba(19, 20, 24, 0.05);
+  --shadow-sm: 0 0 0 1px rgba(19, 20, 24, 0.05), 0 1px 2px rgba(19, 20, 24, 0.04), 0 4px 12px -6px rgba(19, 20, 24, 0.08);
+  --shadow-md: 0 0 0 1px rgba(19, 20, 24, 0.05), 0 2px 4px rgba(19, 20, 24, 0.03), 0 18px 40px -22px rgba(19, 20, 24, 0.2);
+  --shadow-lg: 0 0 0 1px rgba(19, 20, 24, 0.06), 0 8px 20px -8px rgba(19, 20, 24, 0.1), 0 32px 80px -24px rgba(19, 20, 24, 0.3);
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 360ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+
+  /* Layout + density (comfy) */
+  --sidebar-w: 244px;
+  --topbar-h: 60px;
+  --panel-w: 468px;
+  --content-max: 1120px;
+  --pad-page: 40px;
+  --gap-section: 36px;
+  --btn-h: 34px;
+  --btn-h-sm: 30px;
+  --row-py: 12px;
+  --av-sm: 28px;
+  --av-md: 36px;
+  --av-lg: 48px;
+}
+
+/* Touch density — phones and narrow windows */
+[data-density="touch"] {
+  --pad-page: 16px;
+  --gap-section: 28px;
+  --fs-display: 30px;
+  --btn-h: 44px;
+  --btn-h-sm: 40px;
+  --row-py: 14px;
+}
+
+/* Glass modes */
+[data-glass="clear"] {
+  --glass: rgba(255, 255, 255, 0.36);
+  --glass-strong: rgba(255, 255, 255, 0.62);
+  --blur: blur(14px) saturate(200%);
+}
+[data-glass="solid"] {
+  --glass: #FFFFFF;
+  --glass-strong: #FFFFFF;
+  --glass-edge: #FFFFFF;
+  --blur: none;
+  --blur-strong: none;
+  --ambient-out: transparent;
+  --ambient-in: transparent;
+  --ambient-mid: transparent;
+}
