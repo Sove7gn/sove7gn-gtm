@@ -1,9 +1,18 @@
 {
   "brand": "SOVE7GN",
   "accounts": [
-    { "name": "Reyansh", "x": "", "liName": "Reyansh Juneja" }
+    { "name": "Reyansh", "x": "r3yanshJuneja", "liName": "Reyansh Juneja" }
   ],
-  "pilot": { "start": "2026-11-02", "end": "2027-01-31", "followerTarget": 1000 },
-  "aimed": ["Founders", "Growth leads", "Sales leaders", "Everyone"],
+  "pilot": {
+    "start": "2026-11-02",
+    "end": "2027-01-31",
+    "followerTarget": 1000
+  },
+  "aimed": [
+    "Founders",
+    "Growth leads",
+    "Sales leaders",
+    "Everyone"
+  ],
   "folders": []
 }
