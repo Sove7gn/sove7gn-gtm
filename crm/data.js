@@ -392,6 +392,7 @@ async function publicLoad(){
   if(!LI.id)LI.err=new Error("No LinkedIn sheet is set up yet. Add LINKEDIN_SHEET_ID to .env.local and run pnpm db:setup.");
   build();emit();
   if(LI.id)liLoad();
+  leadsLoad();
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -901,7 +902,7 @@ function dmResults(list){
    only reads it: Queue (planned: Date + slot in ET), Posted (what went out, with the live link) and Performance
    (reactions per post). Its id sits in the Settings tab, which only signed-in team members can read, never in this page. */
 const LI={id:null,raw:null,at:0,err:null,busy:false};
-const LI_TABS={queue:0,posted:1375424099,perf:102};
+const LI_TABS={queue:0,posted:1375424099,perf:102,magnets:106,magPeople:107};
 function settingsFrom(grid){const out={};(grid||[]).slice(3).forEach(r=>{const k=String((r&&r[0])||"").trim();if(k)out[k]=String((r&&r[1])||"").trim()});return out}
 function parseCsv(t){
   const rows=[];let row=[],cell="",q=false;
@@ -919,8 +920,9 @@ async function liLoad(force){
     const get=async gid=>{const r=await fetch("https://docs.google.com/spreadsheets/d/"+encodeURIComponent(LI.id)+"/export?format=csv&gid="+gid,{cache:"no-store"});
       const t=r.ok?await r.text():"";if(!r.ok||/^\s*</.test(t))throw new Error("Couldn't read the LinkedIn sheet. Check it's shared as anyone with the link can view.");
       return parseCsv(t)};
-    const [queue,posted,perf]=await Promise.all([LI_TABS.queue,LI_TABS.posted,LI_TABS.perf].map(get));
-    LI.raw={queue,posted,perf};LI.err=null;
+    // The lead magnet tabs only feed Leads > Bring in, so a missing one never breaks the calendar or tracker.
+    const [queue,posted,perf,magnets,magPeople]=await Promise.all([LI_TABS.queue,LI_TABS.posted,LI_TABS.perf].map(get).concat([LI_TABS.magnets,LI_TABS.magPeople].map(g=>get(g).catch(()=>[]))));
+    LI.raw={queue,posted,perf,magnets,magPeople};LI.err=null;
   }catch(e){LI.err=e}
   finally{LI.at=Date.now();LI.busy=false}
   build();emit();
@@ -975,6 +977,105 @@ function liTracked(){
     text:p["Our version"],checked:p._checked,pending:p._reactions==null}));
 }
 const liState=()=>({on:!!LI.id,loaded:!!LI.raw,err:LI.err?String(LI.err.message||LI.err):"",at:LI.at});
+
+/* ---------- Leads (6 Nov) ----------
+   Everyone we're talking to, from any channel: plain Supabase tables (crm_leads, crm_lead_events, crm_lead_settings) that
+   the page reads and writes directly; row level security keeps them to the team. Saves show at once and roll back if
+   Supabase refuses. */
+const LD={rows:[],events:[],settings:{},loaded:false,err:null,busy:false,pending:0,gen:0,again:false,at:0};
+const LEAD_DEFAULTS={stages:[{name:"New",color:"var(--ink-4)",kind:"open"},{name:"Contacted",color:"var(--out)",kind:"open"},{name:"In talks",color:"var(--mid)",kind:"open"},
+  {name:"Proposal sent",color:"var(--warn)",kind:"open"},{name:"Won",color:"var(--ok)",kind:"won"},{name:"Lost",color:"var(--bad)",kind:"lost"}],
+  sources:["X","LinkedIn","Instagram","Email","Referral","Website","Other"],groups:[],categories:[],fields:[],currency:"USD"};
+const leadSetting=k=>LD.settings[k]!=null?LD.settings[k]:LEAD_DEFAULTS[k];
+async function leadPages(table,order){
+  const out=[];
+  for(let from=0;;from+=1000){const r=await sb.from(table).select("*").order(order,{ascending:false}).order("id").range(from,from+999);
+    if(r.error)throw r.error;out.push(...(r.data||[]));if(!r.data||r.data.length<1000)return out}
+}
+async function leadsLoad(){
+  if(!sb||!session||!member)return;
+  if(LD.busy||LD.pending){LD.again=true;return}
+  LD.busy=true;LD.again=false;const gen=LD.gen;
+  try{
+    const [rows,st,events]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
+      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),leadPages("crm_lead_events","at")]);
+    // A save that started while this was loading has newer data than what came back, so keep the page as it is and load again.
+    if(gen===LD.gen&&!LD.pending){LD.rows=rows;LD.settings=Object.fromEntries(st.map(x=>[x.key,x.value]));LD.events=events;LD.loaded=true;LD.at=Date.now()}
+    else LD.again=true;
+    LD.err=null;
+  }catch(e){LD.err=e}
+  finally{LD.busy=false}
+  emit();
+  if(LD.again&&!LD.pending)setTimeout(leadsLoad,300);
+}
+// Runs a Supabase write; on failure says why and reloads, so the page never shows something that wasn't saved.
+async function leadWrite(what,run){
+  LD.pending++;LD.gen++;emit();
+  try{const r=await run();if(r&&r.error)throw r.error;return r?r.data:null}
+  catch(e){toast("Couldn't save "+what+": "+(e.message||e),true);return undefined}
+  finally{LD.pending--;if(!LD.pending)setTimeout(leadsLoad,300);emit()}
+}
+const LEAD_COLS=["name","company","role","email","phone","x_handle","linkedin","instagram","website","direction","source","source_detail","stage","group_name",
+  "categories","pitch","closed_for","price","currency","pricing_note","next_step","next_date","owner","notes","fields","origin_key","last_touch","archived"];
+const leadClean=o=>{const out={};for(const k of LEAD_COLS)if(k in o)out[k]=o[k];if("price" in out)out.price=out.price===""||out.price==null?null:Number(out.price);
+  if("next_date" in out&&!out.next_date)out.next_date=null;return out};
+async function leadCreate(o){
+  const row=leadClean({stage:leadSetting("stages")[0]?.name||"New",currency:leadSetting("currency")||"USD",...o});
+  const data=await leadWrite("the lead",()=>sb.from("crm_leads").insert(row).select().single());
+  if(data){LD.rows=[data,...LD.rows.filter(r=>r.id!==data.id)];emit();toast("Saved: "+(data.name||"new lead"))}
+  return data||null;
+}
+async function leadSave(id,patch){
+  const i=LD.rows.findIndex(r=>r.id===id);if(i<0)return false;
+  const clean=leadClean(patch),before=LD.rows[i];
+  LD.rows=LD.rows.map(r=>r.id===id?{...r,...clean,updated_at:new Date().toISOString()}:r);emit();
+  const data=await leadWrite(before.name||"the lead",()=>sb.from("crm_leads").update(clean).eq("id",id).select().single());
+  if(data===undefined){LD.rows=LD.rows.map(r=>r.id===id?before:r);emit();return false}
+  if(data)LD.rows=LD.rows.map(r=>r.id===id?data:r);
+  return true;
+}
+// Archive, not delete: Undo brings it back.
+async function leadArchive(id,on=true){return leadSave(id,{archived:on})}
+async function leadNote(id,kind,text){
+  text=String(text||"").trim();if(!text)return false;
+  const ev={lead_id:id,kind:kind||"note",text};
+  const tmp={...ev,id:"tmp"+Date.now(),at:new Date().toISOString(),by_email:session&&session.user?session.user.email:""};
+  LD.events=[tmp,...LD.events];LD.rows=LD.rows.map(r=>r.id===id?{...r,last_touch:tmp.at}:r);emit();
+  const data=await leadWrite("the note",()=>sb.from("crm_lead_events").insert(ev).select().single());
+  LD.events=data?LD.events.map(e=>e.id===tmp.id?data:e):LD.events.filter(e=>e.id!==tmp.id);emit();
+  return !!data;
+}
+async function leadNoteDelete(eid){
+  const before=LD.events;LD.events=LD.events.filter(e=>e.id!==eid);emit();
+  const r=await leadWrite("the note",()=>sb.from("crm_lead_events").delete().eq("id",eid));
+  if(r===undefined){LD.events=before;emit()}
+}
+async function leadSettingSave(key,value){
+  const before=LD.settings[key];LD.settings={...LD.settings,[key]:value};emit();
+  const r=await leadWrite("the setup",()=>sb.from("crm_lead_settings").upsert({key,value,updated_at:new Date().toISOString()}));
+  if(r===undefined){LD.settings={...LD.settings,[key]:before};emit();return false}
+  return true;
+}
+// Renaming a stage, group, category or source renames it on every lead that has it.
+async function leadRename(kind,from,to){
+  const col={stages:"stage",groups:"group_name",sources:"source"}[kind];
+  LD.rows=LD.rows.map(r=>col?(r[col]===from?{...r,[col]:to}:r):kind==="categories"&&(r.categories||[]).includes(from)?{...r,categories:r.categories.map(c=>c===from?to:c)}:r);emit();
+  await leadWrite("the leads",()=>sb.rpc("crm_lead_rename",{kind,old_name:from,new_name:to}));
+}
+const leadsState=()=>({loaded:LD.loaded,err:LD.err?String(LD.err.message||LD.err):"",saving:LD.pending>0,at:LD.at});
+// People on the LinkedIn sheet worth bringing in: who commented on or DMed about a lead magnet, and the founders it featured.
+function liPeople(){
+  if(!LI.raw||!LI.raw.magnets)return [];
+  const objs=g=>{const h=(g[0]||[]).map(x=>String(x||"").trim());return g.slice(1).map(r=>{const o={};h.forEach((k,j)=>{if(k)o[k]=String(r[j]==null?"":r[j]).trim()});return o})};
+  const col=(o,start)=>{const k=Object.keys(o).find(x=>x.toLowerCase().startsWith(start.toLowerCase()));return k?o[k]:""};
+  const out=[];
+  for(const m of objs(LI.raw.magnets)){const title=col(m,"Title"),word=col(m,"Comment word");
+    for(const who of col(m,"Leads who commented").split(/\n|;|\|/).map(x=>x.trim()).filter(x=>x&&!/reactions:|no live url|not checkable|^posted\b/i.test(x)))
+      out.push({kind:"engaged",name:who.split(/\s[-–(]/)[0].trim(),raw:who,company:"",title,word,date:col(m,"Date to post")})}
+  for(const p of objs(LI.raw.magPeople||[]))if(col(p,"Name"))
+    out.push({kind:"featured",name:col(p,"Name"),company:col(p,"Company"),title:col(p,"Lead magnet title"),raw:col(p,"Number on tile"),date:col(p,"Date to post")});
+  return out;
+}
 
 /* ---------- connection state for the page ---------- */
 function gate(){
@@ -1053,7 +1154,8 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
-  liTracked,liState,liLoad,
+  liTracked,liState,liLoad,liPeople,
+  leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
 };
 start();
 })();

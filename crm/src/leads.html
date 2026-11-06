@@ -1,0 +1,270 @@
+<!-- Leads (6 Nov): Overview, Pipeline, All leads, Bring in, Setup. Spliced into the page by build_app.py; values come from leadVals() in logic.js (ld). -->
+<sc-if value="{{ is.leads }}">
+<sc-if value="{{ ld.hasErr }}"><div style="padding:12px 14px; border-radius:var(--r-md); background:var(--bad-soft); color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line); font-size:var(--fs-sm);">Couldn’t load leads: {{ ld.err }}</div></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<sc-for list="{{ ld.kpis }}" as="k" hint-placeholder-count="5">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ k.label }}</span>
+<span style="font-size:var(--fs-2xl); font-weight:500; letter-spacing:-0.035em; line-height:1.05; font-variant-numeric:tabular-nums;">{{ k.v }}</span>
+<span style="font-size:var(--fs-2xs); color:{{ k.tone }};">{{ k.d }}</span>
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{ ld.empty }}">
+<div style="display:flex; flex-direction:column; align-items:center; gap:10px; padding:var(--s-8) var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); text-align:center;">
+<span style="font-size:var(--fs-lg); font-weight:600;">No leads yet</span>
+<span style="font-size:var(--fs-sm); color:var(--ink-3); max-width:420px;">Add someone you’re talking to, or bring in the people who replied to you on X and LinkedIn.</span>
+<div style="display:flex; gap:8px; margin-top:6px;">
+<button onClick="{{ ld.newLead }}" style="height:var(--btn-h); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--out); color:#fff; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">New lead</button>
+</div>
+</div>
+</sc-if>
+
+<div style="display:flex; flex-wrap:wrap; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 80ms;">
+<section style="flex:1.4 1 380px; min-width:0; display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Needs you</h2>
+<sc-if value="{{ ld.noAtt }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Nothing due. Leads with a next step due today or overdue, or quiet for a week, show up here.</span></sc-if>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ ld.att }}" as="a">
+<button onClick="{{ a.open }}" style="display:flex; align-items:center; gap:12px; padding:12px 14px; border:0; border-bottom:1px solid var(--hairline); background:transparent; text-align:left; cursor:pointer; font-family:inherit;" style-hover="background:rgba(255,255,255,.7);">
+<span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ a.avBg }}; color:{{ a.avFg }};">{{ a.ini }}</span>
+<span style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3;">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ a.name }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ a.company }}</span>
+</span>
+<span style="display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; white-space:nowrap; max-width:46%; overflow:hidden; text-overflow:ellipsis; background:{{ a.why.bg }}; color:{{ a.why.fg }}; box-shadow:{{ a.why.bd }};">{{ a.why.label }}</span>
+</button>
+</sc-for>
+</div>
+</section>
+
+<section style="flex:1 1 300px; min-width:0; display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Pipeline</h2>
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<sc-for list="{{ ld.byStage }}" as="b">
+<button onClick="{{ b.go }}" style="display:flex; flex-direction:column; gap:6px; padding:0; border:0; background:transparent; text-align:left; cursor:pointer; font-family:inherit;" style-hover="opacity:.8;">
+<span style="display:flex; align-items:center; gap:8px; width:100%;">
+<span style="width:7px; height:7px; border-radius:50%; background:{{ b.dot }};"></span>
+<span style="font-size:var(--fs-sm); font-weight:500; color:var(--ink);">{{ b.name }}</span>
+<span style="margin-left:auto; font-size:var(--fs-2xs); color:var(--ink-3);">{{ b.val }}</span>
+<span style="font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ink); min-width:22px; text-align:right;">{{ b.n }}</span>
+</span>
+<span style="display:block; position:relative; width:100%; height:6px; border-radius:3px; background:var(--n-soft-2);"><span style="display:block; height:100%; width:{{ b.w }}; border-radius:3px; background:{{ b.dot }}; transition:width 900ms var(--ease) 200ms;"></span></span>
+</button>
+</sc-for>
+</div>
+</section>
+</div>
+
+<div style="display:flex; flex-wrap:wrap; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 140ms;">
+<section style="flex:1 1 300px; min-width:0; display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Where they come from</h2>
+<sc-if value="{{ ld.noSource }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Shows up once leads have a source.</span></sc-if>
+<sc-if value="{{ ld.hasSource }}">
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<sc-for list="{{ ld.bySource }}" as="b">
+<button onClick="{{ b.go }}" title="{{ b.sub }}" style="display:flex; flex-direction:column; gap:6px; padding:0; border:0; background:transparent; text-align:left; cursor:pointer; font-family:inherit;" style-hover="opacity:.8;">
+<span style="display:flex; align-items:center; gap:8px; width:100%;">
+<span style="font-size:var(--fs-sm); font-weight:500; color:var(--ink); white-space:pre;">{{ b.name }}</span>
+<span style="margin-left:auto; font-size:var(--fs-2xs); color:var(--ink-3);">{{ b.sub }}</span>
+<span style="font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ink); min-width:22px; text-align:right;">{{ b.n }}</span>
+</span>
+<span style="display:block; position:relative; width:100%; height:6px; border-radius:3px; background:var(--n-soft-2);"><span style="display:flex; height:100%; width:{{ b.w }}; border-radius:3px; overflow:hidden; background:var(--out-line); transition:width 900ms var(--ease) 200ms;"><span style="display:block; height:100%; width:{{ b.wIn }}; background:var(--out);"></span></span></span>
+</button>
+</sc-for>
+<span style="display:flex; gap:14px; font-size:var(--fs-3xs); color:var(--ink-3);"><span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:2px; background:var(--out);"></span>Inbound</span><span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:2px; background:var(--out-line);"></span>Outbound</span></span>
+</div>
+</sc-if>
+<sc-if value="{{ ld.hasGroups }}">
+<div style="display:flex; flex-wrap:wrap; gap:6px;">
+<sc-for list="{{ ld.groups }}" as="g"><button onClick="{{ g.go }}" style="display:inline-flex; align-items:center; gap:7px; height:30px; padding:0 12px; border:0; border-radius:var(--r-pill); background:{{ g.bg }}; color:{{ g.fg }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;" style-hover="filter:brightness(.97);"><span style="width:7px; height:7px; border-radius:50%; background:{{ g.dot }};"></span>{{ g.label }} <span style="font-weight:700;">{{ g.n }}</span></button></sc-for>
+</div>
+</sc-if>
+</section>
+
+<section style="flex:1.4 1 380px; min-width:0; display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Latest activity</h2>
+<sc-if value="{{ ld.noRecent }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Notes, calls and stage changes show up here.</span></sc-if>
+<sc-if value="{{ ld.hasRecent }}">
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ ld.recent }}" as="r">
+<button onClick="{{ r.open }}" style="display:flex; align-items:flex-start; gap:12px; padding:11px 14px; border:0; border-bottom:1px solid var(--hairline); background:transparent; text-align:left; cursor:pointer; font-family:inherit;" style-hover="background:rgba(255,255,255,.7);">
+<span style="width:24px; height:24px; flex:0 0 24px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
+<span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; line-height:1.35;">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink);">{{ r.who }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-2);">{{ r.what }}</span>
+</span>
+<span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4); white-space:nowrap;">{{ r.when }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+</section>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.leadBoard }}">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<input value="{{ ld.f.q }}" onChange="{{ ld.f.onQ }}" placeholder="Search leads" aria-label="Search leads" style="flex:0 1 240px; min-width:150px; height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<select value="{{ ld.f.source }}" onChange="{{ ld.f.onSource }}" aria-label="Source" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.sources }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<select value="{{ ld.f.dir }}" onChange="{{ ld.f.onDir }}" aria-label="Inbound or outbound" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.dirs }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<sc-if value="{{ ld.f.hasGroups }}"><select value="{{ ld.f.group }}" onChange="{{ ld.f.onGroup }}" aria-label="Group" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.groups }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ ld.f.hasCats }}"><select value="{{ ld.f.cat }}" onChange="{{ ld.f.onCat }}" aria-label="Category" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.cats }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ ld.f.active }}"><button onClick="{{ ld.f.clear }}" style="height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-2); font-size:var(--fs-sm); cursor:pointer; text-decoration:underline; text-underline-offset:3px;">Clear filters</button></sc-if>
+<span style="margin-left:auto; font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.count }}</span>
+<button onClick="{{ ld.f.exportCsv }}" style="height:34px; padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-sm); font-weight:500; cursor:pointer;" style-hover="background:#fff;">Export</button>
+</div>
+<div style="overflow-x:auto; margin:0 calc(-1 * var(--pad-page)); padding:4px var(--pad-page) 16px; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<div style="display:flex; gap:var(--s-3); align-items:flex-start; width:max-content;">
+<sc-for list="{{ ld.cols }}" as="col">
+<div onDragOver="{{ col.over }}" onDrop="{{ col.drop }}" style="width:272px; flex:0 0 272px; display:flex; flex-direction:column; gap:8px; padding:8px; border-radius:var(--r-lg); background:{{ col.bg }}; box-shadow:{{ col.sh }}; transition:background var(--dur), box-shadow var(--dur);">
+<div style="display:flex; align-items:center; gap:8px; padding:6px 6px 2px;">
+<span style="width:8px; height:8px; border-radius:50%; background:{{ col.dot }};"></span>
+<span style="font-size:var(--fs-sm); font-weight:600;">{{ col.name }}</span>
+<span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:6px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-3xs); font-weight:600; color:var(--ink-2);">{{ col.n }}</span>
+<button onClick="{{ col.add }}" title="New lead in this stage" aria-label="New lead in this stage" style="margin-left:auto; width:24px; height:24px; border:0; border-radius:7px; background:transparent; color:var(--ink-3); font-size:16px; line-height:1; cursor:pointer;" style-hover="background:rgba(255,255,255,.8); color:var(--ink);">+</button>
+</div>
+<sc-if value="{{ col.hasVal }}"><span style="padding:0 6px 2px; font-size:var(--fs-2xs); color:var(--ink-3);">{{ col.val }}</span></sc-if>
+<sc-for list="{{ col.cards }}" as="k">
+<div draggable="true" onDragStart="{{ k.start }}" onDragEnd="{{ k.end }}" onClick="{{ k.open }}" style="display:flex; flex-direction:column; gap:10px; padding:12px; border-radius:var(--r-md); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); cursor:grab; transition:transform var(--dur) var(--ease), box-shadow var(--dur);" style-hover="transform:translateY(-2px); box-shadow:var(--shadow-md), var(--hi);">
+<div style="display:flex; align-items:center; gap:10px;">
+<span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ k.avBg }}; color:{{ k.avFg }};">{{ k.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3;">
+<span style="font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.name }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.company }}</span>
+</div>
+<sc-if value="{{ k.hasValue }}"><span style="font-size:var(--fs-xs); font-weight:600; font-variant-numeric:tabular-nums;">{{ k.value }}</span></sc-if>
+</div>
+<div style="display:flex; flex-direction:column; gap:5px; padding-top:9px; border-top:1px solid var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2);">
+<span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.src }}</span>
+<sc-if value="{{ k.hasNext }}"><span style="display:inline-flex; align-self:flex-start; align-items:center; max-width:100%; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:{{ k.next.bg }}; color:{{ k.next.fg }}; box-shadow:{{ k.next.bd }};">{{ k.next.label }}</span></sc-if>
+</div>
+<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+<sc-if value="{{ k.hasGroup }}"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:6px; font-size:var(--fs-3xs); font-weight:600; background:{{ k.group.bg }}; color:{{ k.group.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ k.group.dot }};"></span>{{ k.group.label }}</span></sc-if>
+<sc-for list="{{ k.cats }}" as="c"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; background:{{ c.bg }}; color:{{ c.fg }};">{{ c.label }}</span></sc-for>
+<span style="margin-left:auto; font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4); white-space:nowrap;">{{ k.when }}</span>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{ col.hasMore }}"><button onClick="{{ col.more }}" style="height:32px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.7); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; color:var(--ink-2); cursor:pointer;" style-hover="background:#fff; color:var(--ink);">Show {{ col.moreN }} more</button></sc-if>
+<sc-if value="{{ col.empty }}"><button onClick="{{ col.add }}" style="height:72px; border-radius:var(--r-md); border:1.5px dashed var(--hairline-strong); background:transparent; display:grid; place-items:center; font-size:var(--fs-xs); color:var(--ink-4); cursor:pointer; font-family:inherit;" style-hover="color:var(--ink-2); border-color:var(--ink-4);">Drop a lead here, or add one</button></sc-if>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.leadList }}">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<input value="{{ ld.f.q }}" onChange="{{ ld.f.onQ }}" placeholder="Search leads" aria-label="Search leads" style="flex:0 1 240px; min-width:150px; height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<select value="{{ ld.f.source }}" onChange="{{ ld.f.onSource }}" aria-label="Source" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.sources }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<select value="{{ ld.f.dir }}" onChange="{{ ld.f.onDir }}" aria-label="Inbound or outbound" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.dirs }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<sc-if value="{{ ld.f.hasGroups }}"><select value="{{ ld.f.group }}" onChange="{{ ld.f.onGroup }}" aria-label="Group" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.groups }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ ld.f.hasCats }}"><select value="{{ ld.f.cat }}" onChange="{{ ld.f.onCat }}" aria-label="Category" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.cats }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ ld.f.active }}"><button onClick="{{ ld.f.clear }}" style="height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-2); font-size:var(--fs-sm); cursor:pointer; text-decoration:underline; text-underline-offset:3px;">Clear filters</button></sc-if>
+<button onClick="{{ ld.f.exportCsv }}" style="margin-left:auto; height:34px; padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-sm); font-weight:500; cursor:pointer;" style-hover="background:#fff;">Export</button>
+</div>
+<div style="border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<div style="overflow-x:auto;">
+<table style="width:100%; min-width:900px; border-collapse:separate; border-spacing:0; font-size:var(--fs-sm);">
+<thead><tr>
+<sc-for list="{{ ld.heads }}" as="h"><th style="text-align:left; padding:0; border-bottom:1px solid var(--hairline); background:rgba(255,255,255,.5);"><button onClick="{{ h.sort }}" style="width:100%; padding:12px 14px; border:0; background:transparent; text-align:left; font-family:inherit; font-weight:500; font-size:var(--fs-2xs); color:{{ h.fg }}; cursor:pointer; white-space:nowrap;">{{ h.label }} {{ h.arrow }}</button></th></sc-for>
+</tr></thead>
+<tbody>
+<sc-for list="{{ ld.rows }}" as="r">
+<tr onClick="{{ r.open }}" style="cursor:pointer; transition:background var(--dur);" style-hover="background:rgba(255,255,255,.85);">
+<td style="padding:10px 14px; border-top:{{ r.bt }}; max-width:280px;"><span style="display:flex; align-items:center; gap:10px; min-width:0;"><span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span><span style="display:flex; flex-direction:column; min-width:0; line-height:1.3;"><span style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.company }}</span></span></span></td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap;"><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:500; background:{{ r.stageP.bg }}; color:{{ r.stageP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ r.stageP.dot }};"></span>{{ r.stageP.label }}</span></td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; color:var(--ink-2);">{{ r.source }}<span style="display:block; font-size:var(--fs-3xs); color:var(--ink-4);">{{ r.dir }}</span></td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap;"><sc-if value="{{ r.hasGroup }}"><span style="display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 8px; border-radius:6px; font-size:var(--fs-2xs); font-weight:600; background:{{ r.groupP.bg }}; color:{{ r.groupP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ r.groupP.dot }};"></span>{{ r.groupP.label }}</span></sc-if></td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; font-variant-numeric:tabular-nums;">{{ r.value }}</td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:{{ r.nextFg }}; font-size:var(--fs-xs);">{{ r.nextL }}</td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ink-3);">{{ r.touch }}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<sc-if value="{{ ld.noRows }}"><div style="padding:var(--s-6); text-align:center; font-size:var(--fs-sm); color:var(--ink-3);">No leads match. Change the filters, or add a new lead.</div></sc-if>
+<div style="display:flex; align-items:center; gap:var(--s-3); padding:10px 14px; font-size:var(--fs-xs); color:var(--ink-3);">
+<span>{{ ld.count }}</span>
+<sc-if value="{{ ld.hasMore }}"><button onClick="{{ ld.more }}" style="margin-left:auto; height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.8); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Show all</button></sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.leadAdd }}">
+<div style="display:flex; flex-wrap:wrap; gap:6px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<sc-for list="{{ ld.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 14px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-sm); font-weight:600; cursor:pointer; white-space:nowrap;">{{ t.label }} <span style="font-weight:700; opacity:.8;">{{ t.count }}</span></button></sc-for>
+</div>
+<sc-if value="{{ ld.noGroups }}"><div style="padding:var(--s-6); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ ld.emptyText }}</div></sc-if>
+<sc-for list="{{ ld.groups }}" as="g">
+<section style="display:flex; flex-direction:column; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 80ms;">
+<div style="display:flex; align-items:center; gap:8px;"><h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">{{ g.title }}</h2><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ g.n }} not added yet</span></div>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ g.items }}" as="c">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:center; gap:10px;">
+<span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3;">
+<span style="font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.name }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.sub }}</span>
+</div>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-2); line-height:1.45; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ c.why }}</span>
+<sc-if value="{{ c.notAdded }}"><button onClick="{{ c.add }}" style="align-self:flex-start; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--out); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;" style-hover="filter:brightness(1.06);">{{ c.addLabel }}</button></sc-if>
+<sc-if value="{{ c.added }}"><button onClick="{{ c.add }}" style="align-self:flex-start; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ok-soft); color:var(--ok-ink); box-shadow:inset 0 0 0 1px var(--ok-line); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">✓ In Leads · {{ c.addLabel }}</button></sc-if>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ is.leadSetup }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3); align-items:start; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<sc-for list="{{ ld.lists }}" as="L">
+<section style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">{{ L.title }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ L.help }}</span></div>
+<sc-for list="{{ L.items }}" as="it">
+<div style="display:flex; align-items:center; gap:8px;">
+<sc-if value="{{ it.hasDot }}"><button onClick="{{ it.color }}" title="Change colour" aria-label="Change colour" style="width:18px; height:18px; flex:0 0 18px; border:0; border-radius:50%; background:{{ it.dot }}; cursor:pointer; box-shadow:0 0 0 3px #fff, 0 0 0 4px var(--hairline-strong);"></button></sc-if>
+<input value="{{ it.val }}" onChange="{{ it.setVal }}" onBlur="{{ it.saveVal }}" aria-label="Name" style="flex:1; min-width:0; height:32px; padding:0 10px; border:0; border-radius:8px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none;">
+<sc-if value="{{ it.isStage }}"><select value="{{ it.kind }}" onChange="{{ it.setKind }}" aria-label="Counts as" style="height:32px; padding:0 6px; border:0; border-radius:8px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs);"><option value="open">Open</option><option value="won">Won</option><option value="lost">Lost</option></select></sc-if>
+<span style="font-size:var(--fs-3xs); color:var(--ink-4); white-space:nowrap; min-width:46px; text-align:right;">{{ it.count }}</span>
+<sc-if value="{{ it.canUp }}"><button onClick="{{ it.up }}" title="Move up" aria-label="Move up" style="width:26px; height:26px; border:0; border-radius:7px; background:transparent; color:var(--ink-3); cursor:pointer;" style-hover="background:var(--n-soft); color:var(--ink);">↑</button></sc-if>
+<button onClick="{{ it.del }}" title="Remove" aria-label="Remove" style="width:26px; height:26px; border:0; border-radius:7px; background:transparent; color:var(--ink-3); cursor:pointer;" style-hover="background:var(--bad-soft); color:var(--bad-ink);">×</button>
+</div>
+</sc-for>
+<div style="display:flex; gap:6px; padding-top:6px; border-top:1px solid var(--hairline);">
+<input value="{{ L.newVal }}" onChange="{{ L.setNew }}" onKeyDown="{{ L.addKey }}" placeholder="Add one…" aria-label="Add one" style="flex:1; min-width:0; height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<button onClick="{{ L.add }}" style="height:32px; padding:0 12px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Add</button>
+</div>
+</section>
+</sc-for>
+
+<section style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">Your own fields</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">Anything else you want to track on every lead, e.g. “Budget”, “Team size”, “Decision maker”.</span></div>
+<sc-for list="{{ ld.fields.items }}" as="it">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="flex:1; min-width:0; font-size:var(--fs-sm); font-weight:500;">{{ it.label }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45%;">{{ it.type }}<sc-if value="{{ it.hasOpts }}">: {{ it.opts }}</sc-if></span>
+<sc-if value="{{ it.canUp }}"><button onClick="{{ it.up }}" title="Move up" aria-label="Move up" style="width:26px; height:26px; border:0; border-radius:7px; background:transparent; color:var(--ink-3); cursor:pointer;" style-hover="background:var(--n-soft); color:var(--ink);">↑</button></sc-if>
+<button onClick="{{ it.del }}" title="Remove" aria-label="Remove" style="width:26px; height:26px; border:0; border-radius:7px; background:transparent; color:var(--ink-3); cursor:pointer;" style-hover="background:var(--bad-soft); color:var(--bad-ink);">×</button>
+</div>
+</sc-for>
+<div style="display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; border-top:1px solid var(--hairline);">
+<input value="{{ ld.fields.label }}" onChange="{{ ld.fields.setLabel }}" placeholder="Field name" aria-label="Field name" style="flex:1 1 140px; min-width:0; height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<select value="{{ ld.fields.type }}" onChange="{{ ld.fields.setType }}" aria-label="Field type" style="height:32px; padding:0 6px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs);"><sc-for list="{{ ld.fields.types }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<button onClick="{{ ld.fields.add }}" style="height:32px; padding:0 12px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Add</button>
+<sc-if value="{{ ld.fields.isSelect }}"><input value="{{ ld.fields.options }}" onChange="{{ ld.fields.setOptions }}" placeholder="Choices, separated by commas" aria-label="Choices" style="flex:1 1 100%; height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;"></sc-if>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">Main currency</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">Totals add up deals in this currency. Each lead can still have its own.</span></div>
+<input value="{{ ld.currency }}" onChange="{{ ld.setCurrency }}" onBlur="{{ ld.saveCurrency }}" maxlength="3" aria-label="Main currency" style="width:90px; height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-family:var(--font-mono); text-transform:uppercase; outline:none;">
+</section>
+</div>
+</sc-if>

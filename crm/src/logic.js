@@ -17,15 +17,18 @@ const stop=fn=>e=>{if(e&&e.stopPropagation)e.stopPropagation();fn(e);};
 const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=data.length>1?W/(data.length-1):0;const pts=data.map((v,i)=>[+(i*st).toFixed(1),+(H-(v/max)*(H-pad)).toFixed(1)]);return{line:pts.map(p=>p.join(',')).join(' '),area:'M0,'+H+' L'+pts.map(p=>p.join(',')).join(' L')+' L'+W+','+H+' Z',dots:pts.map((p,i)=>({cx:String(p[0]),cy:String(p[1]),v:data[i]})),max};};
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
-const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'}};
+const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'},
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
-const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound'};
+const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBoard','leadList','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
-const PLATS=['X','LinkedIn'];const LI_PAGES=['calendar','tracker'];
-const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:Object.keys(PAGES);
-const secsFor=plat=>plat==='LinkedIn'?SECS.map(x=>({...x,pages:x.pages.filter(k=>LI_PAGES.includes(k))})).filter(x=>x.pages.length):SECS;
-const ACC={home:{c:'var(--ink)',ink:'var(--ink-2)',soft:'var(--n-soft)',btn:'primary'},out:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},mid:{c:'var(--mid)',ink:'var(--mid-ink)',soft:'var(--mid-soft)',btn:'mid'},in:{c:'var(--in)',ink:'var(--in-ink)',soft:'var(--in-soft)',btn:'in'}};
+// Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
+const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker'];
+const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:plat==='Leads'?LEAD_SEC.pages:Object.keys(PAGES).filter(k=>PAGES[k].sec!=='leads');
+const secsFor=plat=>plat==='LinkedIn'?SECS.map(x=>({...x,pages:x.pages.filter(k=>LI_PAGES.includes(k))})).filter(x=>x.pages.length):plat==='Leads'?[LEAD_SEC]:SECS;
+const ACC={leads:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},home:{c:'var(--ink)',ink:'var(--ink-2)',soft:'var(--n-soft)',btn:'primary'},out:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},mid:{c:'var(--mid)',ink:'var(--mid-ink)',soft:'var(--mid-soft)',btn:'mid'},in:{c:'var(--in)',ink:'var(--in-ink)',soft:'var(--in-soft)',btn:'in'}};
 const CFG=window.CRM_CONFIG||{};const BRAND=CFG.brand||'CRM';
 const OWNERS=['Everyone',...Object.keys(AK.HANDLES)];
 const TIPS=['fq','pilot','cant','fund','fit','likely','verdict','target','eng1k','week','dms','rank','groups','skip'];
@@ -119,9 +122,9 @@ function person(c){
 
 class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
-    const plat=store.get('plat','X')==='LinkedIn'?'LinkedIn':'X';if(!pagesFor(plat).includes(page))page='calendar';
+    const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -129,7 +132,7 @@ class Component extends DCLogic {
   componentDidMount(){
     const el=this.rootRef.current;
     if(el&&window.ResizeObserver){this.ro=new ResizeObserver(es=>{const n=es[0].contentRect.width<860;if(n!==this.state.narrow)this.setState({narrow:n});});this.ro.observe(el);}
-    this.onKey=e=>{if((e.metaKey||e.ctrlKey)&&String(e.key).toLowerCase()==='k'){e.preventDefault();this.openPal();} if(e.key==='Escape')this.setState({cid:null,cmpOn:false,pal:false});};
+    this.onKey=e=>{if((e.metaKey||e.ctrlKey)&&String(e.key).toLowerCase()==='k'){e.preventDefault();this.openPal();} if(e.key==='Escape'){if(this.state.lid)this.closeLead();this.setState({cid:null,cmpOn:false,pal:false});}};
     window.addEventListener('keydown',this.onKey);
     AK.hooks.toast=(m,err)=>this.toast(m,null,err);
     this.unsub=AK.subscribe(()=>this.onData());
@@ -232,10 +235,10 @@ class Component extends DCLogic {
     return secsFor(s.plat).map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
   ownerVals(){return OWNERS.map(o=>{const on=this.state.owner===o;const a=o==='Everyone'?{avBg:'var(--n-soft-2)',avFg:'var(--ink-2)',ini:'∗'}:avatar(avName(o));return{label:o,...a,pick:()=>this.setOwner(o),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setOwner(o){if(o===this.state.owner)return;this.setState({owner:o});if(this.ready)this.load(320);}
-  platVals(){return PLATS.map(x=>{const on=this.state.plat===x;return{label:x,ini:x==='X'?'𝕏':'in',avBg:x==='X'?'var(--ink)':'#0a66c2',avFg:'#fff',pick:()=>this.setPlat(x),
+  platVals(){return PLATS.map(x=>{const on=this.state.plat===x;return{label:x,ini:x==='X'?'𝕏':x==='LinkedIn'?'in':'◎',avBg:x==='X'?'var(--ink)':x==='LinkedIn'?'#0a66c2':'var(--out)',avFg:'#fff',pick:()=>this.setPlat(x),
     bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setPlat(x){if(x===this.state.plat||!PLATS.includes(x))return;store.set('plat',x);const ok=pagesFor(x).includes(this.state.page);
-    this.setState({plat:x,cid:null,pal:false,calPick:null,calLink:null,linkFor:null,...(ok?{}:{page:'calendar'})});if(this.mainRef.current)this.mainRef.current.scrollTop=0;if(this.ready)this.load(320);}
+    this.flushLead();this.setState({plat:x,cid:null,lid:null,led:{},lnew:null,pal:false,calPick:null,calLink:null,linkFor:null,...(ok?{}:{page:pagesFor(x)[0]})});if(this.mainRef.current)this.mainRef.current.scrollTop=0;if(this.ready)this.load(320);}
 
   /* ---------- posts ---------- */
   trackedBy(){const v=AK.version();if(this._tv!==v){this._tv=v;this._tracked=AK.trackedPosts();this._tmap=new Map(this._tracked.map(t=>[t.key,t]));}return this._tmap;}
@@ -301,6 +304,7 @@ class Component extends DCLogic {
       h.next=L2.length?(L2.length===1?'1 person who fits our ICP is':L2.length+' people who fit our ICP are')+' waiting for a DM. Start with '+L2[0].name+': '+String(L2[0].bio).replace(/\.$/,'')+'.':'No ICP repliers waiting for a DM. Everyone else gets a public reply or nothing.';h.cta=L2.length?'Show who to message':'';h.go=L2.length?()=>this.setState({pdmTab:'To message'}):null;}
     if(page==='comps'){const top=this.compList().filter(c=>c.freshUncopied>0).sort((a,b)=>b.freshUncopied-a.freshUncopied)[0];
       h.next=top?top.name+' posted '+top.freshUncopied+' post'+(top.freshUncopied===1?'':'s')+' in the last 7 days that we haven’t copied yet.':'No competitor has posted anything new and uncopied in the last 7 days.';h.cta=top?'Open '+top.name:'';h.go=top?()=>this.openComp(top.id):null;}
+    if(sec==='leads')h=this.leadHdr(page,h);
     if(g&&!g.wait){h.next='Nothing to show until the data loads.';h.cta='';h.go=null;}
     if(this.founder&&page!=='home'){h.cta=h.go?h.cta.replace('Copy our version','See posts'):'';}
     return{...h,hasCta:!!(h.cta&&h.go),dot:A.c,ink:A.ink,soft:A.soft,bg:B.bg,fg:B.fg,sh:B.sh};}
@@ -373,10 +377,12 @@ class Component extends DCLogic {
       msgs,dates,callAt:s.callAt[p.id]??p.callIso,setCall:e=>{const v=e.target.value;this.setState(st=>({callAt:{...st.callAt,[p.id]:v}}));},saveCall:()=>this.saveCall(p),
       note:s.notes[p.id]??p.notes,setNote:e=>{const v=e.target.value;this.setState(st=>({notes:{...st.notes,[p.id]:v}}));},saveNote:()=>this.saveNote(p),ro};}
   palVals(){const s=this.state;const q=s.palQ.trim().toLowerCase();
-    const liM=s.plat==='LinkedIn';
+    const liM=s.plat!=='X';
     const ppl=(liM?[]:this.allPeople()).filter(p=>!q||(p.name+' '+p.company+' '+p.role).toLowerCase().includes(q)).slice(0,q?6:4).map(p=>({...avatar(p.name),title:p.name,sub:(p.role?p.role+' · ':'')+p.company,tag:pill(p.stage,STAGE_T[p.stage]),go:()=>{this.setState({pal:false});this.openC(p.id);}}));
     const comps=(liM?[]:this.compList()).filter(c=>!q||(c.name+' '+c.handle).toLowerCase().includes(q)).slice(0,q?5:3).map(c=>({...avatar(c.name),title:c.name,sub:c.handle||c.groupLabel,go:()=>this.openComp(c.id)}));
     const pages=pagesFor(s.plat).filter(k=>!q||PAGES[k].label.toLowerCase().includes(q)).slice(0,q?5:4).map(k=>({title:PAGES[k].label,sub:SECLBL[PAGES[k].sec],dot:ACC[PAGES[k].sec].c,go:()=>this.go(k)}));
+    if(s.plat==='Leads')ppl.push(...this.leadsAll().filter(l=>!q||[l.name,l.company,l.email,l.x_handle,l.group_name].join(' ').toLowerCase().includes(q)).slice(0,q?6:4)
+      .map(l=>({...avatar(l.name||l.company),title:l.name||'(no name)',sub:[l.company,l.stage].filter(Boolean).join(' · '),tag:pill(l.stage,'neutral'),go:()=>{this.setState({pal:false});this.openLead(l.id);}})));
     return{q:s.palQ,onQ:e=>this.setState({palQ:e.target.value}),onKey:e=>{if(e.key==='Enter'){const f=ppl[0]||comps[0]||pages[0];f&&f.go();}},ppl,comps,pages,hasPpl:ppl.length>0,hasComps:comps.length>0,hasPages:pages.length>0,none:!ppl.length&&!comps.length&&!pages.length,close:()=>this.setState({pal:false}),stop:e=>e.stopPropagation()};}
 
   /* ---------- outbound ---------- */
@@ -464,7 +470,7 @@ class Component extends DCLogic {
         const tone=/double/i.test(vt)?'ok':/rewrite|kill|drop/i.test(vt)?'bad':/keep/i.test(vt)?'warn':'neutral';const k='tpl'+code;const cb=this.copyBtn(k,'Copy opener');
         const f1=Object.keys(x).find(h=>h.indexOf('Follow-up 1')===0),f2=Object.keys(x).find(h=>h.indexOf('Follow-up 2')===0);
         return{code,isBest:code===best&&r>=0.04,sent:String(sent),rep:String(rep),rate:sent?Math.round(r*100)+'%':'–',rateW:this.state.entered?Math.min(100,r*500)+'%':'0%',rateBg:tone==='ok'?'var(--ok)':tone==='bad'?'var(--bad)':tone==='warn'?'var(--warn)':'var(--ink-4)',verdict:pill(vt,tone),open:x.Opener,f1:(f1&&x[f1])||'–',f2:(f2&&x[f2])||'–',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(x.Opener,k,code+' opener copied')};})};});}
-  moreVals(P){const pg=this.state.page;const o={};
+  moreVals(P){const pg=this.state.page;const o={};if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -652,6 +658,210 @@ class Component extends DCLogic {
       chart:{line:ch.line,area:ch.area,dash:E?'0':'1400',dots:hasChart?ch.dots.map((d,i)=>({...d,label:lab(times[i])+': '+fmtK(series[i])+' views in total',r:i===series.length-1?'5':'3.5'})):[],l0:hasChart?lab(times[0]):'',l1:hasChart&&times.length>2?lab(times[Math.floor((times.length-1)/2)]):'',l2:hasChart?lab(times[times.length-1]):''},
       fol,top,hasTop:top.length>0,noTop:!top.length,pat,hasPat:pat.length>0,noPat:!pat.length,rows,hasRows:rows.length>0,hasMore:!s.trkMore&&sorted.length>8,more:()=>this.setState({trkMore:true}),count:'Showing '+rows.length+' of '+sorted.length};}
 
+  /* ---------- Leads (6 Nov) ----------
+     Everyone we're talking to, from any channel: AK.LD (Supabase tables crm_leads, crm_lead_events, crm_lead_settings).
+     Stages, sources, groups, categories and custom fields all come from the Setup page. */
+  leadsAll(){const o=this.state.owner;return AK.LD.rows.filter(l=>!l.archived&&(o==='Everyone'||!l.owner||l.owner===o));}
+  leadSet(k){return AK.leadSetting(k)||[];}
+  stageOf(name){return this.leadSet('stages').find(x=>x.name===name)||{name,color:'var(--ink-4)',kind:'open'};}
+  tagOf(kind,name){const t=this.leadSet(kind).find(x=>(x.name||x)===name);return t&&t.color?t.color:'var(--ink-3)';}
+  leadFiltered(){const f=this.state.lf;const q=f.q.trim().toLowerCase();
+    return this.leadsAll().filter(l=>(!q||[l.name,l.company,l.role,l.email,l.x_handle,l.linkedin,l.instagram,l.pitch,l.notes,l.group_name,(l.categories||[]).join(' ')].join(' ').toLowerCase().includes(q))
+      &&(!f.source||l.source===f.source)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
+  // Saves edits still in the panel's buffer (closing it skips the inputs' blur), then clears the buffer.
+  flushLead(){const s=this.state;const id=s.lid;if(!id||id==='new')return;const l=AK.LD.rows.find(r=>r.id===id);if(!l)return;
+    const patch={};let fields=null;
+    for(const [k,v] of Object.entries(s.led)){if(k.startsWith('__'))continue;
+      if(k.startsWith('f:')){const fk=k.slice(2);if(String(v)!==String((l.fields||{})[fk]??'')){fields=fields||{...(l.fields||{})};fields[fk]=v;}}
+      else if(String(v)!==String(l[k]??''))patch[k]=v;}
+    if(fields)patch.fields=fields;if(Object.keys(patch).length)AK.leadSave(id,patch);}
+  closeLead(extra){this.flushLead();this.setState({lid:null,led:{},lnew:null,...(extra||{})});}
+  openLead(id){this.flushLead();this.setState({lid:id,led:{},lnew:null,lnote:'',lkind:'note'});}
+  newLead(seed){this.flushLead();this.setState({lid:'new',led:{},lnew:{name:'',company:'',direction:'Inbound',source:'',stage:(this.leadSet('stages')[0]||{}).name||'New',currency:AK.leadSetting('currency')||'USD',owner:this.state.owner!=='Everyone'?this.state.owner:(Object.keys(AK.HANDLES)[0]||''),...(seed||{})}});}
+  async createLead(){const d=this.state.lnew;if(!d||this._creating)return;if(!String(d.name||d.company||'').trim()){this.toast('Give the lead a name or a company first.',null,true);return;}
+    this._creating=true;try{const row=await AK.leadCreate(d);if(row&&this.state.lid==='new')this.setState({lid:row.id,lnew:null,led:{}});}finally{this._creating=false;}}
+  // Pretty money: "$4,000"; falls back to "4000 XYZ" for a currency code Intl doesn't know.
+  money(v,cur){if(v==null||v==='')return '';const n=Number(v);if(!isFinite(n))return '';try{return new Intl.NumberFormat('en-US',{style:'currency',currency:cur||'USD',maximumFractionDigits:0}).format(n);}catch(e){return n.toLocaleString()+' '+(cur||'');}}
+  since(t){if(!t)return '';const d=new Date(t);const days=Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/AK.DAY);
+    return days<=0?'today '+hhmm(d):days===1?'yesterday':days<7?days+' days ago':dLabel(d);}
+  leadNext(l){if(!l.next_date&&!l.next_step)return null;const t0=new Date();t0.setHours(0,0,0,0);const d=l.next_date?new Date(l.next_date+'T00:00:00'):null;
+    const late=d&&d<t0,today=d&&AK.sameDay(d,t0);return{label:(l.next_step||'Next step')+(d?' · '+(today?'today':late?'overdue, '+dLabel(d):dLabel(d)):''),tone:late?'bad':today?'warn':'neutral',late,today};}
+  srcIcon(src){return {X:'𝕏',LinkedIn:'in',Instagram:'◎',Email:'✉',Referral:'↪',Website:'⌂'}[src]||'•';}
+  tagPill(label,color){return{label,dot:color,bg:'color-mix(in oklch, '+color+' 12%, white)',fg:'color-mix(in oklch, '+color+' 70%, black)'};}
+  leadCard(l){const st=this.stageOf(l.stage);const nx=this.leadNext(l);const a=avatar(l.name||l.company||'?');
+    return{...a,id:l.id,name:l.name||'(no name)',company:[l.role,l.company].filter(Boolean).join(' · ')||l.email||l.x_handle||'',src:(l.source?this.srcIcon(l.source)+' '+l.source:'No source')+' · '+(l.direction||''),
+      value:this.money(l.price,l.currency),hasValue:l.price!=null&&l.price!=='',next:nx?pill(nx.label,nx.tone):null,hasNext:!!nx,stage:this.tagPill(l.stage,st.color),
+      group:l.group_name?this.tagPill(l.group_name,this.tagOf('groups',l.group_name)):null,hasGroup:!!l.group_name,
+      cats:(l.categories||[]).slice(0,3).map(c=>this.tagPill(c,this.tagOf('categories',c))),when:l.last_touch?'Touched '+this.since(l.last_touch):'Added '+this.since(l.created_at),
+      open:()=>this.openLead(l.id)};}
+  leadHdr(page,h){const L=this.leadsAll();const open=L.filter(l=>this.stageOf(l.stage).kind==='open');const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});
+    h={...h,eyebrow:'Leads · '+PAGES[page].label,title:PAGES[page].label==='Overview'?'Leads':PAGES[page].label,cta:'New lead',go:()=>this.newLead()};
+    const st=AK.leadsState();
+    if(!st.loaded)h.next=st.err?'Couldn’t load leads: '+st.err:'Loading leads…';
+    else if(page==='leads')h.next=due.length?due.length+(due.length===1?' lead needs':' leads need')+' you today, starting with '+(due[0].name||due[0].company)+': '+(due[0].next_step||'next step')+'.':L.length?open.length+' open '+(open.length===1?'lead':'leads')+', nothing due today.':'No leads yet. Add one, or bring people in from X and LinkedIn.';
+    else if(page==='leadBoard')h.next='Drag a card to move it to another stage. '+open.length+' open, worth '+this.moneySum(open)+'.';
+    else if(page==='leadList')h.next=L.length+(L.length===1?' lead':' leads')+'. Click a column to sort, and a row to open it.';
+    else if(page==='leadAdd'){const n=this.candidates().filter(c=>!c.added).length;h.next=n?n+' people from X and LinkedIn you haven’t added yet.':'Everyone from X and LinkedIn is already in.';}
+    else if(page==='leadSetup')h.next='Your stages, sources, groups, categories and extra fields. Changes apply to every lead.';
+    return h;}
+  moneySum(list){const cur=AK.leadSetting('currency')||'USD';const same=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)===cur);const other=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)!==cur).length;
+    return this.money(same.reduce((a,l)=>a+Number(l.price||0),0),cur)+(other?' + '+other+' in other currencies':'');}
+  leadFilterVals(){const s=this.state;const f=s.lf;const set=(k,v)=>this.setState(x=>({lf:{...x.lf,[k]:v},ldMore:{},lmore:false}));
+    const opts=(all,list)=>[{v:'',l:all},...list.map(x=>({v:x.name||x,l:x.name||x}))];
+    return{q:f.q,onQ:e=>set('q',e.target.value),source:f.source,onSource:e=>set('source',e.target.value),group:f.group,onGroup:e=>set('group',e.target.value),cat:f.cat,onCat:e=>set('cat',e.target.value),dir:f.dir,onDir:e=>set('dir',e.target.value),
+      sources:opts('All sources',this.leadSet('sources')),groups:opts('All groups',this.leadSet('groups')),cats:opts('All categories',this.leadSet('categories')),dirs:opts('Inbound and outbound',['Inbound','Outbound']),
+      hasGroups:this.leadSet('groups').length>0,hasCats:this.leadSet('categories').length>0,
+      active:!!(f.q||f.source||f.group||f.cat||f.dir),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:''}}),
+      exportCsv:()=>this.exportLeads()};}
+  exportLeads(){const L=this.leadFiltered();if(!L.length){this.toast('No leads to export.',null,true);return;}
+    const F=this.leadSet('fields');const cols=['name','company','role','email','phone','x_handle','linkedin','instagram','website','direction','source','source_detail','stage','group_name','categories','pitch','price','currency','pricing_note','closed_for','next_step','next_date','owner','last_touch','created_at','notes'];
+    const esc=v=>{v=Array.isArray(v)?v.join('; '):v==null?'':String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const lines=[[...cols,...F.map(x=>x.label)].join(','),...L.map(l=>[...cols.map(c=>esc(l[c])),...F.map(x=>esc((l.fields||{})[x.key]))].join(','))];
+    const url=URL.createObjectURL(new Blob(['﻿'+lines.join('\n')],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='leads-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+    this.toast('Exported '+L.length+(L.length===1?' lead':' leads')+'.');}
+  leadVals(page){const s=this.state;const st=AK.leadsState();const E=s.entered;const base={loading:!st.loaded,err:st.err,hasErr:!!st.err,f:this.leadFilterVals(),newLead:()=>this.newLead()};
+    if(page==='leads')return{...base,...this.leadOverview()};
+    if(page==='leadBoard')return{...base,...this.leadBoard()};
+    if(page==='leadList')return{...base,...this.leadList()};
+    if(page==='leadAdd')return{...base,...this.leadAddVals()};
+    if(page==='leadSetup')return{...base,...this.leadSetupVals()};
+    return base;}
+  leadOverview(){const s=this.state;const E=s.entered;const L=this.leadsAll();const ST=this.leadSet('stages');const kindOf=l=>this.stageOf(l.stage).kind;
+    const open=L.filter(l=>kindOf(l)==='open'),won=L.filter(l=>kindOf(l)==='won'),lost=L.filter(l=>kindOf(l)==='lost');
+    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const wonM=won.filter(l=>new Date(l.stage_at||l.updated_at)>=m0);
+    const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});const cold=open.filter(l=>!this.leadNext(l)&&Date.now()-new Date(l.last_touch||l.created_at).getTime()>7*AK.DAY);
+    const kpis=[{label:'Open leads',v:String(open.length),d:L.length+' in total',tone:'var(--ink-3)'},{label:'Open pipeline',v:this.moneySum(open),d:'Value of every open lead',tone:'var(--ink-3)'},
+      {label:'Won this month',v:String(wonM.length),d:wonM.length?this.moneySum(wonM):'Nothing closed yet this month',tone:'var(--ok-ink)'},
+      {label:'Win rate',v:won.length+lost.length?Math.round(won.length/(won.length+lost.length)*100)+'%':'–',d:won.length+' won, '+lost.length+' lost',tone:'var(--ink-3)'},
+      {label:'Need you',v:String(due.length+cold.length),d:due.length+' due or overdue, '+cold.length+' quiet for a week',tone:due.length?'var(--bad-ink)':'var(--ink-3)'}];
+    const att=[...due.map(l=>({l,why:this.leadNext(l).label,tone:this.leadNext(l).late?'bad':'warn'})),...cold.map(l=>({l,why:'No touch since '+this.since(l.last_touch||l.created_at)+' and no next step',tone:'neutral'}))].slice(0,8)
+      .map(x=>({...this.leadCard(x.l),why:pill(x.why,x.tone)}));
+    const mx=Math.max(1,...ST.map(x=>L.filter(l=>l.stage===x.name).length));
+    const byStage=ST.map(x=>{const a=L.filter(l=>l.stage===x.name);return{name:x.name,dot:x.color,n:String(a.length),val:a.some(l=>l.price!=null&&l.price!=='')?this.moneySum(a):'',w:E?(a.length/mx*100)+'%':'0%',go:()=>{this.go('leadBoard');}};});
+    const SRC=[...new Set([...this.leadSet('sources'),...L.map(l=>l.source).filter(Boolean)])];const mxs=Math.max(1,...SRC.map(x=>L.filter(l=>l.source===x).length));
+    const bySource=SRC.map(x=>{const a=L.filter(l=>l.source===x);const i=a.filter(l=>l.direction==='Inbound').length;return{name:this.srcIcon(x)+'  '+x,n:String(a.length),sub:i+' inbound, '+(a.length-i)+' outbound',w:E?(a.length/mxs*100)+'%':'0%',wIn:a.length?(i/a.length*100)+'%':'0%',go:()=>{this.setState(z=>({lf:{...z.lf,source:x}}));this.go('leadList');}};}).filter(x=>x.n!=='0');
+    const byId=new Map(AK.LD.rows.map(l=>[l.id,l]));const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added'};
+    const recent=AK.LD.events.filter(e=>byId.has(e.lead_id)&&!byId.get(e.lead_id).archived).slice(0,10).map(e=>{const l=byId.get(e.lead_id);return{...avatar(l.name||l.company),who:l.name||l.company||'(no name)',what:KIND[e.kind]+': '+clip(e.text,90),when:this.since(e.at),open:()=>this.openLead(l.id)};});
+    const groups=this.leadSet('groups').map(g=>({...this.tagPill(g.name,g.color),n:String(L.filter(l=>l.group_name===g.name).length),go:()=>{this.setState(z=>({lf:{...z.lf,group:g.name}}));this.go('leadBoard');}}));
+    return{kpis,att,hasAtt:att.length>0,noAtt:!att.length,byStage,bySource,hasSource:bySource.length>0,noSource:!bySource.length,recent,hasRecent:recent.length>0,noRecent:!recent.length,groups,hasGroups:groups.length>0,empty:!L.length};}
+  leadBoard(){const s=this.state;const L=this.leadFiltered();const ST=this.leadSet('stages');const known=new Set(ST.map(x=>x.name));
+    const cols=[...ST,...[...new Set(L.map(l=>l.stage).filter(x=>!known.has(x)))].map(n=>({name:n,color:'var(--ink-4)',kind:'open'}))].map(x=>{
+      const list=L.filter(l=>l.stage===x.name).sort((a,b)=>new Date(b.last_touch||b.updated_at)-new Date(a.last_touch||a.updated_at));const lim=s.ldMore[x.name]?list.length:12;const over=s.ldOver===x.name;
+      return{name:x.name,dot:x.color,n:String(list.length),val:list.some(l=>l.price!=null&&l.price!=='')?this.moneySum(list):'',hasVal:list.some(l=>l.price!=null&&l.price!==''),
+        bg:over?'var(--out-soft)':'var(--n-soft)',sh:over?'inset 0 0 0 1.5px var(--out-line)':'inset 0 0 0 1px var(--hairline)',
+        cards:list.slice(0,lim).map(l=>({...this.leadCard(l),start:e=>{this.ldDrag=l.id;try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',l.id);}catch(_){}},end:()=>{this.ldDrag=null;if(this.state.ldOver)this.setState({ldOver:null});}})),
+        hasMore:list.length>lim,moreN:String(list.length-lim),more:()=>this.setState(z=>({ldMore:{...z.ldMore,[x.name]:true}})),empty:!list.length,
+        add:()=>this.newLead({stage:x.name}),
+        over:e=>{e.preventDefault();if(this.state.ldOver!==x.name)this.setState({ldOver:x.name});},
+        drop:e=>{e.preventDefault();const id=this.ldDrag;this.ldDrag=null;this.setState({ldOver:null});const l=id&&AK.LD.rows.find(r=>r.id===id);if(l&&l.stage!==x.name)AK.leadSave(id,{stage:x.name});}};});
+    return{cols,count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
+  leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
+    const SORT={name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
+    const by=SORT[key]||SORT.touch;const sorted=L.slice().sort((a,b)=>{const x=by(a),y=by(b);return(x<y?-1:x>y?1:0)*dir;});const lim=s.lmore?sorted.length:50;
+    const heads=[['name','Lead'],['stage','Stage'],['source','Source'],['group','Group'],['value','Value'],['next','Next step'],['touch','Last touch']].map(([k,label])=>({label,arrow:key===k?(dir>0?'↑':'↓'):'',fg:key===k?'var(--ink)':'var(--ink-3)',
+      sort:()=>this.setState(z=>({lsort:k,ldir:z.lsort===k?-z.ldir:1})),right:k==='value'}));
+    const rows=sorted.slice(0,lim).map((l,i)=>{const c=this.leadCard(l);return{...c,stageP:c.stage,source:l.source?this.srcIcon(l.source)+' '+l.source:'–',dir:l.direction||'',groupP:c.group,hasGroup:c.hasGroup,
+      value:c.value||'–',nextL:c.next?c.next.label:'–',nextFg:c.next?c.next.fg:'var(--ink-4)',touch:l.last_touch?this.since(l.last_touch):'–',bt:i===0?'none':'1px solid var(--hairline)'};});
+    return{heads,rows,hasRows:rows.length>0,noRows:!rows.length,none:!this.leadsAll().length,hasMore:sorted.length>lim,more:()=>this.setState({lmore:true}),count:'Showing '+rows.length+' of '+sorted.length};}
+  // People from X and LinkedIn who could become leads. origin_key stops the same person being added twice.
+  candidates(){const keys=new Map(AK.LD.rows.filter(l=>l.origin_key).map(l=>[l.origin_key,l]));const out=[];const norm=x=>String(x||'').trim().toLowerCase();
+    for(const e of AK.M.engagers){const h=norm(e.Handle).replace(/^@/,'');if(!h)continue;out.push({tab:'X',group:'Replied to our posts on X',key:'x-eng:'+h,name:e.Name||e.Handle,sub:[e.Handle,e.Bio].filter(Boolean).join(' · '),why:verdictOf(e)+(e['What they said']?': “'+clip(e['What they said'],80)+'”':''),
+      seed:{name:e.Name||e.Handle,x_handle:e.Handle,direction:'Inbound',source:'X',source_detail:'Replied to '+(e['Our post link']||'our post'),notes:e['What they said']||'',role:clip(e.Bio||'',80)}});}
+    for(const c of AK.M.contacts){out.push({tab:'X',group:'People we’re DMing on X',key:'x-dm:'+norm(c.Name)+'|'+norm(c.Company),name:c.Name,sub:[c.Role,c.Company].filter(Boolean).join(' · '),why:(c.Status||'To send')+(c['Signal (why now)']?': '+clip(c['Signal (why now)'],80):''),
+      seed:{name:c.Name,company:c.Company||'',role:c.Role||'',x_handle:c['X handle']||'',linkedin:c.LinkedIn||'',email:c.Email||'',direction:'Outbound',source:/linkedin/i.test(c.Channel||'')?'LinkedIn':/mail/i.test(c.Channel||'')?'Email':'X',source_detail:'DM Pipeline',stage:/sent|fu/i.test(c.Status||'')?'Contacted':/replied|call/i.test(c.Status||'')?'In talks':undefined,notes:c.Notes||''}});}
+    for(const p of AK.liPeople()){const eng=p.kind==='engaged';out.push({tab:'LinkedIn',group:eng?'Commented on or DMed about a lead magnet':'Featured in our lead magnet posts',key:'li-'+p.kind+':'+norm(p.name)+'|'+norm(p.company||p.title),name:p.name,sub:[p.company,p.title].filter(Boolean).join(' · '),why:eng?p.raw:'Featured'+(p.raw?' ('+p.raw+')':'')+(p.date?' · '+p.date:''),
+      seed:{name:p.name,company:p.company||'',direction:eng?'Inbound':'Outbound',source:'LinkedIn',source_detail:(eng?'Engaged with “':'Featured in “')+p.title+'”'}});}
+    return out.map(c=>{const l=keys.get(c.key);return{...c,added:!!l,lead:l||null};});}
+  leadAddVals(){const s=this.state;const C=this.candidates();const tab=s.lcand;const shown=C.filter(c=>c.tab===tab);
+    const tabs=['X','LinkedIn'].map(t=>{const on=t===tab;const n=C.filter(c=>c.tab===t&&!c.added).length;return{label:t==='X'?'𝕏 X':'in LinkedIn',count:String(n),go:()=>this.setState({lcand:t}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
+    const groups=[...new Set(shown.map(c=>c.group))].map(g=>{const items=shown.filter(c=>c.group===g).sort((a,b)=>a.added-b.added);return{title:g,n:String(items.filter(c=>!c.added).length),
+      items:items.slice(0,60).map(c=>({...avatar(c.name),name:c.name||'(no name)',sub:c.sub,why:c.why,added:c.added,notAdded:!c.added,
+        addLabel:c.added?(c.lead.archived?'Restore':'Open'):'Add as lead',
+        add:async()=>{if(c.added){if(c.lead.archived)await AK.leadArchive(c.lead.id,false);this.openLead(c.lead.id);return;}const seed={...c.seed,origin_key:c.key};Object.keys(seed).forEach(k=>seed[k]===undefined&&delete seed[k]);const row=await AK.leadCreate(seed);if(row)this.toast('Added '+(row.name||'the lead')+' to Leads.');}}))};});
+    const li=AK.liState();
+    return{tabs,groups,hasGroups:groups.length>0,noGroups:!groups.length,emptyText:tab==='X'?'Nobody from X yet. People who reply to your posts and people in the DM Pipeline show up here.':(!li.on||li.err?(li.err||'The LinkedIn sheet isn’t set up.'):'Nobody from LinkedIn yet. People in the Lead Magnets tab (“Leads who commented or DMed”) and Lead Magnet People show up here.')};}
+  leadSetupVals(){const s=this.state;const PAL=['var(--out)','var(--mid)','var(--in)','var(--warn)','var(--bad)','var(--ok)','oklch(0.68 0.16 45)','var(--ink-3)'];
+    const nx=c=>PAL[(PAL.indexOf(c)+1)%PAL.length];const L=AK.LD.rows;
+    const listOf=(key,title,help,named,count)=>{const items=this.leadSet(key);const nv=s.lsetNew[key]||'';
+      const save=v=>AK.leadSettingSave(key,v);
+      return{key,title,help,newVal:nv,setNew:e=>{const v=e.target.value;this.setState(z=>({lsetNew:{...z.lsetNew,[key]:v}}));},
+        add:()=>{const v=String(this.state.lsetNew[key]||'').trim();if(!v)return;if(items.some(x=>(x.name||x)===v)){this.toast('“'+v+'” is already there.',null,true);return;}
+          save([...items,named?(key==='stages'?{name:v,color:PAL[items.length%PAL.length],kind:'open'}:{name:v,color:PAL[items.length%PAL.length]}):v]);this.setState(z=>({lsetNew:{...z.lsetNew,[key]:''}}));},
+        addKey:e=>{if(e.key==='Enter'){e.preventDefault();const v=String(e.target.value||'').trim();if(!v)return;if(items.some(x=>(x.name||x)===v))return;
+          save([...items,named?(key==='stages'?{name:v,color:PAL[items.length%PAL.length],kind:'open'}:{name:v,color:PAL[items.length%PAL.length]}):v]);this.setState(z=>({lsetNew:{...z.lsetNew,[key]:''}}));}},
+        items:items.map((x,i)=>{const name=x.name||x;const ek=key+':'+i;const ed=(s.led.__set||{})[ek];const n=count(name);
+          return{name,val:ed!=null?ed:name,dot:x.color||'var(--ink-3)',hasDot:named,count:n?n+(n===1?' lead':' leads'):'',isStage:key==='stages',kind:x.kind||'open',
+            setVal:e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__set:{...(z.led.__set||{}),[ek]:v}}}));},
+            saveVal:async()=>{const v=String(((this.state.led.__set||{})[ek])??name).trim();this.setState(z=>{const m={...(z.led.__set||{})};delete m[ek];return{led:{...z.led,__set:m}};});
+              if(!v||v===name)return;if(items.some(y=>(y.name||y)===v)){this.toast('“'+v+'” is already there.',null,true);return;}
+              await save(items.map((y,j)=>j===i?(named?{...y,name:v}:v):y));await AK.leadRename(key,name,v);},
+            color:()=>save(items.map((y,j)=>j===i?{...y,color:nx(y.color)}:y)),
+            setKind:e=>save(items.map((y,j)=>j===i?{...y,kind:e.target.value}:y)),
+            up:()=>{if(i===0)return;const a=items.slice();[a[i-1],a[i]]=[a[i],a[i-1]];save(a);},canUp:i>0,
+            del:()=>{if(n&&key==='stages'){this.toast('Move the '+n+(n===1?' lead':' leads')+' out of “'+name+'” first.',null,true);return;}save(items.filter((y,j)=>j!==i));}};})};};
+    const lists=[listOf('stages','Stages','The columns of your pipeline, left to right. Won and Lost count towards the win rate.',true,n=>L.filter(l=>l.stage===n).length),
+      listOf('sources','Sources','Where leads come from.',false,n=>L.filter(l=>l.source===n).length),
+      listOf('groups','Groups','Each lead can sit in one group, e.g. “YC founders” or “Agencies”.',true,n=>L.filter(l=>l.group_name===n).length),
+      listOf('categories','Categories','Tags; a lead can have any number, e.g. “Clipping”, “GTM”, “Hot”.',true,n=>L.filter(l=>(l.categories||[]).includes(n)).length)];
+    const F=this.leadSet('fields');const fv=s.lsetNew.__field||{label:'',type:'text',options:''};
+    const fields={items:F.map((x,i)=>({label:x.label,type:x.type,opts:(x.options||[]).join(', '),hasOpts:x.type==='select',del:()=>AK.leadSettingSave('fields',F.filter((y,j)=>j!==i)),
+        up:()=>{if(i===0)return;const a=F.slice();[a[i-1],a[i]]=[a[i],a[i-1]];AK.leadSettingSave('fields',a);},canUp:i>0})),
+      label:fv.label,type:fv.type,options:fv.options,isSelect:fv.type==='select',
+      setLabel:e=>{const v=e.target.value;this.setState(z=>({lsetNew:{...z.lsetNew,__field:{...(z.lsetNew.__field||fv),label:v}}}));},
+      setType:e=>{const v=e.target.value;this.setState(z=>({lsetNew:{...z.lsetNew,__field:{...(z.lsetNew.__field||fv),type:v}}}));},
+      setOptions:e=>{const v=e.target.value;this.setState(z=>({lsetNew:{...z.lsetNew,__field:{...(z.lsetNew.__field||fv),options:v}}}));},
+      add:()=>{const label=String(fv.label||'').trim();if(!label)return;const key=label.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'')||'field';
+        if(F.some(x=>x.key===key)){this.toast('There’s already a field called “'+label+'”.',null,true);return;}
+        AK.leadSettingSave('fields',[...F,{key,label,type:fv.type,options:fv.type==='select'?String(fv.options||'').split(',').map(x=>x.trim()).filter(Boolean):[]}]);this.setState(z=>({lsetNew:{...z.lsetNew,__field:{label:'',type:'text',options:''}}}));},
+      types:[{v:'text',l:'Text'},{v:'number',l:'Number'},{v:'date',l:'Date'},{v:'select',l:'Pick from a list'},{v:'textarea',l:'Long text'}],has:F.length>0};
+    const cur=AK.leadSetting('currency')||'USD';
+    return{lists,fields,currency:(s.led.__cur!=null?s.led.__cur:cur),setCurrency:e=>{const v=e.target.value.toUpperCase();this.setState(z=>({led:{...z.led,__cur:v}}));},
+      saveCurrency:()=>{const v=String(this.state.led.__cur||'').trim().toUpperCase();this.setState(z=>{const m={...z.led};delete m.__cur;return{led:m};});if(/^[A-Z]{3}$/.test(v)&&v!==cur)AK.leadSettingSave('currency',v);}};}
+  // The side panel for one lead (or a new one): every field edits in place and saves when you leave it.
+  leadPanel(){const s=this.state;const id=s.lid;if(!id)return{open:false};const isNew=id==='new';const l=isNew?s.lnew:AK.LD.rows.find(r=>r.id===id);
+    if(!l)return{open:false};
+    const val=k=>{if(isNew)return l[k]??'';const e=s.led[k];return e!=null?e:(l[k]??'');};
+    const setV=k=>e=>{const v=e&&e.target?e.target.value:e;if(isNew)this.setState(z=>({lnew:{...z.lnew,[k]:v}}));else this.setState(z=>({led:{...z.led,[k]:v}}));};
+    const saveV=k=>()=>{if(isNew)return;const e=this.state.led[k];if(e==null)return;this.setState(z=>{const m={...z.led};delete m[k];return{led:m};});const cur=l[k]??'';if(String(e)===String(cur))return;AK.leadSave(l.id,{[k]:e});};
+    const pick=k=>e=>{const v=e.target.value;if(isNew){this.setState(z=>({lnew:{...z.lnew,[k]:v}}));return;}AK.leadSave(l.id,{[k]:v});};
+    const ST=this.leadSet('stages');const opt=(list,blank)=>[...(blank?[{v:'',l:blank}]:[]),...list.map(x=>({v:x.name||x,l:x.name||x}))];
+    const withCur=(list,cur)=>cur&&!list.some(x=>(x.name||x)===cur)?[...list,cur]:list;
+    const row=(label,k,type,extra)=>({label,type,isText:type==='text',isNum:type==='number',isDate:type==='date',isSel:type==='select',isArea:type==='textarea',val:val(k),set:setV(k),save:saveV(k),pick:pick(k),ph:'',opts:[],...(extra||{})});
+    const contact=[row('Name','name','text',{ph:'Full name'}),row('Company','company','text'),row('Role','role','text'),row('Email','email','text'),row('Phone','phone','text'),
+      row('X','x_handle','text',{ph:'@handle'}),row('LinkedIn','linkedin','text',{ph:'Profile link'}),row('Instagram','instagram','text',{ph:'@handle'}),row('Website','website','text')];
+    const deal=[row('Direction','direction','select',{opts:opt(['Inbound','Outbound'])}),row('Source','source','select',{opts:opt(withCur(this.leadSet('sources'),l.source),'Pick a source')}),row('Came from','source_detail','text',{ph:'Which post, campaign or person'}),
+      row('Group','group_name','select',{opts:opt(withCur(this.leadSet('groups'),l.group_name),'No group')}),row('Owner','owner','select',{opts:opt(withCur(Object.keys(AK.HANDLES),l.owner),'Nobody')}),
+      row('Pitching','pitch','textarea',{ph:'What we’re pitching them'}),row('Value','price','number',{ph:'Deal value'}),row('Currency','currency','text',{ph:'USD'}),row('Pricing','pricing_note','text',{ph:'e.g. $4,000 a month, 3 months'}),
+      row('Closed for','closed_for','text',{ph:'What they bought, once won'}),row('Next step','next_step','text',{ph:'e.g. Send the proposal'}),row('Next step date','next_date','date')];
+    const F=this.leadSet('fields');const fv=k=>{if(isNew)return(l.fields||{})[k]??'';const e=s.led['f:'+k];return e!=null?e:((l.fields||{})[k]??'');};
+    const custom=F.map(x=>({label:x.label,type:x.type,isText:x.type==='text',isNum:x.type==='number',isDate:x.type==='date',isSel:x.type==='select',isArea:x.type==='textarea',val:fv(x.key),ph:'',opts:[{v:'',l:'–'},...(x.options||[]).map(o=>({v:o,l:o}))],
+      set:e=>{const v=e.target.value;if(isNew)this.setState(z=>({lnew:{...z.lnew,fields:{...(z.lnew.fields||{}),[x.key]:v}}}));else this.setState(z=>({led:{...z.led,['f:'+x.key]:v}}));},
+      save:()=>{if(isNew)return;const e=this.state.led['f:'+x.key];if(e==null)return;this.setState(z=>{const m={...z.led};delete m['f:'+x.key];return{led:m};});if(String(e)===String((l.fields||{})[x.key]??''))return;AK.leadSave(l.id,{fields:{...(l.fields||{}),[x.key]:e}});},
+      pick:e=>{const v=e.target.value;if(isNew){this.setState(z=>({lnew:{...z.lnew,fields:{...(z.lnew.fields||{}),[x.key]:v}}}));return;}AK.leadSave(l.id,{fields:{...(l.fields||{}),[x.key]:v}});}}));
+    const cats=this.leadSet('categories').map(c=>{const on=(l.categories||[]).includes(c.name);const t=this.tagPill(c.name,c.color);
+      return{...t,bg:on?t.bg:'transparent',fg:on?t.fg:'var(--ink-3)',bd:on?'inset 0 0 0 1px '+c.color:'inset 0 0 0 1px var(--hairline-strong)',
+        toggle:()=>{const next=on?(l.categories||[]).filter(x=>x!==c.name):[...(l.categories||[]),c.name];if(isNew)this.setState(z=>({lnew:{...z.lnew,categories:next}}));else AK.leadSave(l.id,{categories:next});}};});
+    const si=ST.findIndex(x=>x.name===l.stage);
+    const track=ST.map((x,i)=>{const on=i===si,past=si>=0&&i<si;return{label:x.name,full:'Move to '+x.name,hasLine:i<ST.length-1,lineBg:past?x.color:'var(--hairline-strong)',dotBg:on||past?x.color:'#fff',
+      sh:on?'0 0 0 4px color-mix(in oklch, '+x.color+' 22%, transparent)':'inset 0 0 0 1.5px var(--hairline-strong)',sc:on?'scale(1.15)':'scale(1)',fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',
+      set:()=>{if(isNew)this.setState(z=>({lnew:{...z.lnew,stage:x.name}}));else if(l.stage!==x.name)AK.leadSave(l.id,{stage:x.name});}};});
+    const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added'};const ICON={note:'✎',call:'☏',message:'✉',email:'@',meeting:'◷',stage:'→',created:'+'};
+    const events=isNew?[]:AK.LD.events.filter(e=>e.lead_id===l.id).sort((a,b)=>new Date(b.at)-new Date(a.at)).map(e=>({icon:ICON[e.kind]||'•',kind:KIND[e.kind]||e.kind,text:e.text,when:this.since(e.at),by:String(e.by_email||'').split('@')[0],
+      canDel:!['stage','created'].includes(e.kind)&&!String(e.id).startsWith('tmp'),del:()=>AK.leadNoteDelete(e.id)}));
+    const kinds=['note','call','message','email','meeting'].map(k=>{const on=s.lkind===k;return{label:KIND[k],go:()=>this.setState({lkind:k}),bg:on?'var(--ink)':'transparent',fg:on?'#fff':'var(--ink-2)'};});
+    const addNote=async()=>{const t=this.state.lnote.trim();if(!t)return;this.setState({lnote:''});await AK.leadNote(l.id,this.state.lkind,t);};
+    const links=[l.email&&{label:'Email',go:()=>{window.location.href='mailto:'+String(l.email).trim();}},l.x_handle&&{label:'X',go:()=>open(AK.xUrl?AK.xUrl(l.x_handle):'https://x.com/'+String(l.x_handle).replace(/^@/,''))},
+      l.linkedin&&{label:'LinkedIn',go:()=>open(/^https?:/.test(l.linkedin)?l.linkedin:'https://'+String(l.linkedin).replace(/^\/+/,''))},
+      l.instagram&&{label:'Instagram',go:()=>open('https://instagram.com/'+String(l.instagram).replace(/^@/,''))},l.website&&{label:'Website',go:()=>open(/^https?:/.test(l.website)?l.website:'https://'+l.website)}].filter(Boolean);
+    const st=this.stageOf(l.stage);const a=avatar(l.name||l.company||'?');
+    const archive=()=>{this.closeLead();AK.leadArchive(l.id,true);this.toast('Archived '+(l.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));};
+    return{open:true,isNew,notNew:!isNew,...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
+      stageP:this.tagPill(l.stage||'',st.color),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
+      track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
+      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
+      notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
+      added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
+
   /* ---------- LinkedIn post tracker (3 Nov) ----------
      The LinkedIn sheet keeps one number per post, its reactions (Performance tab, checked daily), so this page works
      from those: no views, no per-check history, no follower counts. One LinkedIn post a day is the plan. */
@@ -792,7 +1002,7 @@ class Component extends DCLogic {
     const P=this.ppl();const c=this.counts(P);
     this.lastBy=this.lastBy||{};this.lastBy[sec]=page;
     const ambient=this.props.ambient??true;
-    const amb=!ambient?{out:'0',mid:'0',in:'0'}:sec==='home'?{out:'.85',mid:'.75',in:'.75'}:{out:sec==='out'?'1':'.14',mid:sec==='mid'?'1':'.14',in:sec==='in'?'1':'.14'};
+    const amb=!ambient?{out:'0',mid:'0',in:'0'}:sec==='leads'?{out:'.9',mid:'.3',in:'.14'}:sec==='home'?{out:'.85',mid:'.75',in:'.75'}:{out:sec==='out'?'1':'.14',mid:sec==='mid'?'1':'.14',in:sec==='in'?'1':'.14'};
     const secObj=secsFor(s.plat).find(x=>x.id===sec)||SECS.find(x=>x.id===sec);
     const tips={};TIPS.forEach(k=>tips[k]=this.tipFor(k));
     const at=AK.lastUpdate();const tm=at?hhmm(at):'…';const src='Live';
@@ -808,9 +1018,9 @@ class Component extends DCLogic {
       hdr:this.hdrVals(P),loading:L,notLoading:!L,E:{op:E?'1':'0',t:E?'none':'translateY(10px)'},gate,stale:AK.staleNote(),hasStale:!!AK.staleNote()&&ready,
       is:Object.fromEntries(Object.keys(PAGES).map(k=>[k,page===k&&ready&&!gate.on])),skel3:[1,2,3],skel6:[1,2,3,4,5,6],
       tips,hideTip:()=>this.state.tip&&this.setState({tip:null}),
-      cp:this.panelVals(),closePanel:()=>this.setState({cid:null}),pal:this.palVals(),
+      cp:this.panelVals(),closePanel:()=>{if(this.state.lid)this.closeLead();this.setState({cid:null});},lp:this.leadPanel(),pal:this.palVals(),
       toast:{msg:s.toastMsg,hasUndo:!!s.toastUndo,noUndo:!s.toastUndo,ic:s.toastErr?'!':'✓',icBg:s.toastErr?'var(--bad)':'var(--ok)',ws:s.toastErr?'normal':'nowrap',undo:()=>{const u=this.state.toastUndo;this.setState({toastUndo:null,toastOn:false});u&&u();}},
-      ui:{scrimOp:s.cid?'1':'0',scrimPe:s.cid?'auto':'none',pT:narrow?'56px':'12px',pR:narrow?'0px':'12px',pB:narrow?'0px':'12px',pW:narrow?'100%':'var(--panel-w)',pRad:narrow?'var(--r-xl) var(--r-xl) 0 0':'var(--r-xl)',pX:s.cid?'none':(narrow?'translateY(104%)':'translateX(calc(100% + 40px))'),pVis:s.cid?'visible':'hidden',pVisDelay:s.cid?'0s':'420ms',
+      ui:{scrimOp:s.cid||s.lid?'1':'0',scrimPe:s.cid||s.lid?'auto':'none',lX:s.lid?'none':(narrow?'translateY(104%)':'translateX(calc(100% + 40px))'),lVis:s.lid?'visible':'hidden',lVisDelay:s.lid?'0s':'420ms',pT:narrow?'56px':'12px',pR:narrow?'0px':'12px',pB:narrow?'0px':'12px',pW:narrow?'100%':'var(--panel-w)',pRad:narrow?'var(--r-xl) var(--r-xl) 0 0':'var(--r-xl)',pX:s.cid?'none':(narrow?'translateY(104%)':'translateX(calc(100% + 40px))'),pVis:s.cid?'visible':'hidden',pVisDelay:s.cid?'0s':'420ms',
         toastB:narrow?(F.phone?'104px':'84px'):'24px',toastOp:s.toastOn?'1':'0',toastT:s.toastOn?'translate(-50%, 0)':'translate(-50%, 18px)',toastPe:s.toastOn?'auto':'none',
         palPad:narrow?'64px 12px':'12vh 24px',palOp:s.pal?'1':'0',palPe:s.pal?'auto':'none',palT:s.pal?'none':'translateY(-8px) scale(.98)'},
       home:page==='home'&&ready?this.homeVals(P):{}

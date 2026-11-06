@@ -113,4 +113,67 @@ await ok("members can't write the tables directly, only through crm_call", async
   await assert.rejects(db.query("update public.crm_sheet set cells = '{}' where tab = 'Our Posts'"), /permission denied/);
   await assert.rejects(db.query("insert into public.crm_team values ('friend@example.com')"), /permission denied/);
 });
+
+// ───────── Leads ─────────
+const events = async (id) => (await db.query("select kind, text from public.crm_lead_events where lead_id = $1 order by id", [id])).rows;
+let leadId;
+await ok("leads: strangers and anonymous visitors get nothing", async () => {
+  await as("anon");
+  await assert.rejects(db.query("select * from public.crm_leads"), /permission denied/);
+  await as("authenticated", "stranger@example.com");
+  assert.equal((await db.query("select count(*)::int n from public.crm_lead_settings")).rows[0].n, 0);
+  await assert.rejects(db.query("insert into public.crm_leads (name) values ('Sneaky')"), /row-level security/);
+});
+await ok("leads: starting settings are there", async () => {
+  await as("authenticated", "me@example.com");
+  const s = Object.fromEntries((await db.query("select key, value from public.crm_lead_settings")).rows.map((r) => [r.key, r.value]));
+  assert.deepEqual(s.stages.map((x) => x.name), ["New", "Contacted", "In talks", "Proposal sent", "Won", "Lost"]);
+  assert.ok(s.sources.includes("Instagram"));
+  assert.deepEqual([s.groups, s.categories, s.fields, s.currency], [[], [], [], "USD"]);
+});
+await ok("leads: a member adds a lead; it's logged with who added it", async () => {
+  const r = await db.query(`insert into public.crm_leads (name, company, source, direction, categories, price, fields, origin_key)
+    values ('Priya Raman', 'Loopline', 'LinkedIn', 'Inbound', '{GTM,Founders}', 4000, '{"budget":"5k"}', 'li-magnet:priya') returning *`);
+  leadId = r.rows[0].id;
+  assert.equal(r.rows[0].stage, "New"); assert.equal(r.rows[0].created_by, "me@example.com");
+  assert.deepEqual(await events(leadId), [{ kind: "created", text: "Added from LinkedIn as New" }]);
+  await assert.rejects(db.query("insert into public.crm_leads (name, origin_key) values ('Priya again', 'li-magnet:priya')"), /duplicate key/);
+});
+await ok("leads: stage changes and notes go into the history and count as a touch", async () => {
+  const before = (await db.query("select updated_at from public.crm_leads where id = $1", [leadId])).rows[0].updated_at;
+  await db.query("update public.crm_leads set stage = 'In talks', pitch = 'GTM retainer' where id = $1", [leadId]);
+  let l = (await db.query("select * from public.crm_leads where id = $1", [leadId])).rows[0];
+  assert.ok(l.last_touch); assert.ok(l.updated_at >= before);
+  await db.query("update public.crm_leads set notes = 'Wants a call next week' where id = $1", [leadId]);
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text) values ($1, 'call', 'Intro call, 20 min')", [leadId]);
+  assert.deepEqual((await events(leadId)).map((e) => e.kind + ": " + e.text), ["created: Added from LinkedIn as New", "stage: New → In talks", "call: Intro call, 20 min"]);
+  await assert.rejects(db.query("insert into public.crm_lead_events (lead_id, kind, text) values ($1, 'hack', 'x')", [leadId]), /check constraint/);
+});
+await ok("leads: renaming a stage or category in Setup moves the leads without logging or touching them", async () => {
+  const id = (await db.query("insert into public.crm_leads (name, stage, categories) values ('Old lead', 'In talks', '{Hot,GTM}') returning id")).rows[0].id;
+  await db.query("update public.crm_leads set last_touch = '2026-01-01', stage_at = '2026-01-01' where id = $1", [id]);
+  assert.equal((await db.query("select public.crm_lead_rename('stages', 'In talks', 'Negotiating') n")).rows[0].n >= 1, true);
+  assert.equal((await db.query("select public.crm_lead_rename('categories', 'Hot', 'Warm') n")).rows[0].n, 1);
+  const l = (await db.query("select stage, categories, last_touch, stage_at from public.crm_leads where id = $1", [id])).rows[0];
+  assert.equal(l.stage, "Negotiating"); assert.deepEqual(l.categories, ["Warm", "GTM"]);
+  assert.equal(new Date(l.last_touch).getUTCFullYear(), 2026); assert.equal(new Date(l.stage_at).toISOString().slice(0, 10), "2026-01-01");
+  assert.deepEqual((await events(id)).map((e) => e.kind), ["created"]);
+  await db.query("update public.crm_leads set stage = 'Won' where id = $1", [id]);   // a real move still logs and dates
+  assert.ok(new Date((await db.query("select stage_at from public.crm_leads where id = $1", [id])).rows[0].stage_at) > new Date("2026-06-01"));
+  assert.deepEqual((await events(id)).map((e) => e.text).at(-1), "Negotiating → Won");
+  await as("authenticated", "stranger@example.com");
+  await assert.rejects(db.query("select public.crm_lead_rename('stages', 'Won', 'Pwned')"), /not on the team/);
+  await as("anon");
+  await assert.rejects(db.query("select public.crm_lead_rename('stages', 'Won', 'Pwned')"), /permission denied/);
+  await as("authenticated", "me@example.com");
+  await db.query("delete from public.crm_leads where id = $1", [id]);
+});
+await ok("leads: settings are editable; deleting a lead removes its history", async () => {
+  await db.query(`update public.crm_lead_settings set value = '[{"name":"YC founders","color":"var(--out)"}]' where key = 'groups'`);
+  assert.equal((await db.query("select value from public.crm_lead_settings where key = 'groups'")).rows[0].value[0].name, "YC founders");
+  await db.query("delete from public.crm_leads where id = $1", [leadId]);
+  assert.equal((await events(leadId)).length, 0);
+  await as("authenticated", "stranger@example.com");
+  await assert.rejects(db.query("update public.crm_lead_settings set value = '[]' where key = 'stages'").then((r) => { if (!r.affectedRows) throw new Error("row-level security: nothing updated"); }), /row-level security/);
+});
 console.log(`\n${passed} checks passed`);

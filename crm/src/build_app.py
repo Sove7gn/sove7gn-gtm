@@ -310,7 +310,14 @@ sel = src[j0:j1]
 opts = sel[sel.index('<option'):sel.index('</select>')]
 src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" aria-label="Whose work to show"',
     'value="{{ plat }}" onChange="{{ onPlatSel }}" aria-label="Which platform"').replace(opts,
-    '<option value="X">X</option>\n<option value="LinkedIn">LinkedIn</option>\n').replace('max-width:132px;', 'max-width:110px;') + "\n" + src[j0:]
+    '<option value="X">X</option>\n<option value="LinkedIn">LinkedIn</option>\n<option value="Leads">Leads</option>\n').replace('max-width:132px;', 'max-width:110px;') + "\n" + src[j0:]
+
+# ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
+k0 = src.index('<sc-if value="{{ is.calendar }}">')
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+a0 = src.index('<aside aria-label="Contact"')
+a1 = src.index('</aside>', a0) + len('</aside>')
+src = src[:a1] + "\n\n" + open(os.path.join(HERE, "leads_panel.html"), encoding="utf-8").read().strip() + src[a1:]
 
 # ---------- post tracker: labels come from the page logic, so the LinkedIn version can talk about reactions ----------
 rep('font-weight:600;">Total views over time</span>', 'font-weight:600;">{{ trk.L.chart }}</span>')
