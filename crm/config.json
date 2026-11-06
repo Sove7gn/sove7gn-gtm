@@ -14,5 +14,9 @@
     "Sales leaders",
     "Everyone"
   ],
-  "folders": []
+  "folders": [],
+  "automation": {
+    "linkedin_profile": "https://www.linkedin.com/in/reyansh-juneja/",
+    "icp": "We sell go-to-market help and short-form clipping to startups: getting funded founders seen on LinkedIn and X by the people who buy from them. Hot = a founder, co-founder, CEO, or head of growth, marketing or sales at a startup or growing business that could buy this. Warm = could buy or refer later: investors, senior operators, consultants, coaches. Not a fit = students, job seekers, people selling to us, unrelated roles, and other clipping or GTM agencies (they are competitors)."
+  }
 }

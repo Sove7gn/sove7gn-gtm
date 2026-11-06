@@ -8,6 +8,7 @@
 <span style="font-size:var(--fs-sm); color:var(--ink-3);">{{ lp.sub }}</span>
 <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
 <span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:500; background:{{ lp.stageP.bg }}; color:{{ lp.stageP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ lp.stageP.dot }};"></span>{{ lp.stageP.label }}</span>
+<sc-if value="{{ lp.hasHeat }}"><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:700; background:{{ lp.heatP.bg }}; color:{{ lp.heatP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ lp.heatP.dot }};"></span>{{ lp.heatP.label }}</span></sc-if>
 <span style="display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:500; background:var(--n-soft); color:var(--ink-2);">{{ lp.srcLabel }}</span>
 </div>
 </div>

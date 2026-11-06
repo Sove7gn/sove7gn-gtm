@@ -52,6 +52,17 @@ export async function setup(sql, { log = console.log } = {}) {
     await sql`insert into public.crm_sheet (tab, row, cells) values ('Settings', ${i + 1}, ${cells})
       on conflict (tab, row) do update set cells = excluded.cells, updated_at = now()`;
   log(`LinkedIn sheet: ${liSheet ? "set" : "not set"}`);
+  // Automation (Leads): fill in our LinkedIn profile, who we sell to and the owner, but never overwrite what Setup changed.
+  const auto = cfg.automation || {};
+  if (auto.linkedin_profile || auto.icp) {
+    const fill = { linkedin_profile: auto.linkedin_profile || "", icp: auto.icp || "", owner: (cfg.accounts || [])[0]?.name || "" };
+    await sql`update public.crm_lead_settings set value = ${sql.json(fill)}::jsonb || value
+      || jsonb_strip_nulls(jsonb_build_object(
+        'linkedin_profile', case when coalesce(value->>'linkedin_profile','') = '' then ${fill.linkedin_profile}::text end,
+        'icp', case when coalesce(value->>'icp','') = '' then ${fill.icp}::text end,
+        'owner', case when coalesce(value->>'owner','') = '' then ${fill.owner}::text end))
+      where key = 'automation'`;
+  }
   for (const email of team) await sql`insert into public.crm_team (email) values (${email}) on conflict do nothing`;
   log(`team emails: ${team.length}`);
 }

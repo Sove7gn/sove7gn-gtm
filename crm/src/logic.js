@@ -18,16 +18,17 @@ const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=dat
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},liPeople:{sec:'mid',label:'Who engaged'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
 const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBoard','leadList','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
-const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker'];
-const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:plat==='Leads'?LEAD_SEC.pages:Object.keys(PAGES).filter(k=>PAGES[k].sec!=='leads');
-const secsFor=plat=>plat==='LinkedIn'?SECS.map(x=>({...x,pages:x.pages.filter(k=>LI_PAGES.includes(k))})).filter(x=>x.pages.length):plat==='Leads'?[LEAD_SEC]:SECS;
+const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liPeople'];const LI_ONLY=['liPeople'];
+const LI_SECS=[{id:'in',label:'Posts',hint:'What goes out and how it does',pages:['calendar','tracker']},{id:'mid',label:'People',hint:'Everyone who liked or commented',pages:['liPeople']}];
+const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:plat==='Leads'?LEAD_SEC.pages:Object.keys(PAGES).filter(k=>PAGES[k].sec!=='leads'&&!LI_ONLY.includes(k));
+const secsFor=plat=>plat==='LinkedIn'?LI_SECS:plat==='Leads'?[LEAD_SEC]:SECS;
 const ACC={leads:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},home:{c:'var(--ink)',ink:'var(--ink-2)',soft:'var(--n-soft)',btn:'primary'},out:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},mid:{c:'var(--mid)',ink:'var(--mid-ink)',soft:'var(--mid-soft)',btn:'mid'},in:{c:'var(--in)',ink:'var(--in-ink)',soft:'var(--in-soft)',btn:'in'}};
 const CFG=window.CRM_CONFIG||{};const BRAND=CFG.brand||'CRM';
 const OWNERS=['Everyone',...Object.keys(AK.HANDLES)];
@@ -81,6 +82,8 @@ const TRK_X={chart:'Total views over time',noChart:'The chart fills in after the
 const TRK_LI={chart:'Reactions per post, oldest to newest',noChart:'The chart fills in once two posts have reactions.',noTop:'Shows up once a post has reactions.',
   noPat:'Patterns show up once a few more posts have reactions.',c1:'Reactions',c2:'Post type',c3:'Checked',
   weekTip:'Green: a LinkedIn post went out that day (by the sheet’s date). Yellow: still queued, or today with nothing yet. Red: no post that day. Underneath: that day’s reactions.'};
+const HEAT_C={Hot:'oklch(0.66 0.17 40)',Warm:'var(--warn)'};
+const FIT={hot:{label:'Hot lead',c:'oklch(0.66 0.17 40)'},warm:{label:'Warm',c:'var(--warn)'},'not a fit':{label:'Not a fit',c:'var(--ink-4)'},'':{label:'Checking…',c:'var(--ink-4)'}};
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
 
 /* sheet <-> design */
@@ -124,7 +127,7 @@ class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''},lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -273,7 +276,7 @@ class Component extends DCLogic {
   /* ---------- header ---------- */
   hdrVals(P){const s=this.state;const page=s.page;const sec=PAGES[page].sec;const A=ACC[sec];const B=BTN[A.btn];
     const L=this.lists(P);const rep=L.rep,calls=L.calls,fu=L.fu,ts=L.ts;
-    let h={eyebrow:SECLBL[sec]+' · '+PAGES[page].label,title:PAGES[page].label,next:'',cta:'',go:null};
+    let h={eyebrow:(s.plat==='LinkedIn'?'LinkedIn':SECLBL[sec])+' · '+PAGES[page].label,title:PAGES[page].label,next:'',cta:'',go:null};
     const g=AK.gate();
     if(page==='home'){h.eyebrow='Home · today';h.title=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
       if(rep[0])h={...h,next:'Reply to '+rep[0].name+' at '+rep[0].company+' first.'+(rep.length>1?' '+(rep.length-1)+' other '+(rep.length-1===1?'reply is':'replies are')+' waiting.':''),cta:'Open reply',go:()=>this.openC(rep[0].id)};
@@ -305,6 +308,7 @@ class Component extends DCLogic {
     if(page==='comps'){const top=this.compList().filter(c=>c.freshUncopied>0).sort((a,b)=>b.freshUncopied-a.freshUncopied)[0];
       h.next=top?top.name+' posted '+top.freshUncopied+' post'+(top.freshUncopied===1?'':'s')+' in the last 7 days that we haven’t copied yet.':'No competitor has posted anything new and uncopied in the last 7 days.';h.cta=top?'Open '+top.name:'';h.go=top?()=>this.openComp(top.id):null;}
     if(sec==='leads')h=this.leadHdr(page,h);
+    if(page==='liPeople')h=this.liPeopleHdr(h);
     if(g&&!g.wait){h.next='Nothing to show until the data loads.';h.cta='';h.go=null;}
     if(this.founder&&page!=='home'){h.cta=h.go?h.cta.replace('Copy our version','See posts'):'';}
     return{...h,hasCta:!!(h.cta&&h.go),dot:A.c,ink:A.ink,soft:A.soft,bg:B.bg,fg:B.fg,sh:B.sh};}
@@ -470,7 +474,7 @@ class Component extends DCLogic {
         const tone=/double/i.test(vt)?'ok':/rewrite|kill|drop/i.test(vt)?'bad':/keep/i.test(vt)?'warn':'neutral';const k='tpl'+code;const cb=this.copyBtn(k,'Copy opener');
         const f1=Object.keys(x).find(h=>h.indexOf('Follow-up 1')===0),f2=Object.keys(x).find(h=>h.indexOf('Follow-up 2')===0);
         return{code,isBest:code===best&&r>=0.04,sent:String(sent),rep:String(rep),rate:sent?Math.round(r*100)+'%':'–',rateW:this.state.entered?Math.min(100,r*500)+'%':'0%',rateBg:tone==='ok'?'var(--ok)':tone==='bad'?'var(--bad)':tone==='warn'?'var(--warn)':'var(--ink-4)',verdict:pill(vt,tone),open:x.Opener,f1:(f1&&x[f1])||'–',f2:(f2&&x[f2])||'–',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(x.Opener,k,code+' opener copied')};})};});}
-  moreVals(P){const pg=this.state.page;const o={};if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);
+  moreVals(P){const pg=this.state.page;const o={};if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -667,7 +671,7 @@ class Component extends DCLogic {
   tagOf(kind,name){const t=this.leadSet(kind).find(x=>(x.name||x)===name);return t&&t.color?t.color:'var(--ink-3)';}
   leadFiltered(){const f=this.state.lf;const q=f.q.trim().toLowerCase();
     return this.leadsAll().filter(l=>(!q||[l.name,l.company,l.role,l.email,l.x_handle,l.linkedin,l.instagram,l.pitch,l.notes,l.group_name,(l.categories||[]).join(' ')].join(' ').toLowerCase().includes(q))
-      &&(!f.source||l.source===f.source)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
+      &&(!f.source||l.source===f.source)&&(!f.heat||l.heat===f.heat)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
   // Saves edits still in the panel's buffer (closing it skips the inputs' blur), then clears the buffer.
   flushLead(){const s=this.state;const id=s.lid;if(!id||id==='new')return;const l=AK.LD.rows.find(r=>r.id===id);if(!l)return;
     const patch={};let fields=null;
@@ -692,12 +696,15 @@ class Component extends DCLogic {
     return{...a,id:l.id,name:l.name||'(no name)',company:[l.role,l.company].filter(Boolean).join(' · ')||l.email||l.x_handle||'',src:(l.source?this.srcIcon(l.source)+' '+l.source:'No source')+' · '+(l.direction||''),
       value:this.money(l.price,l.currency),hasValue:l.price!=null&&l.price!=='',next:nx?pill(nx.label,nx.tone):null,hasNext:!!nx,stage:this.tagPill(l.stage,st.color),
       group:l.group_name?this.tagPill(l.group_name,this.tagOf('groups',l.group_name)):null,hasGroup:!!l.group_name,
+      heat:l.heat?this.tagPill(l.heat==='Hot'?'Hot lead':'Warm lead',HEAT_C[l.heat]):null,hasHeat:!!l.heat,
       cats:(l.categories||[]).slice(0,3).map(c=>this.tagPill(c,this.tagOf('categories',c))),when:l.last_touch?'Touched '+this.since(l.last_touch):'Added '+this.since(l.created_at),
       open:()=>this.openLead(l.id)};}
   leadHdr(page,h){const L=this.leadsAll();const open=L.filter(l=>this.stageOf(l.stage).kind==='open');const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});
     h={...h,eyebrow:'Leads · '+PAGES[page].label,title:PAGES[page].label==='Overview'?'Leads':PAGES[page].label,cta:'New lead',go:()=>this.newLead()};
     const st=AK.leadsState();
     if(!st.loaded)h.next=st.err?'Couldn’t load leads: '+st.err:'Loading leads…';
+    else if(page==='leads'&&open.some(l=>l.heat==='Hot'&&!l.last_touch)){const f=open.filter(l=>l.heat==='Hot'&&!l.last_touch).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+      h.next=f.length+(f.length===1?' new hot lead':' new hot leads')+' from your posts, not contacted yet. Newest: '+(f[0].name||f[0].company)+(f[0].role||f[0].company?' ('+[f[0].role,f[0].company].filter(Boolean).join(', ')+')':'')+'.';}
     else if(page==='leads')h.next=due.length?due.length+(due.length===1?' lead needs':' leads need')+' you today, starting with '+(due[0].name||due[0].company)+': '+(due[0].next_step||'next step')+'.':L.length?open.length+' open '+(open.length===1?'lead':'leads')+', nothing due today.':'No leads yet. Add one, or bring people in from X and LinkedIn.';
     else if(page==='leadBoard')h.next='Drag a card to move it to another stage. '+open.length+' open, worth '+this.moneySum(open)+'.';
     else if(page==='leadList')h.next=L.length+(L.length===1?' lead':' leads')+'. Click a column to sort, and a row to open it.';
@@ -711,7 +718,8 @@ class Component extends DCLogic {
     return{q:f.q,onQ:e=>set('q',e.target.value),source:f.source,onSource:e=>set('source',e.target.value),group:f.group,onGroup:e=>set('group',e.target.value),cat:f.cat,onCat:e=>set('cat',e.target.value),dir:f.dir,onDir:e=>set('dir',e.target.value),
       sources:opts('All sources',this.leadSet('sources')),groups:opts('All groups',this.leadSet('groups')),cats:opts('All categories',this.leadSet('categories')),dirs:opts('Inbound and outbound',['Inbound','Outbound']),
       hasGroups:this.leadSet('groups').length>0,hasCats:this.leadSet('categories').length>0,
-      active:!!(f.q||f.source||f.group||f.cat||f.dir),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:''}}),
+      heat:f.heat,onHeat:e=>set('heat',e.target.value),heats:[{v:'',l:'All leads'},{v:'Hot',l:'Hot leads'},{v:'Warm',l:'Warm leads'}],
+      active:!!(f.q||f.source||f.group||f.cat||f.dir||f.heat),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''}}),
       exportCsv:()=>this.exportLeads()};}
   exportLeads(){const L=this.leadFiltered();if(!L.length){this.toast('No leads to export.',null,true);return;}
     const F=this.leadSet('fields');const cols=['name','company','role','email','phone','x_handle','linkedin','instagram','website','direction','source','source_detail','stage','group_name','categories','pitch','price','currency','pricing_note','closed_for','next_step','next_date','owner','last_touch','created_at','notes'];
@@ -730,17 +738,19 @@ class Component extends DCLogic {
     const open=L.filter(l=>kindOf(l)==='open'),won=L.filter(l=>kindOf(l)==='won'),lost=L.filter(l=>kindOf(l)==='lost');
     const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const wonM=won.filter(l=>new Date(l.stage_at||l.updated_at)>=m0);
     const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});const cold=open.filter(l=>!this.leadNext(l)&&Date.now()-new Date(l.last_touch||l.created_at).getTime()>7*AK.DAY);
+    const fresh=open.filter(l=>l.heat==='Hot'&&!l.last_touch&&!due.includes(l));const coldOnly=cold.filter(l=>!fresh.includes(l));
     const kpis=[{label:'Open leads',v:String(open.length),d:L.length+' in total',tone:'var(--ink-3)'},{label:'Open pipeline',v:this.moneySum(open),d:'Value of every open lead',tone:'var(--ink-3)'},
       {label:'Won this month',v:String(wonM.length),d:wonM.length?this.moneySum(wonM):'Nothing closed yet this month',tone:'var(--ok-ink)'},
       {label:'Win rate',v:won.length+lost.length?Math.round(won.length/(won.length+lost.length)*100)+'%':'–',d:won.length+' won, '+lost.length+' lost',tone:'var(--ink-3)'},
-      {label:'Need you',v:String(due.length+cold.length),d:due.length+' due or overdue, '+cold.length+' quiet for a week',tone:due.length?'var(--bad-ink)':'var(--ink-3)'}];
-    const att=[...due.map(l=>({l,why:this.leadNext(l).label,tone:this.leadNext(l).late?'bad':'warn'})),...cold.map(l=>({l,why:'No touch since '+this.since(l.last_touch||l.created_at)+' and no next step',tone:'neutral'}))].slice(0,8)
+      {label:'Hot leads',v:String(open.filter(l=>l.heat==='Hot').length),d:fresh.length?fresh.length+' new, not contacted yet':'Found automatically from your posts',tone:fresh.length?'var(--warn-ink)':'var(--ink-3)'},
+      {label:'Need you',v:String(due.length+coldOnly.length+fresh.length),d:(fresh.length?fresh.length+' new hot, ':'')+due.length+' due or overdue, '+coldOnly.length+' quiet for a week',tone:due.length?'var(--bad-ink)':'var(--ink-3)'}];
+    const att=[...fresh.map(l=>({l,why:'New hot lead · '+(l.source_detail||'found automatically'),tone:'warn'})),...due.map(l=>({l,why:this.leadNext(l).label,tone:this.leadNext(l).late?'bad':'warn'})),...coldOnly.map(l=>({l,why:'No touch since '+this.since(l.last_touch||l.created_at)+' and no next step',tone:'neutral'}))].slice(0,8)
       .map(x=>({...this.leadCard(x.l),why:pill(x.why,x.tone)}));
     const mx=Math.max(1,...ST.map(x=>L.filter(l=>l.stage===x.name).length));
     const byStage=ST.map(x=>{const a=L.filter(l=>l.stage===x.name);return{name:x.name,dot:x.color,n:String(a.length),val:a.some(l=>l.price!=null&&l.price!=='')?this.moneySum(a):'',w:E?(a.length/mx*100)+'%':'0%',go:()=>{this.go('leadBoard');}};});
     const SRC=[...new Set([...this.leadSet('sources'),...L.map(l=>l.source).filter(Boolean)])];const mxs=Math.max(1,...SRC.map(x=>L.filter(l=>l.source===x).length));
     const bySource=SRC.map(x=>{const a=L.filter(l=>l.source===x);const i=a.filter(l=>l.direction==='Inbound').length;return{name:this.srcIcon(x)+'  '+x,n:String(a.length),sub:i+' inbound, '+(a.length-i)+' outbound',w:E?(a.length/mxs*100)+'%':'0%',wIn:a.length?(i/a.length*100)+'%':'0%',go:()=>{this.setState(z=>({lf:{...z.lf,source:x}}));this.go('leadList');}};}).filter(x=>x.n!=='0');
-    const byId=new Map(AK.LD.rows.map(l=>[l.id,l]));const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added'};
+    const byId=new Map(AK.LD.rows.map(l=>[l.id,l]));const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added',engaged:'Engaged'};
     const recent=AK.LD.events.filter(e=>byId.has(e.lead_id)&&!byId.get(e.lead_id).archived).slice(0,10).map(e=>{const l=byId.get(e.lead_id);return{...avatar(l.name||l.company),who:l.name||l.company||'(no name)',what:KIND[e.kind]+': '+clip(e.text,90),when:this.since(e.at),open:()=>this.openLead(l.id)};});
     const groups=this.leadSet('groups').map(g=>({...this.tagPill(g.name,g.color),n:String(L.filter(l=>l.group_name===g.name).length),go:()=>{this.setState(z=>({lf:{...z.lf,group:g.name}}));this.go('leadBoard');}}));
     return{kpis,att,hasAtt:att.length>0,noAtt:!att.length,byStage,bySource,hasSource:bySource.length>0,noSource:!bySource.length,recent,hasRecent:recent.length>0,noRecent:!recent.length,groups,hasGroups:groups.length>0,empty:!L.length};}
@@ -815,7 +825,17 @@ class Component extends DCLogic {
         AK.leadSettingSave('fields',[...F,{key,label,type:fv.type,options:fv.type==='select'?String(fv.options||'').split(',').map(x=>x.trim()).filter(Boolean):[]}]);this.setState(z=>({lsetNew:{...z.lsetNew,__field:{label:'',type:'text',options:''}}}));},
       types:[{v:'text',l:'Text'},{v:'number',l:'Number'},{v:'date',l:'Date'},{v:'select',l:'Pick from a list'},{v:'textarea',l:'Long text'}],has:F.length>0};
     const cur=AK.leadSetting('currency')||'USD';
-    return{lists,fields,currency:(s.led.__cur!=null?s.led.__cur:cur),setCurrency:e=>{const v=e.target.value.toUpperCase();this.setState(z=>({led:{...z.led,__cur:v}}));},
+    const A=AK.leadSetting('automation')||{};const aset=(k,v)=>{if(!AK.leadsState().loaded||!AK.LD.settings.automation){this.toast('Still loading your settings. Try again in a moment.',null,true);return;}AK.leadSettingSave('automation',{...AK.LD.settings.automation,[k]:v});};
+    const abuf=k=>s.led['__a_'+k]!=null?s.led['__a_'+k]:(A[k]||'');
+    const asave=k=>()=>{const v=this.state.led['__a_'+k];if(v==null)return;this.setState(z=>{const m={...z.led};delete m['__a_'+k];return{led:m};});if(String(v).trim()!==String(A[k]||''))aset(k,String(v).trim());};
+    const tog=(k,label,help)=>{const on=A[k]!==false&&(k!=='add_warm'||!!A[k]);return{label,help,on,txt:on?'On':'Off',bg:on?'var(--ok-soft)':'var(--n-soft)',fg:on?'var(--ok-ink)':'var(--ink-3)',bd:on?'inset 0 0 0 1px var(--ok-line)':'inset 0 0 0 1px var(--hairline-strong)',flip:()=>aset(k,!on)};};
+    const rs=this.runState();const runs=AK.SOC.runs.slice(0,5).map(r=>({when:this.since(r.started_at),ok:r.ok!==false,txt:r.ok===false?'Didn’t finish: '+r.error:!r.finished_at?(r===rs.top&&rs.running?'Running…':'Didn’t finish'):r.summary&&r.summary.skipped?r.summary.skipped:
+      (r.summary.posts||0)+' posts, '+(r.summary.people||0)+' people, '+(r.summary.leads_added||0)+' new leads',fg:r.ok===false?'var(--bad-ink)':'var(--ink-2)'}));
+    const auto={profile:abuf('linkedin_profile'),setProfile:e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__a_linkedin_profile:v}}));},saveProfile:asave('linkedin_profile'),
+      icp:abuf('icp'),setIcp:e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__a_icp:v}}));},saveIcp:asave('icp'),
+      toggles:[tog('enabled','Check my posts automatically','Twice a day, at 9:00 and 21:00 IST.'),tog('add_hot','Add hot leads to Leads','Founders and decision makers who could buy.'),tog('add_warm','Add warm leads too','People who could buy or refer later.')],
+      runs,hasRuns:runs.length>0,running:rs.running,notRunning:!rs.running,run:()=>AK.socialRun(),ready:AK.leadsState().loaded};
+    return{auto,lists,fields,currency:(s.led.__cur!=null?s.led.__cur:cur),setCurrency:e=>{const v=e.target.value.toUpperCase();this.setState(z=>({led:{...z.led,__cur:v}}));},
       saveCurrency:()=>{const v=String(this.state.led.__cur||'').trim().toUpperCase();this.setState(z=>{const m={...z.led};delete m.__cur;return{led:m};});if(/^[A-Z]{3}$/.test(v)&&v!==cur)AK.leadSettingSave('currency',v);}};}
   // The side panel for one lead (or a new one): every field edits in place and saves when you leave it.
   leadPanel(){const s=this.state;const id=s.lid;if(!id)return{open:false};const isNew=id==='new';const l=isNew?s.lnew:AK.LD.rows.find(r=>r.id===id);
@@ -831,7 +851,7 @@ class Component extends DCLogic {
       row('X','x_handle','text',{ph:'@handle'}),row('LinkedIn','linkedin','text',{ph:'Profile link'}),row('Instagram','instagram','text',{ph:'@handle'}),row('Website','website','text')];
     const deal=[row('Direction','direction','select',{opts:opt(['Inbound','Outbound'])}),row('Source','source','select',{opts:opt(withCur(this.leadSet('sources'),l.source),'Pick a source')}),row('Came from','source_detail','text',{ph:'Which post, campaign or person'}),
       row('Group','group_name','select',{opts:opt(withCur(this.leadSet('groups'),l.group_name),'No group')}),row('Owner','owner','select',{opts:opt(withCur(Object.keys(AK.HANDLES),l.owner),'Nobody')}),
-      row('Pitching','pitch','textarea',{ph:'What we’re pitching them'}),row('Value','price','number',{ph:'Deal value'}),row('Currency','currency','text',{ph:'USD'}),row('Pricing','pricing_note','text',{ph:'e.g. $4,000 a month, 3 months'}),
+      row('Lead heat','heat','select',{opts:[{v:'',l:'–'},{v:'Hot',l:'Hot lead'},{v:'Warm',l:'Warm lead'}]}),row('Pitching','pitch','textarea',{ph:'What we’re pitching them'}),row('Value','price','number',{ph:'Deal value'}),row('Currency','currency','text',{ph:'USD'}),row('Pricing','pricing_note','text',{ph:'e.g. $4,000 a month, 3 months'}),
       row('Closed for','closed_for','text',{ph:'What they bought, once won'}),row('Next step','next_step','text',{ph:'e.g. Send the proposal'}),row('Next step date','next_date','date')];
     const F=this.leadSet('fields');const fv=k=>{if(isNew)return(l.fields||{})[k]??'';const e=s.led['f:'+k];return e!=null?e:((l.fields||{})[k]??'');};
     const custom=F.map(x=>({label:x.label,type:x.type,isText:x.type==='text',isNum:x.type==='number',isDate:x.type==='date',isSel:x.type==='select',isArea:x.type==='textarea',val:fv(x.key),ph:'',opts:[{v:'',l:'–'},...(x.options||[]).map(o=>({v:o,l:o}))],
@@ -845,7 +865,7 @@ class Component extends DCLogic {
     const track=ST.map((x,i)=>{const on=i===si,past=si>=0&&i<si;return{label:x.name,full:'Move to '+x.name,hasLine:i<ST.length-1,lineBg:past?x.color:'var(--hairline-strong)',dotBg:on||past?x.color:'#fff',
       sh:on?'0 0 0 4px color-mix(in oklch, '+x.color+' 22%, transparent)':'inset 0 0 0 1.5px var(--hairline-strong)',sc:on?'scale(1.15)':'scale(1)',fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',
       set:()=>{if(isNew)this.setState(z=>({lnew:{...z.lnew,stage:x.name}}));else if(l.stage!==x.name)AK.leadSave(l.id,{stage:x.name});}};});
-    const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added'};const ICON={note:'✎',call:'☏',message:'✉',email:'@',meeting:'◷',stage:'→',created:'+'};
+    const KIND={note:'Note',call:'Call',message:'Message',email:'Email',meeting:'Meeting',stage:'Stage',created:'Added',engaged:'Engaged'};const ICON={note:'✎',call:'☏',message:'✉',email:'@',meeting:'◷',stage:'→',created:'+',engaged:'♥'};
     const events=isNew?[]:AK.LD.events.filter(e=>e.lead_id===l.id).sort((a,b)=>new Date(b.at)-new Date(a.at)).map(e=>({icon:ICON[e.kind]||'•',kind:KIND[e.kind]||e.kind,text:e.text,when:this.since(e.at),by:String(e.by_email||'').split('@')[0],
       canDel:!['stage','created'].includes(e.kind)&&!String(e.id).startsWith('tmp'),del:()=>AK.leadNoteDelete(e.id)}));
     const kinds=['note','call','message','email','meeting'].map(k=>{const on=s.lkind===k;return{label:KIND[k],go:()=>this.setState({lkind:k}),bg:on?'var(--ink)':'transparent',fg:on?'#fff':'var(--ink-2)'};});
@@ -856,11 +876,58 @@ class Component extends DCLogic {
     const st=this.stageOf(l.stage);const a=avatar(l.name||l.company||'?');
     const archive=()=>{this.closeLead();AK.leadArchive(l.id,true);this.toast('Archived '+(l.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));};
     return{open:true,isNew,notNew:!isNew,...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
-      stageP:this.tagPill(l.stage||'',st.color),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
+      stageP:this.tagPill(l.stage||'',st.color),heatP:l.heat?this.tagPill(l.heat==='Hot'?'Hot lead':'Warm lead',HEAT_C[l.heat]):null,hasHeat:!!l.heat,srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
       noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
+
+  /* ---------- Who engaged (7 Nov) ----------
+     Everyone who liked or commented on our LinkedIn posts (AK.SOC, filled twice a day by the social-sync job), with what we
+     make of each person. Hot leads go to Leads on their own; anyone else can be added with one click. */
+  // The newest run that read posts, and whether one is going right now (here or started by the schedule or a teammate).
+  runState(){const R=AK.SOC.runs;const real=R.find(r=>r.ok&&r.finished_at&&!(r.summary&&r.summary.skipped));const top=R[0];
+    const live=!!top&&!top.finished_at&&Date.now()-new Date(top.started_at).getTime()<3*60e3;const stuck=!!top&&!top.finished_at&&!live;
+    return{last:real||null,running:AK.SOC.running||live,stuck,top:top||null};}
+  socPeople(){const posts=new Map(AK.SOC.posts.map(p=>[p.platform+'|'+p.post_id,p]));const by=new Map();
+    for(const e of AK.SOC.eng){const k=e.platform+'|'+e.person_key;if(!by.has(k))by.set(k,[]);by.get(k).push({...e,post:posts.get(e.platform+'|'+e.post_id)});}
+    return AK.SOC.people.filter(p=>!p.is_self).map(p=>{const acts=(by.get(p.platform+'|'+p.person_key)||[]).sort((a,b)=>new Date(b.at||b.first_seen)-new Date(a.at||a.first_seen));
+      return{p,acts,liked:acts.filter(a=>a.kind==='liked').length,commented:acts.filter(a=>a.kind==='commented').length,last:acts.length?new Date(acts[0].first_seen).getTime():new Date(p.last_seen).getTime()};});}
+  liPeopleHdr(h){const P=this.socPeople();const hot=P.filter(x=>x.p.fit==='hot');const inLeads=hot.filter(x=>x.p.lead_id).length;const r=AK.SOC.runs[0];const rs=this.runState();
+    return{...h,next:!AK.SOC.loaded?'Loading…':!P.length?'Nobody yet. Everyone who likes or comments on your posts shows up here after the next check.':
+      hot.length+(hot.length===1?' hot lead':' hot leads')+' among '+P.length+' people who engaged, '+inLeads+' already in Leads.'+(r&&r.ok===false?' The last check didn’t finish.':''),
+      cta:rs.running?'Checking…':'Check now',go:rs.running?null:()=>AK.socialRun()};}
+  liPeopleVals(){const s=this.state;const f=s.lpf;const all=this.socPeople();const set=(k,v)=>this.setState(z=>({lpf:{...z.lpf,[k]:v}}));
+    const posts=AK.SOC.posts.slice().sort((a,b)=>new Date(b.posted_at)-new Date(a.posted_at));
+    const inPost=x=>!f.post||x.acts.some(a=>a.post_id===f.post),inKind=x=>!f.kind||(f.kind==='commented'?x.commented>0:x.liked>0);
+    const base=all.filter(x=>inPost(x)&&inKind(x));
+    const tabs=[['hot','Hot leads'],['warm','Warm'],['not a fit','Not a fit'],['','Everyone']].map(([k,label])=>{const on=f.fit===k;const n=k?base.filter(x=>x.p.fit===k).length:base.length;
+      return{label,count:String(n),go:()=>set('fit',k),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
+    const list=base.filter(x=>!f.fit||x.p.fit===f.fit).sort((a,b)=>(b.p.fit==='hot')-(a.p.fit==='hot')||b.last-a.last);
+    const leadById=new Map(AK.LD.rows.map(l=>[l.id,l]));
+    const cards=list.slice(0,120).map(x=>{const p=x.p;const F=FIT[p.fit]||FIT[''];const said=x.acts.find(a=>a.said);const lead=p.lead_id?leadById.get(p.lead_id):null;
+      const did=[x.liked?'Liked '+(x.liked===1?'1 post':x.liked+' posts'):'',x.commented?'commented '+(x.commented===1?'once':x.commented+' times'):''].filter(Boolean).join(', ');
+      const firstPost=x.acts[0]&&x.acts[0].post;
+      return{...avatar(p.name),name:p.name||'(no name)',headline:p.headline,fit:this.tagPill(F.label,F.c),why:p.why||(p.fit?'':'Being checked against who you sell to.'),hasWhy:!!(p.why||!p.fit),
+        company:[p.company,p.company_stage&&p.company_stage!=='unknown'?p.company_stage:'',p.company_what].filter(Boolean).join(' · '),hasCompany:!!(p.company||p.company_what),
+        did:(did?did.charAt(0).toUpperCase()+did.slice(1):'Engaged')+(firstPost?' · latest: “'+clip(firstLine(firstPost.text),60)+'”':''),when:this.since(x.last),
+        said:said?clip(said.said,220):'',hasSaid:!!said,
+        fitVal:p.fit,fitOpts:[{v:'hot',l:'Hot lead'},{v:'warm',l:'Warm'},{v:'not a fit',l:'Not a fit'},...(p.fit?[]:[{v:'',l:'Not checked yet'}])],setFit:e=>AK.setPersonFit(p.platform,p.person_key,e.target.value),
+        byHand:p.fit_by&&p.fit_by!=='auto',profile:()=>open(p.profile_url),inLeads:!!lead,notInLeads:!lead,
+        leadLabel:lead?'In Leads · '+(lead.archived?'archived':lead.stage):'',openLead:()=>lead&&this.openLead(lead.id),
+        add:async()=>{const seed={name:p.name,role:p.role||clip(p.headline,120),company:p.company||'',linkedin:p.profile_url,direction:'Inbound',source:'LinkedIn',
+            source_detail:(x.commented?'Commented on your post':'Liked your post')+(firstPost?': “'+clip(firstLine(firstPost.text),70)+'”':''),heat:p.fit==='hot'?'Hot':p.fit==='warm'?'Warm':'',
+            notes:[p.why,p.company_what?(p.company||'Their company')+': '+p.company_what:'',said?'They said: “'+clip(said.said,400)+'”':''].filter(Boolean).join('\n'),
+            owner:(AK.leadSetting('automation')||{}).owner||''};
+          const l=await AK.personToLead(p,seed);if(l)this.toast('Added '+(l.name||'them')+' to Leads.');}};});
+    const rs=this.runState();const r=rs.top;
+    return{tabs,cards,hasCards:cards.length>0,noCards:!cards.length,count:list.length>120?'Showing 120 of '+list.length:list.length+(list.length===1?' person':' people'),
+      kind:f.kind,onKind:e=>set('kind',e.target.value),kinds:[{v:'',l:'Liked or commented'},{v:'liked',l:'Liked'},{v:'commented',l:'Commented'}],
+      post:f.post,onPost:e=>set('post',e.target.value),posts:[{v:'',l:'All posts'},...posts.map(p=>({v:p.post_id,l:dLabel(new Date(p.posted_at))+' · '+clip(firstLine(p.text),48)}))],
+      status:rs.running?'Checking your posts now…':r&&r.ok===false?'The last check didn’t finish ('+this.since(r.started_at)+'): '+r.error:rs.stuck?'The last check didn’t finish ('+this.since(r.started_at)+').':
+        r&&r.summary&&r.summary.skipped?r.summary.skipped:rs.last?'Last checked '+this.since(rs.last.finished_at)+'. Checks run on their own at 9:00 and 21:00 IST.':'Checks run on their own at 9:00 and 21:00 IST.',
+      statusFg:(r&&r.ok===false)||rs.stuck||(r&&r.summary&&r.summary.skipped)?'var(--bad-ink)':'var(--ink-3)',running:rs.running,notRunning:!rs.running,run:()=>AK.socialRun(),
+      emptyText:f.fit==='hot'?'No hot leads among these people yet.':'Nobody here yet.'};}
 
   /* ---------- LinkedIn post tracker (3 Nov) ----------
      The LinkedIn sheet keeps one number per post, its reactions (Performance tab, checked daily), so this page works
@@ -877,13 +944,15 @@ class Component extends DCLogic {
     const byR=R.slice().sort((a,b)=>b.reactions-a.reactions);const t0=new Date();t0.setHours(0,0,0,0);
     const queued=AK.M.li.filter(p=>p.Status==='Scheduled'&&ids.includes(p.Account)&&p._date&&p._date.getTime()>=t0.getTime()).length;
     const posted=AK.M.li.filter(p=>p.Status==='Posted'&&ids.includes(p.Account));const noLink=posted.filter(p=>!p['Posted link']);
-    const kpis=[{label:'Posts live',v:String(live.length),d:!st.loaded?(st.err||'Loading the LinkedIn sheet…'):posted.filter(p=>p._date&&p._date.getTime()>=wk).length+' posted this week',tone:st.err?'var(--bad-ink)':'var(--ok-ink)'},
-      {label:'Reactions',v:fmtK(tot),d:'Across all live posts',tone:'var(--ink-3)'},
+    const auto=live.some(t=>t.auto);const hot=AK.SOC.people.filter(p=>!p.is_self&&p.fit==='hot').length;const lastRun=this.runState().last;
+    const kpis=[{label:'Posts tracked',v:String(live.length),d:auto?(lastRun?'Checked '+this.since(lastRun.finished_at||lastRun.started_at):'Checked automatically'):!st.loaded?(st.err||'Loading the LinkedIn sheet…'):posted.filter(p=>p._date&&p._date.getTime()>=wk).length+' posted this week',tone:st.err&&!auto?'var(--bad-ink)':'var(--ok-ink)'},
+      {label:'Reactions',v:fmtK(tot),d:auto?live.reduce((a,t)=>a+(t.comments||0),0)+' comments, '+live.reduce((a,t)=>a+(t.reposts||0),0)+' reposts':'Across all live posts',tone:'var(--ink-3)'},
       {label:'Reactions per post',v:avg!=null?String(r1(avg)):'–',d:R.length+' posts checked',tone:'var(--ink-3)'},
       {label:'Best post',v:byR[0]?fmtK(byR[0].reactions):'–',d:byR[0]?clip(firstLine(byR[0].text),44):'No reactions yet',tone:'var(--ink-3)'},
       {label:'Queued',v:String(queued),d:'Waiting in the LinkedIn sheet',tone:'var(--in-ink)'}];
+    if(auto)kpis.push({label:'Hot leads found',v:String(hot),d:'From people who liked or commented',tone:hot?'oklch(0.5 0.15 40)':'var(--ink-3)',go:()=>this.go('liPeople')});
     // Rows the sheet marks POSTED without a live link can't be tracked; say so rather than count them as nothing.
-    if(noLink.length)kpis.push({label:'Posted, no link',v:String(noLink.length),d:'Marked POSTED in the sheet but no Live URL, so no reactions',tone:'var(--warn-ink)'});
+    if(noLink.length&&!auto)kpis.push({label:'Posted, no link',v:String(noLink.length),d:'Marked POSTED in the sheet but no Live URL, so no reactions',tone:'var(--warn-ink)'});
     const WK={good:{bg:'var(--ok-soft)',fg:'var(--ok-ink)',bd:'inset 0 0 0 1px var(--ok-line)'},meh:{bg:'var(--warn-soft)',fg:'var(--warn-ink)',bd:'inset 0 0 0 1px var(--warn-line)'},bad:{bg:'var(--bad-soft)',fg:'var(--bad-ink)',bd:'inset 0 0 0 1px var(--bad-line)'},future:{bg:'transparent',fg:'var(--ink-4)',bd:'inset 0 0 0 1px var(--hairline-strong)'}};
     const week=this.liWeek().map(r=>{const name=ownerName(r.account);return{id:name,name,...avatar(avName(name)),cells:r.cells.map((c,i)=>{const sk=c.k==='green'?'good':c.k==='yellow'?'meh':c.k==='red'?'bad':'future';
       const b=c.k==='future'?(c.tomorrow?'Tomorrow':'Coming up'):c.n?fmtK(c.r)+' reactions':c.queued?'Queued':c.today?'Not yet':'Nothing';
@@ -891,11 +960,12 @@ class Component extends DCLogic {
     // Chart: each post's reactions, oldest to newest.
     const seq=R.slice().sort((a,b)=>a.first-b.first);const series=seq.map(t=>t.reactions);const hasChart=series.length>=2;const ch=mkChart(hasChart?series:[0,0],600,170);
     const lab=t=>dLabel(t);
-    const hourOf=t=>{const m=String(t.plan&&t.plan['Time (IST)']||'').match(/^(\d{1,2}):\d{2}\s*([AP]M)/i);return m?m[1]+' '+m[2].toUpperCase()+' IST':null;};
+    const hourOf=t=>{if(!t.plan&&t.first){const H=new Date(t.first).getHours();return((H%12)||12)+' '+(H<12?'AM':'PM')+' IST';}const m=String(t.plan&&t.plan['Time (IST)']||'').match(/^(\d{1,2}):\d{2}\s*([AP]M)/i);return m?m[1]+' '+m[2].toUpperCase()+' IST':null;};
     const med=AK.median(R.map(t=>t.reactions));
     const why=t=>{const o=[];if(med&&R.length>=3){const x=t.reactions/med;o.push(x>=1.2?(Math.round(x*10)/10)+'× your usual post ('+t.reactions+' vs '+r1(med)+' reactions).':x<=.8?'Below your usual: '+t.reactions+' reactions vs '+r1(med)+'.':'About your usual ('+r1(med)+' reactions).');}
       const ty=t.plan&&t.plan['Post type'];if(ty)o.push('Post type: '+ty+'.');
-      o.push(t.plan&&t.plan['Media file']?'Posted with an image.':'Text only.');
+      if(t.auto&&(t.comments||0)>0)o.push(t.comments+(t.comments===1?' comment.':' comments.'));
+      if(t.plan)o.push(t.plan['Media file']?'Posted with an image.':'Text only.');
       const len=String(t.text||'').length;if(len)o.push(len<700?'Short: '+len+' characters.':'Long: '+len+' characters.');
       const h=hourOf(t);if(h)o.push('Went out around '+h+'.');return o.slice(0,4);};
     const top=byR.filter(t=>t.reactions>0).slice(0,3).map((t,i)=>{const acc=ownerName(t.account);return{n:String(i+1).padStart(2,'0'),text:clip(firstLine(t.text)||'Post on LinkedIn',140),acc,...avatar(avName(acc)),views:fmtK(t.reactions)+' reactions',eng:String(t.reactions),why:why(t)};});
@@ -903,12 +973,12 @@ class Component extends DCLogic {
     const best=(label,keyOf)=>{const by=new Map();for(const t of R){const k=keyOf(t);if(!k)continue;if(!by.has(k))by.set(k,[]);by.get(k).push(t.reactions);}
       const rows=Array.from(by,([k,v])=>({k,n:v.length,m:AK.median(v)})).filter(x=>x.n>=2).sort((a,b)=>b.m-a.m);
       return rows.length>=2?{label,v:rows[0].k,sub:r1(rows[0].m)+' reactions a post over '+rows[0].n+' posts (lowest: '+rows[rows.length-1].k+', '+r1(rows[rows.length-1].m)+')'}:null;};
-    const pat=[best('Best post type',t=>t.plan&&t.plan['Post type']),best('Best hour',hourOf),best('Best day',t=>t.plan&&t.plan._date?AK.DOW[t.plan._date.getDay()]:null)].filter(Boolean);
+    const pat=[best('Best post type',t=>t.plan&&t.plan['Post type']),best('Best hour',hourOf),best('Best day',t=>t.plan&&t.plan._date?AK.DOW[t.plan._date.getDay()]:t.first?AK.DOW[new Date(t.first).getDay()]:null)].filter(Boolean);
     const sorted=live.slice().sort((a,b)=>(b.first||0)-(a.first||0));const lim=s.trkMore?sorted.length:8;
     const rows=sorted.slice(0,lim).map((t,i)=>({text:clip(firstLine(t.text)||'Post on LinkedIn',110),acc:ownerName(t.account),when:t.first?AK.dayWord(new Date(t.first))+' '+hhmm(t.first):'–',
-      views:t.reactions!=null?fmtK(t.reactions):'–',eng:(t.plan&&t.plan['Post type'])||'–',rate:t.checked?String(t.checked).replace(/^\d{4}-(\d{2})-(\d{2})\s*/,(x,m,d)=>+d+' '+AK.MON[+m-1]+' '):'–',
-      spark:'0,22 80,22',deltaLabel:t.pending?'Not checked yet':'',bt:i===0?'none':'1px solid var(--hairline)'}));
-    return{L:TRK_LI,hasFol:false,kpis:kpis.map(k=>({...k,hasTip:false,tip:{}})),week,days:['Mon','Tue','Wed','Thu','Fri'],
+      views:t.reactions!=null?fmtK(t.reactions):'–',eng:t.auto?String(t.comments||0):(t.plan&&t.plan['Post type'])||'–',rate:t.auto?String(t.reposts||0):t.checked?String(t.checked).replace(/^\d{4}-(\d{2})-(\d{2})\s*/,(x,m,d)=>+d+' '+AK.MON[+m-1]+' '):'–',
+      spark:(()=>{const v=(t.hist||[]).map(h=>num(h.likes)||0);if(v.length<2)return '0,22 80,22';const mx=Math.max(1,...v);return v.map((y,k)=>(k*80/(v.length-1)).toFixed(1)+','+(22-y/mx*20).toFixed(1)).join(' ');})(),deltaLabel:t.pending?'Not checked yet':'',bt:i===0?'none':'1px solid var(--hairline)'}));
+    return{L:auto?{...TRK_LI,c2:'Comments',c3:'Reposts',weekTip:TRK_LI.weekTip}:TRK_LI,hasFol:false,kpis:kpis.map(k=>({...k,hasTip:false,tip:{}})),week,days:['Mon','Tue','Wed','Thu','Fri'],
       hasChart,noChart:!hasChart,total:fmtK(tot),totalD:avg!=null?r1(avg)+' a post on average':'',
       chart:{line:ch.line,area:ch.area,dash:E?'0':'1400',dots:hasChart?ch.dots.map((d,i)=>({...d,label:lab(seq[i].first)+': '+series[i]+' reactions · '+clip(firstLine(seq[i].text),60),r:i===series.length-1?'5':'3.5'})):[],
         l0:hasChart?lab(seq[0].first):'',l1:hasChart&&seq.length>2?lab(seq[Math.floor((seq.length-1)/2)].first):'',l2:hasChart?lab(seq[seq.length-1].first):''},
@@ -1000,7 +1070,7 @@ class Component extends DCLogic {
     const narrow=s.narrow;const page=s.page;const sec=PAGES[page].sec;const E=s.entered;const F=this.frame();
     const gate=this.gateVals();const L=(s.loading||!this.ready)&&!gate.on;
     const P=this.ppl();const c=this.counts(P);
-    this.lastBy=this.lastBy||{};this.lastBy[sec]=page;
+    this.lastBy=this.lastBy||{};this.lastBy[s.plat+'|'+sec]=page;
     const ambient=this.props.ambient??true;
     const amb=!ambient?{out:'0',mid:'0',in:'0'}:sec==='leads'?{out:'.9',mid:'.3',in:'.14'}:sec==='home'?{out:'.85',mid:'.75',in:'.75'}:{out:sec==='out'?'1':'.14',mid:sec==='mid'?'1':'.14',in:sec==='in'?'1':'.14'};
     const secObj=secsFor(s.plat).find(x=>x.id===sec)||SECS.find(x=>x.id===sec);
@@ -1014,7 +1084,7 @@ class Component extends DCLogic {
       refresh:()=>{AK.refresh();},openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
       plats:this.platVals(),plat:s.plat,isLiMode:s.plat==='LinkedIn',onPlatSel:e=>this.setPlat(e.target.value),
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
-      tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;return{label:x.label,go:()=>this.go((this.lastBy&&this.lastBy[x.id])||x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
+      tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=s.plat!=='X'?0:x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;const lb=this.lastBy&&this.lastBy[s.plat+'|'+x.id];return{label:x.label,go:()=>this.go(lb&&x.pages.includes(lb)?lb:x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
       hdr:this.hdrVals(P),loading:L,notLoading:!L,E:{op:E?'1':'0',t:E?'none':'translateY(10px)'},gate,stale:AK.staleNote(),hasStale:!!AK.staleNote()&&ready,
       is:Object.fromEntries(Object.keys(PAGES).map(k=>[k,page===k&&ready&&!gate.on])),skel3:[1,2,3],skel6:[1,2,3,4,5,6],
       tips,hideTip:()=>this.state.tip&&this.setState({tip:null}),

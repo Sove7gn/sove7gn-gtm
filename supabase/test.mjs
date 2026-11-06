@@ -15,6 +15,7 @@ create function auth.role() returns text language sql stable as $$ select auth.j
 create function auth.uid() returns uuid language sql stable as $$ select nullif(auth.jwt() ->> 'sub', '')::uuid $$;
 grant usage on schema auth to anon, authenticated, service_role; grant execute on all functions in schema auth to anon, authenticated, service_role;
 grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables to service_role; alter default privileges in schema public grant all on sequences to service_role;   -- as Supabase does
 create schema storage; create table storage.buckets (id text primary key, name text, public boolean);
 create table storage.objects (id serial primary key, bucket_id text, name text); alter table storage.objects enable row level security;`;
 
@@ -175,5 +176,42 @@ await ok("leads: settings are editable; deleting a lead removes its history", as
   assert.equal((await events(leadId)).length, 0);
   await as("authenticated", "stranger@example.com");
   await assert.rejects(db.query("update public.crm_lead_settings set value = '[]' where key = 'stages'").then((r) => { if (!r.affectedRows) throw new Error("row-level security: nothing updated"); }), /row-level security/);
+});
+// ───────── Automatic post tracking ─────────
+await ok("tracking: the job (service role) writes posts, people and engagements; members only read them", async () => {
+  await as("service_role");
+  await db.exec(`insert into public.crm_social_posts (platform, post_id, url, text, likes) values ('linkedin', 'p1', 'https://www.linkedin.com/posts/x', 'Post one', 2);
+    insert into public.crm_social_checks (platform, post_id, likes) values ('linkedin', 'p1', 2);
+    insert into public.crm_social_people (platform, person_key, name, headline, fit, why) values ('linkedin', 'https://www.linkedin.com/in/ana', 'Ana', 'Founder at Loop', 'hot', 'Founder of a startup');
+    insert into public.crm_social_engagements (platform, post_id, person_key, kind, reaction) values ('linkedin', 'p1', 'https://www.linkedin.com/in/ana', 'liked', 'LIKE');
+    insert into public.crm_sync_runs (platform, ok, summary) values ('linkedin', true, '{"posts":1}');`);
+  await as("authenticated", "me@example.com");
+  assert.equal((await db.query("select count(*)::int n from public.crm_social_engagements")).rows[0].n, 1);
+  assert.equal((await db.query("select (summary->>'posts')::int n from public.crm_sync_runs")).rows[0].n, 1);
+  await assert.rejects(db.query("insert into public.crm_social_posts (platform, post_id) values ('linkedin', 'fake')"), /permission denied/);
+  await assert.rejects(db.query("update public.crm_social_people set name = 'Changed'"), /permission denied/);
+  await db.query("update public.crm_social_people set fit = 'warm', fit_by = 'me@example.com' where person_key = 'https://www.linkedin.com/in/ana'");
+  assert.equal((await db.query("select fit from public.crm_social_people")).rows[0].fit, "warm");
+  await assert.rejects(db.query("update public.crm_social_people set fit = 'amazing'"), /check constraint/);
+  await as("authenticated", "stranger@example.com");
+  assert.equal((await db.query("select count(*)::int n from public.crm_social_people")).rows[0].n, 0);
+  await as("anon");
+  await assert.rejects(db.query("select * from public.crm_social_posts"), /permission denied/);
+});
+await ok("tracking: leads get a Hot/Warm label and an 'engaged' history entry; the automation settings exist", async () => {
+  await as("authenticated", "me@example.com");
+  const id = (await db.query("insert into public.crm_leads (name, heat, origin_key) values ('Ana', 'Hot', 'li-person:ana') returning id")).rows[0].id;
+  await assert.rejects(db.query("update public.crm_leads set heat = 'Boiling' where id = $1", [id]), /check constraint/);
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text) values ($1, 'engaged', 'Liked your post')", [id]);
+  assert.deepEqual((await events(id)).map((e) => e.kind), ["created", "engaged"]);
+  assert.equal((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch, null);
+  await as("service_role");   // the automation's own note is not a touch
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text, by_email) values ($1, 'note', 'Found automatically.', 'automation')", [id]);
+  assert.equal((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch, null);
+  await as("authenticated", "me@example.com");
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text) values ($1, 'message', 'Sent a DM')", [id]);
+  assert.ok((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch);
+  const a = (await db.query("select value from public.crm_lead_settings where key = 'automation'")).rows[0].value;
+  assert.deepEqual([a.add_hot, a.add_warm, a.enabled], [true, false, true]);
 });
 console.log(`\n${passed} checks passed`);

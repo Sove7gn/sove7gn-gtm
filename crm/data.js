@@ -972,6 +972,14 @@ function liPosts(){
 }
 // Posted LinkedIn posts with their latest reactions, shaped like trackedPosts() (LinkedIn shows no views here).
 function liTracked(){
+  const auto=SOC.posts.filter(p=>p.platform==="linkedin");
+  if(auto.length){const hist=new Map();for(const c of SOC.checks)if(c.platform==="linkedin"){if(!hist.has(c.post_id))hist.set(c.post_id,[]);hist.get(c.post_id).push(c)}
+    const out=auto.map(p=>({key:"li:"+p.post_id,link:p.url,account:Object.keys(HANDLES)[0]||"",plan:null,hist:(hist.get(p.post_id)||[]).slice().sort((a,b)=>new Date(a.at)-new Date(b.at)),
+      views:null,eng:p.likes+p.comments+p.reposts,reactions:p.likes,comments:p.comments,reposts:p.reposts,rate:null,grew:null,first:p.posted_at?new Date(p.posted_at).getTime():0,
+      text:p.text,checked:p.checked_at,pending:false,postId:p.post_id,auto:true}));
+    const tk=t=>String(t||"").replace(/\s+/g," ").trim().slice(0,80).toLowerCase();const seen=new Set(out.map(t=>tk(t.text)));
+    return out.concat(M.li.filter(p=>p["Posted link"]&&!seen.has(tk(p["Our version"]))).map(p=>({key:linkKey(p["Posted link"]),link:p["Posted link"],account:p.Account,plan:p,hist:[],views:null,
+      eng:p._reactions,reactions:p._reactions,rate:null,grew:null,first:p._at||0,text:p["Our version"],checked:p._checked,pending:p._reactions==null})))}
   return M.li.filter(p=>p["Posted link"]).map(p=>({key:linkKey(p["Posted link"]),link:p["Posted link"],account:p.Account,plan:p,hist:[],views:null,
     eng:p._reactions,reactions:p._reactions,rate:null,grew:null,first:p._at||0,
     text:p["Our version"],checked:p._checked,pending:p._reactions==null}));
@@ -983,24 +991,30 @@ const liState=()=>({on:!!LI.id,loaded:!!LI.raw,err:LI.err?String(LI.err.message|
    the page reads and writes directly; row level security keeps them to the team. Saves show at once and roll back if
    Supabase refuses. */
 const LD={rows:[],events:[],settings:{},loaded:false,err:null,busy:false,pending:0,gen:0,again:false,at:0};
+// Automatic post tracking (7 Nov): filled twice a day by the social-sync Edge Function; read here with the leads.
+const SOC={posts:[],checks:[],people:[],eng:[],runs:[],loaded:false,running:false};
 const LEAD_DEFAULTS={stages:[{name:"New",color:"var(--ink-4)",kind:"open"},{name:"Contacted",color:"var(--out)",kind:"open"},{name:"In talks",color:"var(--mid)",kind:"open"},
   {name:"Proposal sent",color:"var(--warn)",kind:"open"},{name:"Won",color:"var(--ok)",kind:"won"},{name:"Lost",color:"var(--bad)",kind:"lost"}],
   sources:["X","LinkedIn","Instagram","Email","Referral","Website","Other"],groups:[],categories:[],fields:[],currency:"USD"};
 const leadSetting=k=>LD.settings[k]!=null?LD.settings[k]:LEAD_DEFAULTS[k];
-async function leadPages(table,order){
+async function leadPages(table,order,tie=["id"]){
   const out=[];
-  for(let from=0;;from+=1000){const r=await sb.from(table).select("*").order(order,{ascending:false}).order("id").range(from,from+999);
-    if(r.error)throw r.error;out.push(...(r.data||[]));if(!r.data||r.data.length<1000)return out}
+  for(let from=0;;from+=1000){let q=sb.from(table).select("*").order(order,{ascending:false});for(const t of tie)q=q.order(t);
+    const r=await q.range(from,from+999);if(r.error)throw r.error;out.push(...(r.data||[]));if(!r.data||r.data.length<1000)return out}
 }
 async function leadsLoad(){
   if(!sb||!session||!member)return;
   if(LD.busy||LD.pending){LD.again=true;return}
   LD.busy=true;LD.again=false;const gen=LD.gen;
   try{
-    const [rows,st,events]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
-      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),leadPages("crm_lead_events","at")]);
+    const [rows,st,events,sp,sc,sppl,seng,runs]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
+      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),leadPages("crm_lead_events","at"),
+      leadPages("crm_social_posts","posted_at",["platform","post_id"]),leadPages("crm_social_checks","at",["platform","post_id"]),
+      leadPages("crm_social_people","last_seen",["platform","person_key"]),leadPages("crm_social_engagements","first_seen",["platform","post_id","person_key","kind"]),
+      sb.from("crm_sync_runs").select("*").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]})]);
     // A save that started while this was loading has newer data than what came back, so keep the page as it is and load again.
-    if(gen===LD.gen&&!LD.pending){LD.rows=rows;LD.settings=Object.fromEntries(st.map(x=>[x.key,x.value]));LD.events=events;LD.loaded=true;LD.at=Date.now()}
+    if(gen===LD.gen&&!LD.pending){LD.rows=rows;LD.settings=Object.fromEntries(st.map(x=>[x.key,x.value]));LD.events=events;LD.loaded=true;LD.at=Date.now();
+      SOC.posts=sp;SOC.checks=sc;SOC.people=sppl;SOC.eng=seng;SOC.runs=runs;SOC.loaded=true}
     else LD.again=true;
     LD.err=null;
   }catch(e){LD.err=e}
@@ -1016,7 +1030,7 @@ async function leadWrite(what,run){
   finally{LD.pending--;if(!LD.pending)setTimeout(leadsLoad,300);emit()}
 }
 const LEAD_COLS=["name","company","role","email","phone","x_handle","linkedin","instagram","website","direction","source","source_detail","stage","group_name",
-  "categories","pitch","closed_for","price","currency","pricing_note","next_step","next_date","owner","notes","fields","origin_key","last_touch","archived"];
+  "categories","pitch","closed_for","price","currency","pricing_note","next_step","next_date","owner","notes","fields","origin_key","last_touch","archived","heat"];
 const leadClean=o=>{const out={};for(const k of LEAD_COLS)if(k in o)out[k]=o[k];if("price" in out)out.price=out.price===""||out.price==null?null:Number(out.price);
   if("next_date" in out&&!out.next_date)out.next_date=null;return out};
 async function leadCreate(o){
@@ -1075,6 +1089,39 @@ function liPeople(){
   for(const p of objs(LI.raw.magPeople||[]))if(col(p,"Name"))
     out.push({kind:"featured",name:col(p,"Name"),company:col(p,"Company"),title:col(p,"Lead magnet title"),raw:col(p,"Number on tile"),date:col(p,"Date to post")});
   return out;
+}
+
+/* ---------- Automatic post tracking (7 Nov) ---------- */
+// Runs the tracking job now (the "Check now" button). It takes about a minute.
+async function socialRun(){
+  if(!sb||SOC.running)return null;
+  SOC.running=true;emit();
+  try{const {data,error}=await sb.functions.invoke("social-sync",{body:{}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    if(data&&data.skipped)toast(data.skipped,true);
+    else if(data)toast("Checked "+data.posts+" posts: "+data.people+" people, "+data.leads_added+" new "+(data.leads_added===1?"lead":"leads")+".");
+    return data}
+  catch(e){toast("The check didn't finish: "+(e.message||e),true);return null}
+  finally{SOC.running=false;setTimeout(leadsLoad,300);emit()}
+}
+// Changing a person's fit by hand (it then stays as set).
+async function setPersonFit(platform,key,fit){
+  const before=SOC.people;const who=session&&session.user?session.user.email:"";
+  SOC.people=SOC.people.map(p=>p.platform===platform&&p.person_key===key?{...p,fit,fit_by:who}:p);emit();
+  const r=await leadWrite("the change",()=>sb.from("crm_social_people").update({fit,fit_by:who}).eq("platform",platform).eq("person_key",key));
+  if(r===undefined){SOC.people=before;emit()}
+}
+// Adds someone who engaged to Leads by hand (good fits are added on their own).
+const linkKeyLi=u=>String(u||"").trim().toLowerCase().replace(/[?#].*$/,"").replace(/\/+$/,"").replace(/^https?:\/\/(www\.)?/,"https://www.");
+async function personToLead(person,seed){
+  const keys=[linkKeyLi(person.person_key),linkKeyLi(person.profile_url)];
+  const known=LD.rows.find(l=>keys.includes(linkKeyLi(l.linkedin))||l.origin_key==="li-person:"+person.person_key);
+  if(known&&known.archived)await leadArchive(known.id,false);
+  const lead=known||await leadCreate({origin_key:"li-person:"+person.person_key,...seed});
+  if(!lead)return null;
+  SOC.people=SOC.people.map(p=>p.platform===person.platform&&p.person_key===person.person_key?{...p,lead_id:lead.id}:p);emit();
+  await leadWrite("the link",()=>sb.from("crm_social_people").update({lead_id:lead.id}).eq("platform",person.platform).eq("person_key",person.person_key));
+  return lead;
 }
 
 /* ---------- connection state for the page ---------- */
@@ -1154,7 +1201,7 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
-  liTracked,liState,liLoad,liPeople,
+  liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
 };
 start();
