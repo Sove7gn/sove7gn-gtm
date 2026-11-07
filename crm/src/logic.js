@@ -747,6 +747,11 @@ class Component extends DCLogic {
       binTitle:inLost?'Archive (take off the board)':'Move to '+(lostSt?lostSt.name:'Lost'),
       bin:stop(()=>{this.setState({ldTip:null});if(inLost||!lostSt){AK.leadArchive(l.id,true);this.toast('Archived '+who+'.',()=>AK.leadArchive(l.id,false));return;}
         const prev=l.stage;AK.leadSave(l.id,{stage:lostSt.name});this.toast('Moved '+who+' to '+lostSt.name+'.',()=>AK.leadSave(l.id,{stage:prev}));})};}
+  // The board reaches down to the bottom of the window (its scrollbar sits just above the edge), wherever it starts on the page.
+  measureBoard(){const b=document.getElementById('lead-board');if(!b)return;let p=b.parentElement;
+    while(p&&p!==document.body){const o=getComputedStyle(p).overflowY;if(o==='auto'||o==='scroll')break;p=p.parentElement;}
+    const st=p&&p!==document.body?p.scrollTop:(document.scrollingElement||document.documentElement).scrollTop;
+    const h=Math.max(280,Math.round(window.innerHeight-(b.getBoundingClientRect().top+st)-16));if(Math.abs((this.state.ldH||0)-h)>4)this.setState({ldH:h});}
   // The hover card for the ✦, drawn once over the whole board.
   leadTipBox(){const t=this.state.ldTip;const l=t&&AK.LD.rows.find(r=>r.id===t.id);if(!l)return{on:false};const tip=this.leadTip(l);
     return{on:true,left:t.x+'px',top:t.y+'px',tf:t.up?'translateY(-100%)':'none',name:l.name||l.instagram||'(no name)',acct:this.igAcct(l),hasAcct:!!this.igAcct(l),
@@ -817,7 +822,8 @@ class Component extends DCLogic {
         over:e=>{e.preventDefault();if(this.state.ldOver!==x.name)this.setState({ldOver:x.name});},
         drop:e=>{e.preventDefault();const id=this.ldDrag;this.ldDrag=null;this.setState({ldOver:null});const l=id&&AK.LD.rows.find(r=>r.id===id);if(l&&l.stage!==x.name)AK.leadSave(id,{stage:x.name});}};});
     const el=()=>document.getElementById('lead-board');const step=d=>{const b=el();if(b)b.scrollBy({left:d*284*2,behavior:'smooth'});};
-    return{cols,tip:this.leadTipBox(),pan:e=>{this.setState({ldTip:null});this.calPan(e);},left:()=>step(-1),right:()=>step(1),
+    if(!this._ldRs){this._ldRs=true;window.addEventListener('resize',()=>this.measureBoard());}requestAnimationFrame(()=>this.measureBoard());
+    return{cols,h:s.ldH?s.ldH+'px':'max(420px, calc(100vh - 350px))',tip:this.leadTipBox(),pan:e=>{this.setState({ldTip:null});this.calPan(e);},left:()=>step(-1),right:()=>step(1),
       edge:e=>{const b=e.currentTarget;const r=b.getBoundingClientRect();const x=e.clientX;if(x<r.left+90)b.scrollLeft-=Math.ceil((r.left+90-x)/5);else if(x>r.right-90)b.scrollLeft+=Math.ceil((x-r.right+90)/5);},
       count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
   leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
