@@ -129,7 +129,7 @@ class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -690,7 +690,7 @@ class Component extends DCLogic {
   tagOf(kind,name){const t=this.leadSet(kind).find(x=>(x.name||x)===name);return t&&t.color?t.color:'var(--ink-3)';}
   leadFiltered(){const f=this.state.lf;const q=f.q.trim().toLowerCase();
     return this.leadsAll().filter(l=>(!q||[l.name,l.company,l.role,l.email,l.x_handle,l.linkedin,l.instagram,l.pitch,l.notes,l.group_name,(l.categories||[]).join(' ')].join(' ').toLowerCase().includes(q))
-      &&(!f.source||l.source===f.source)&&(!f.heat||this.heatOf(l)===f.heat)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
+      &&(!f.source||l.source===f.source)&&(!f.acct||l.source==='Instagram'&&this.igAcct(l).toLowerCase()===f.acct)&&(!f.heat||this.heatOf(l)===f.heat)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
   // Saves edits still in the panel's buffer (closing it skips the inputs' blur), then clears the buffer.
   flushLead(){const s=this.state;const id=s.lid;if(!id||id==='new')return;const l=AK.LD.rows.find(r=>r.id===id);if(!l)return;
     const patch={};let fields=null;
@@ -792,11 +792,17 @@ class Component extends DCLogic {
     return this.money(same.reduce((a,l)=>a+Number(l.price||0),0),cur)+(other?' + '+other+' in other currencies':'');}
   leadFilterVals(){const s=this.state;const f=s.lf;const set=(k,v)=>this.setState(x=>({lf:{...x.lf,[k]:v},ldMore:{},lmore:false}));
     const opts=(all,list)=>[{v:'',l:all},...list.map(x=>({v:x.name||x,l:x.name||x}))];
-    return{q:f.q,onQ:e=>set('q',e.target.value),source:f.source,onSource:e=>set('source',e.target.value),group:f.group,onGroup:e=>set('group',e.target.value),cat:f.cat,onCat:e=>set('cat',e.target.value),dir:f.dir,onDir:e=>set('dir',e.target.value),
+    // Instagram quick filter (7 Nov): one tap for Instagram leads, then which of our accounts they came in on.
+    const igOn=f.source==='Instagram';const IA=((AK.leadSetting('instagram')||{}).accounts||[]).map(a=>'@'+String(a).toLowerCase().replace(/^@/,''));
+    const accts=[...new Set([...IA,...this.leadsAll().filter(l=>l.source==='Instagram').map(l=>this.igAcct(l).toLowerCase()).filter(Boolean)])];
+    return{q:f.q,onQ:e=>set('q',e.target.value),source:f.source,onSource:e=>{const v=e.target.value;this.setState(x=>({lf:{...x.lf,source:v,acct:v==='Instagram'?x.lf.acct:''},ldMore:{},lmore:false}));},
+      isIg:igOn,igBg:igOn?'#fde8f1':'rgba(255,255,255,.85)',igFg:igOn?'#c13584':'var(--ink)',igSh:igOn?'inset 0 0 0 1.5px #e1306c':'inset 0 0 0 1px var(--hairline-strong)',
+      igToggle:()=>this.setState(x=>({lf:{...x.lf,source:x.lf.source==='Instagram'?'':'Instagram',acct:''},ldMore:{},lmore:false})),
+      acct:f.acct,onAcct:e=>set('acct',e.target.value),accts:[{v:'',l:'Both accounts'},...accts.map(a=>({v:a,l:a}))],group:f.group,onGroup:e=>set('group',e.target.value),cat:f.cat,onCat:e=>set('cat',e.target.value),dir:f.dir,onDir:e=>set('dir',e.target.value),
       sources:opts('All sources',this.leadSet('sources')),groups:opts('All groups',this.leadSet('groups')),cats:opts('All categories',this.leadSet('categories')),dirs:opts('Inbound and outbound',['Inbound','Outbound']),
       hasGroups:this.leadSet('groups').length>0,hasCats:this.leadSet('categories').length>0,
       heat:f.heat,onHeat:e=>set('heat',e.target.value),heats:[{v:'',l:'All leads'},{v:'Hot',l:'Hot leads'},{v:'Warm',l:'Warm leads'},{v:'Cold',l:'Cold leads'}],
-      active:!!(f.q||f.source||f.group||f.cat||f.dir||f.heat),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''}}),
+      active:!!(f.q||f.source||f.group||f.cat||f.dir||f.heat||f.acct),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''}}),
       exportCsv:()=>this.exportLeads()};}
   exportLeads(){const L=this.leadFiltered();if(!L.length){this.toast('No leads to export.',null,true);return;}
     const F=this.leadSet('fields');const cols=['name','company','role','email','phone','x_handle','linkedin','instagram','website','direction','source','source_detail','stage','group_name','categories','pitch','price','currency','pricing_note','closed_for','next_step','next_date','owner','last_touch','created_at','notes'];
