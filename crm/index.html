@@ -758,12 +758,28 @@ class Component extends DCLogic {
       tipClick:stop(e=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});else place(e);}),
       binTitle:inLost?'Archive (take off the board)':'Move to '+(lostSt?lostSt.name:'Lost'),
       bin:stop(()=>{this.setState({ldTip:null});if(inLost||!lostSt){AK.leadArchive(l.id,true);this.toast('Archived '+who+'.',()=>AK.leadArchive(l.id,false));return;}
-        const prev=l.stage;AK.leadSave(l.id,{stage:lostSt.name});this.toast('Moved '+who+' to '+lostSt.name+'.',()=>AK.leadSave(l.id,{stage:prev}));})};}
-  // The board reaches down to the bottom of the window (its scrollbar sits just above the edge), wherever it starts on the page.
-  measureBoard(){const b=document.getElementById('lead-board');if(!b)return;let p=b.parentElement;
-    while(p&&p!==document.body){const o=getComputedStyle(p).overflowY;if(o==='auto'||o==='scroll')break;p=p.parentElement;}
-    const st=p&&p!==document.body?p.scrollTop:(document.scrollingElement||document.documentElement).scrollTop;
-    const h=Math.max(280,Math.round(window.innerHeight-(b.getBoundingClientRect().top+st)-16));if(Math.abs((this.state.ldH||0)-h)>4)this.setState({ldH:h});}
+        const prev=l.stage;AK.leadSave(l.id,{stage:lostSt.name});this.toast('Moved '+who+' to '+lostSt.name+'.',()=>AK.leadSave(l.id,{stage:prev}));}),
+      // The ↻ pushes a lead into "Follow up" (any stage named like that), with undo. Hidden once they're there, or closed.
+      ...(()=>{const fu=ST.find(x=>/^follow/i.test(x.name));const can=!!fu&&l.stage!==fu.name&&this.stageOf(l.stage).kind==='open';
+        return{canFu:can,fuTitle:fu?'Move to '+fu.name:'',fu:stop(()=>{if(!can)return;this.setState({ldTip:null});const prev=l.stage;AK.leadSave(l.id,{stage:fu.name});
+          this.toast('Moved '+who+' to '+fu.name+'.',()=>AK.leadSave(l.id,{stage:prev}));})};})()};}
+  // The board fills the page from its filter row down: opening Pipeline scrolls the title away (scroll up to see it), the board
+  // reaches 16px above the bottom with its scrollbar, and the page's own bottom padding is cancelled so nothing hangs below it.
+  measureBoard(){const b=document.getElementById('lead-board');if(!b)return;let m=b.parentElement;
+    while(m&&m!==document.body){const o=getComputedStyle(m).overflowY;if(o==='auto'||o==='scroll')break;m=m.parentElement;}
+    if(!m||m===document.body)m=document.scrollingElement||document.documentElement;
+    const root=m===document.scrollingElement||m===document.documentElement,vis=root?window.innerHeight:m.clientHeight;
+    const off=el=>{let y=0;for(let e=el;e;e=e.offsetParent)y+=e.offsetTop;return y;};   // layout position: ignores scrolling and the entrance animation
+    const at=el=>off(el)-(root?0:off(m)+m.clientTop);   // where an element sits in the scrolled page
+    const later=()=>{clearTimeout(this._ldLate);this._ldLate=setTimeout(()=>this.measureBoard(),900);};   // once more after the page has settled
+    const bar=b.previousElementSibling;const S=Math.max(0,Math.round((bar?at(bar):at(b))-8));
+    const h=Math.max(280,Math.round(vis-(at(b)-S)-16));
+    const extra=Math.round(m.scrollHeight-(S+vis));const mb=Math.min(0,(this.state.ldMb||0)-extra);
+    const ch={};if(Math.abs((this.state.ldH||0)-h)>2)ch.ldH=h;if(Math.abs((this.state.ldMb||0)-mb)>2&&Math.abs((this.state.ldH||0)-h)<=2)ch.ldMb=mb;
+    if(Object.keys(ch).length){this.setState(ch);later();}
+    // On opening Pipeline, bring the filter row to the top; keep at it while the page settles (1.6 s), then leave scrolling to you.
+    if(!this._ldAuto)this._ldAuto=Date.now()+1600;
+    if(Date.now()<this._ldAuto&&Math.abs(m.scrollTop-S)>4){m.scrollTo({top:S});later();}}
   // The hover card for the ✦, drawn once over the whole board.
   leadTipBox(){const t=this.state.ldTip;const l=t&&AK.LD.rows.find(r=>r.id===t.id);if(!l)return{on:false};const tip=this.leadTip(l);
     return{on:true,left:t.x+'px',top:t.y+'px',tf:t.up?'translateY(-100%)':'none',name:l.name||l.instagram||'(no name)',acct:this.igAcct(l),hasAcct:!!this.igAcct(l),
@@ -797,6 +813,7 @@ class Component extends DCLogic {
     const url=URL.createObjectURL(new Blob(['﻿'+lines.join('\n')],{type:'text/csv'}));const a=document.createElement('a');a.href=url;a.download='leads-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
     this.toast('Exported '+L.length+(L.length===1?' lead':' leads')+'.');}
   leadVals(page){const s=this.state;const st=AK.leadsState();const E=s.entered;const base={loading:!st.loaded,err:st.err,hasErr:!!st.err,f:this.leadFilterVals(),newLead:()=>this.newLead()};
+    if(page!=='leadBoard')this._ldAuto=false;   // next visit to Pipeline scrolls the board into view again
     if(page==='leads')return{...base,...this.leadOverview()};
     if(page==='leadBoard')return{...base,...this.leadBoard()};
     if(page==='leadList')return{...base,...this.leadList()};
@@ -835,7 +852,7 @@ class Component extends DCLogic {
         drop:e=>{e.preventDefault();const id=this.ldDrag;this.ldDrag=null;this.setState({ldOver:null});const l=id&&AK.LD.rows.find(r=>r.id===id);if(l&&l.stage!==x.name)AK.leadSave(id,{stage:x.name});}};});
     const el=()=>document.getElementById('lead-board');const step=d=>{const b=el();if(b)b.scrollBy({left:d*284*2,behavior:'smooth'});};
     if(!this._ldRs){this._ldRs=true;window.addEventListener('resize',()=>this.measureBoard());}requestAnimationFrame(()=>this.measureBoard());
-    return{cols,h:s.ldH?s.ldH+'px':'max(420px, calc(100vh - 350px))',tip:this.leadTipBox(),pan:e=>{this.setState({ldTip:null});this.calPan(e);},left:()=>step(-1),right:()=>step(1),
+    return{cols,h:s.ldH?s.ldH+'px':'max(420px, calc(100vh - 350px))',mb:(s.ldMb||0)+'px',tip:this.leadTipBox(),pan:e=>{this.setState({ldTip:null});this.calPan(e);},left:()=>step(-1),right:()=>step(1),
       edge:e=>{const b=e.currentTarget;const r=b.getBoundingClientRect();const x=e.clientX;if(x<r.left+90)b.scrollLeft-=Math.ceil((r.left+90-x)/5);else if(x>r.right-90)b.scrollLeft+=Math.ceil((x-r.right+90)/5);},
       count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
   leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
@@ -2026,7 +2043,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <button onClick="{{ ld.left }}" title="Scroll left" aria-label="Scroll left" style="height:34px; width:34px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; line-height:1; color:var(--ink-2); cursor:pointer;" style-hover="background:#fff; color:var(--ink);">‹</button>
 <button onClick="{{ ld.right }}" title="Scroll right" aria-label="Scroll right" style="height:34px; width:34px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; line-height:1; color:var(--ink-2); cursor:pointer;" style-hover="background:#fff; color:var(--ink);">›</button>
 </div>
-<div id="lead-board" class="ak-board" onMouseDown="{{ ld.pan }}" onDragOver="{{ ld.edge }}" style="overflow-x:auto; overflow-y:hidden; height:{{ ld.h }}; margin:0 calc(-1 * var(--pad-page)); padding:4px var(--pad-page) 10px; cursor:grab; user-select:none; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<div id="lead-board" class="ak-board" onMouseDown="{{ ld.pan }}" onDragOver="{{ ld.edge }}" style="overflow-x:auto; overflow-y:hidden; height:{{ ld.h }}; margin:0 calc(-1 * var(--pad-page)) {{ ld.mb }}; padding:4px var(--pad-page) 10px; cursor:grab; user-select:none; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
 <div style="display:flex; gap:var(--s-3); align-items:flex-start; width:max-content; height:100%;">
 <sc-for list="{{ ld.cols }}" as="col">
 <div onDragOver="{{ col.over }}" onDrop="{{ col.drop }}" style="width:272px; flex:0 0 272px; max-height:100%; display:flex; flex-direction:column; gap:8px; padding:8px; border-radius:var(--r-lg); background:{{ col.bg }}; box-shadow:{{ col.sh }}; transition:background var(--dur), box-shadow var(--dur);">
@@ -2048,6 +2065,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </div>
 <sc-if value="{{ k.hasValue }}"><span style="font-size:var(--fs-xs); font-weight:600; font-variant-numeric:tabular-nums;">{{ k.value }}</span></sc-if>
 <sc-if value="{{ k.hasTip }}"><span onMouseEnter="{{ k.tipShow }}" onMouseLeave="{{ k.tipHide }}" onClick="{{ k.tipClick }}" title="" aria-label="Quick summary" style="width:24px; height:24px; flex:0 0 24px; border-radius:7px; display:grid; place-items:center; font-size:12px; color:var(--in-ink); background:var(--in-soft); cursor:help;">✦</span></sc-if>
+<sc-if value="{{ k.canFu }}"><button onClick="{{ k.fu }}" title="{{ k.fuTitle }}" aria-label="{{ k.fuTitle }}" style="width:24px; height:24px; flex:0 0 24px; border:0; border-radius:7px; display:grid; place-items:center; background:transparent; color:var(--ink-4); cursor:pointer;" style-hover="background:var(--warn-soft); color:var(--warn-ink);"><svg width="14" height="14" viewBox="0 0 24 24" style="fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;"><path d="M3 12a9 9 0 1 0 2.6-6.4"></path><polyline points="3 3 3 8 8 8"></polyline><polyline points="12 7.5 12 12 15 14"></polyline></svg></button></sc-if>
 <button onClick="{{ k.bin }}" title="{{ k.binTitle }}" aria-label="{{ k.binTitle }}" style="width:24px; height:24px; flex:0 0 24px; border:0; border-radius:7px; display:grid; place-items:center; background:transparent; color:var(--ink-4); cursor:pointer;" style-hover="background:var(--bad-soft); color:var(--bad-ink);"><svg width="14" height="14" viewBox="0 0 24 24" style="fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;"><polyline points="4 7 20 7"></polyline><path d="M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button>
 </div>
 <div style="display:flex; flex-direction:column; gap:5px; padding-top:9px; border-top:1px solid var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2);">
