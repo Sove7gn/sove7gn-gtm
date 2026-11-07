@@ -126,6 +126,7 @@ async function syncInstagram() {
   const talks = has("In talks") ? "In talks" : stages[0]?.name ?? "New";
   const booked = has("Call booked") ? "Call booked" : "";
   const closed = new Set(stages.filter((s) => s.kind === "won" || s.kind === "lost").map((s) => s.name));
+  const follow = stages.find((s) => /^follow/i.test(s.name))?.name ?? "";   // where we park people we're chasing
   const links = (set.our_links ?? []).map(lc).filter(Boolean);
   const phones = (set.our_phones ?? []).map(digits).filter((p) => p.length >= 8);
   const ignore = new Set((set.ignore ?? []).map(lc));
@@ -140,7 +141,7 @@ async function syncInstagram() {
   // Everything we already track, and the leads, so a person DMing both accounts is one lead.
   const { data: known } = await db.from("crm_ig_threads").select("*");
   const threads = new Map((known ?? []).map((t) => [t.account + "|" + t.thread_id, t]));
-  const { data: leadRows } = await db.from("crm_leads").select("id,instagram,origin_key,stage,next_step,next_date,phone,fields,archived");
+  const { data: leadRows } = await db.from("crm_leads").select("id,instagram,origin_key,stage,stage_at,next_step,next_date,phone,fields,archived");
   const leads = new Map<string, any>(), leadByHandle = new Map<string, any>();
   for (const l of leadRows ?? []) { leads.set(l.id, l); if (l.instagram) leadByHandle.set(lc(l.instagram), l); if (l.origin_key?.startsWith("ig:")) leadByHandle.set(l.origin_key.slice(3), l); }
 
@@ -210,7 +211,7 @@ async function syncInstagram() {
     const due = [...leads.values()].filter((l) => l.origin_key?.startsWith("ig:") && !l.archived && l.fields?.ig_last_at && l.fields.ig_sum_at !== l.fields.ig_last_at)
       .sort((a, b) => b.fields.ig_last_at - a.fields.ig_last_at).slice(0, SUMMARIES);
     if (!due.length) return 0;
-    const { data: ev } = await db.from("crm_lead_events").select("lead_id,at,text").eq("kind", "message").in("lead_id", due.map((l) => l.id)).order("at");
+    const { data: ev } = await db.from("crm_lead_events").select("lead_id,at,text,by_email").eq("kind", "message").in("lead_id", due.map((l) => l.id)).order("at");
     const { data: more } = await db.from("crm_leads").select("id,name,source_detail,stage").in("id", due.map((l) => l.id));
     const info = new Map((more ?? []).map((l) => [l.id, l]));
     const today = dayLabel(Date.now());
@@ -220,7 +221,9 @@ async function syncInstagram() {
       return { id: l.id, prompt: "You help a founder keep track of Instagram DM leads for SOVE7GN, which sells clipping and done-for-you GTM services. " +
         "Messages from @" + acct + " are us; the other person is " + (i.name || l.instagram) + " (" + l.instagram + "), " + (l.fields?.ig_followers ?? "unknown") + " followers, now in our stage “" + i.stage + "”. Today is " + today + ".\n" +
         "Write JSON only: {\"summary\": at most 2 short sentences, under 220 characters: who they are and what they want, what we did (shared our number, sent the Calendly link, …) and where it stands, " +
-        "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\"}.\n\nConversation (oldest first):\n" + convo };
+        "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\", " +
+        "\"stage\": exactly one of \"Call booked\" (a call or meeting is agreed, scheduled, or already happened), \"In talks\" (they are actively talking with us), " +
+        "\"Waiting\" (we are waiting for them to reply), \"Not interested\" (they said no)}.\n\nConversation (oldest first):\n" + convo };
     });
     const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
     const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
@@ -230,7 +233,7 @@ async function syncInstagram() {
       "print('@@' + json.dumps(res))"].join("\n");
     const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Summarise Instagram DM leads for the CRM" });
     const res = JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
-    let n = 0;
+    let n = 0, moves = 0;
     for (const l of due) {
       let s: any = null;
       try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
@@ -238,7 +241,20 @@ async function syncInstagram() {
       const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_sum_at: l.fields.ig_last_at };
       const { error } = await db.from("crm_leads").update({ fields }).eq("id", l.id);
       if (!error) { l.fields = fields; n++; }
+      // Forward only, as above: Follow up → In talks / Call booked once they've written back; In talks → Call booked.
+      const want = String(s.stage ?? "").toLowerCase();
+      const since = l.stage_at ? ms(l.stage_at) : 0;
+      const replied = (ev ?? []).some((e) => e.lead_id === l.id && String(e.by_email).endsWith("@ig-contact") && ms(e.at) > since);
+      let to = "";
+      if (booked && want === "call booked" && (l.stage === talks || (follow && l.stage === follow && replied))) to = booked;
+      else if (want === "in talks" && follow && l.stage === follow && replied) to = talks;
+      if (to && to !== l.stage) {
+        const { error: e2 } = await db.from("crm_leads").update({ stage: to }).eq("id", l.id);
+        if (!e2) { l.stage = to; moves++;
+          await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", by_email: "automation", text: "Moved to " + to + " automatically (AI read of the chat): " + clip(String(s.summary), 240) }); }
+      }
     }
+    if (moves) out.moved = (out.moved ?? 0) + moves;
     return n;
   }
 
@@ -299,9 +315,9 @@ async function syncInstagram() {
         const notes = [row.followers != null ? row.followers.toLocaleString("en-US") + " followers on Instagram." : "", said ? "They said: “" + clip(said, 400) + "”" : ""].filter(Boolean).join("\n");
         const { data: made, error } = await db.from("crm_leads").insert({ name: row.name || handle, instagram: "@" + handle, phone: theirPhone, direction: "Inbound",
           source: "Instagram", source_detail: "DM to @" + acct, stage: isBooked ? booked : talks, heat: "Hot", notes, owner, origin_key: "ig:" + handle,
-          fields: { ig_followers: row.followers }, created_by: "automation" }).select("id,instagram,origin_key,stage,next_step,next_date,phone,fields,archived").single();
+          fields: { ig_followers: row.followers }, created_by: "automation" }).select("id,instagram,origin_key,stage,stage_at,next_step,next_date,phone,fields,archived").single();
         if (error) {   // made by the other account's thread a moment ago
-          const { data: again } = await db.from("crm_leads").select("id,instagram,origin_key,stage,next_step,next_date,phone,fields,archived").eq("origin_key", "ig:" + handle).maybeSingle();
+          const { data: again } = await db.from("crm_leads").select("id,instagram,origin_key,stage,stage_at,next_step,next_date,phone,fields,archived").eq("origin_key", "ig:" + handle).maybeSingle();
           if (!again) throw error;
           lead = again;
         } else {
@@ -331,7 +347,16 @@ async function syncInstagram() {
       const f = lead.fields ?? {};
       if (last && !lead.archived && !closed.has(lead.stage) && last.at >= (f.ig_last_at ?? 0)) {
         const patch: Record<string, unknown> = {};
-        if (booked && lead.stage === talks && msgs.some((m) => m.at >= sinceQ && BOOKED.test(m.text))) patch.stage = booked;
+        // Leads only move forward on their own: someone in Follow up who writes back goes to In talks (Call booked if a call is
+        // set), and In talks goes to Call booked once a call is set. Never back, never to Lost, never into Follow up.
+        let moved = "";
+        const since = lead.stage_at ? ms(lead.stage_at) : 0;
+        if (follow && lead.stage === follow && msgs.some((m) => !m.us && m.at > since)) {
+          patch.stage = booked && msgs.some((m) => m.at > since && BOOKED.test(m.text)) ? booked : talks;
+          moved = "they replied on Instagram" + (patch.stage === booked ? " and a call is set" : "") + ".";
+        } else if (booked && lead.stage === talks && msgs.some((m) => m.at >= sinceQ && BOOKED.test(m.text))) {
+          patch.stage = booked; moved = "a call is set in the Instagram chat.";
+        }
         if (!lead.phone) { const p = msgs.filter((m) => !m.us).map((m) => m.text.match(THEIR_PHONE)?.[0]).find(Boolean); if (p) patch.phone = p; }
         const where = " on Instagram (@" + acct + ")";
         let next: string, date: number;
@@ -345,10 +370,12 @@ async function syncInstagram() {
         if (mineToSet && (next !== lead.next_step || istDate(date) !== lead.next_date)) { patch.next_step = next; patch.next_date = istDate(date); }
         if (Object.keys(patch).length || last.at !== f.ig_last_at) {
           patch.fields = { ...f, ig_last_at: last.at, ...(mineToSet ? { ig_auto_next: next } : {}) };
-          const { data: upd, error } = await db.from("crm_leads").update(patch).eq("id", lead.id).select("id,instagram,origin_key,stage,next_step,next_date,phone,fields,archived").single();
+          const { data: upd, error } = await db.from("crm_leads").update(patch).eq("id", lead.id).select("id,instagram,origin_key,stage,stage_at,next_step,next_date,phone,fields,archived").single();
           if (error) throw error;
           leads.set(lead.id, upd); leadByHandle.set(handle, upd);
           if (patch.stage || patch.next_step) out.updated++;
+          if (moved) { out.moved = (out.moved ?? 0) + 1;
+            await db.from("crm_lead_events").insert({ lead_id: lead.id, kind: "note", by_email: "automation", text: "Moved to " + patch.stage + " automatically: " + moved }); }
         }
       }
     }
