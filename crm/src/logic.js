@@ -742,7 +742,11 @@ class Component extends DCLogic {
     const tip=this.leadTip(l);
     const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=300;const below=r.bottom+230<window.innerHeight;
       this.setState({ldTip:{id:l.id,x:Math.max(8,Math.min(r.right-w,window.innerWidth-w-8)),y:below?r.bottom+6:r.top-6,up:!below}});};
-    return{hasTip:tip.has,tipShow:e=>place(e),tipHide:()=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});},
+    // Instagram: straight to the DM thread (ig.me opens it in whichever account you're signed in to in that browser).
+    const igH=String(l.instagram||'').trim().replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,'').replace(/[/?#].*$/,'');
+    return{hasDm:!!igH,dmTitle:'Open your DMs with @'+igH+(this.igAcct(l)?' (signed in as '+this.igAcct(l)+')':''),
+      dm:stop(()=>{this.setState({ldTip:null});window.open('https://ig.me/m/'+encodeURIComponent(igH),'_blank','noopener');}),
+      hasTip:tip.has,tipShow:e=>place(e),tipHide:()=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});},
       tipClick:stop(e=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});else place(e);}),
       binTitle:inLost?'Archive (take off the board)':'Move to '+(lostSt?lostSt.name:'Lost'),
       bin:stop(()=>{this.setState({ldTip:null});if(inLost||!lostSt){AK.leadArchive(l.id,true);this.toast('Archived '+who+'.',()=>AK.leadArchive(l.id,false));return;}
