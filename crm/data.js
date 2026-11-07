@@ -992,7 +992,7 @@ const liState=()=>({on:!!LI.id,loaded:!!LI.raw,err:LI.err?String(LI.err.message|
    Supabase refuses. */
 const LD={rows:[],events:[],settings:{},loaded:false,err:null,busy:false,pending:0,gen:0,again:false,at:0};
 // Automatic post tracking (7 Nov): filled twice a day by the social-sync Edge Function; read here with the leads.
-const SOC={posts:[],checks:[],people:[],eng:[],runs:[],loaded:false,running:false};
+const SOC={posts:[],checks:[],people:[],eng:[],runs:[],loaded:false,running:false,ig:[],igRuns:[],igRunning:false};
 const LEAD_DEFAULTS={stages:[{name:"New",color:"var(--ink-4)",kind:"open"},{name:"Contacted",color:"var(--out)",kind:"open"},{name:"In talks",color:"var(--mid)",kind:"open"},
   {name:"Proposal sent",color:"var(--warn)",kind:"open"},{name:"Won",color:"var(--ok)",kind:"won"},{name:"Lost",color:"var(--bad)",kind:"lost"}],
   sources:["X","LinkedIn","Instagram","Email","Referral","Website","Other"],groups:[],categories:[],fields:[],currency:"USD"};
@@ -1007,14 +1007,16 @@ async function leadsLoad(){
   if(LD.busy||LD.pending){LD.again=true;return}
   LD.busy=true;LD.again=false;const gen=LD.gen;
   try{
-    const [rows,st,events,sp,sc,sppl,seng,runs]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
+    const [rows,st,events,sp,sc,sppl,seng,runs,igt,igr]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
       sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),leadPages("crm_lead_events","at"),
       leadPages("crm_social_posts","posted_at",["platform","post_id"]),leadPages("crm_social_checks","at",["platform","post_id"]),
       leadPages("crm_social_people","last_seen",["platform","person_key"]),leadPages("crm_social_engagements","first_seen",["platform","post_id","person_key","kind"]),
-      sb.from("crm_sync_runs").select("*").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]})]);
+      sb.from("crm_sync_runs").select("*").eq("platform","linkedin").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]}),
+      leadPages("crm_ig_threads","checked_at",["account","thread_id"]).catch(()=>[]),   // Instagram DMs (7 Nov); empty until that job is set up
+      sb.from("crm_sync_runs").select("*").eq("platform","instagram").order("started_at",{ascending:false}).limit(5).then(r=>r.data||[])]);
     // A save that started while this was loading has newer data than what came back, so keep the page as it is and load again.
     if(gen===LD.gen&&!LD.pending){LD.rows=rows;LD.settings=Object.fromEntries(st.map(x=>[x.key,x.value]));LD.events=events;LD.loaded=true;LD.at=Date.now();
-      SOC.posts=sp;SOC.checks=sc;SOC.people=sppl;SOC.eng=seng;SOC.runs=runs;SOC.loaded=true}
+      SOC.posts=sp;SOC.checks=sc;SOC.people=sppl;SOC.eng=seng;SOC.runs=runs;SOC.ig=igt;SOC.igRuns=igr;SOC.loaded=true}
     else LD.again=true;
     LD.err=null;
   }catch(e){LD.err=e}
@@ -1124,6 +1126,35 @@ async function personToLead(person,seed){
   return lead;
 }
 
+/* ---------- Instagram DMs (7 Nov) ---------- */
+// Reads the DMs now (the "Check now" button on Setup). The ig-sync job also runs every hour on its own.
+async function igRun(){
+  if(!sb||SOC.igRunning)return null;
+  SOC.igRunning=true;emit();
+  try{const {data,error}=await sb.functions.invoke("ig-sync",{body:{}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    if(data&&data.skipped)toast(data.skipped,true);
+    else if(data)toast("Read "+data.threads_read+" DM threads: "+data.leads_added+" new "+(data.leads_added===1?"lead":"leads")+", "+data.filtered+" filtered out.");
+    return data}
+  catch(e){toast("The check didn't finish: "+(e.message||e),true);return null}
+  finally{SOC.igRunning=false;setTimeout(leadsLoad,300);emit()}
+}
+// Someone the job filtered out, added to Leads by hand. Their messages follow the next time the thread changes.
+async function igToLead(t){
+  const handle=String(t.handle||"").toLowerCase();
+  const known=LD.rows.find(l=>String(l.instagram||"").toLowerCase().replace(/^@/,"")===handle||l.origin_key==="ig:"+handle);
+  if(known&&known.archived)await leadArchive(known.id,false);
+  const lead=known||await leadCreate({name:t.name||handle,instagram:"@"+handle,direction:"Inbound",source:"Instagram",source_detail:"DM to @"+t.account,
+    ...((leadSetting("stages")||[]).some(s=>s.name==="In talks")?{stage:"In talks"}:{}),heat:"Hot",origin_key:"ig:"+handle,
+    notes:[t.followers!=null?Number(t.followers).toLocaleString("en-US")+" followers on Instagram.":"",t.why?"Filtered out automatically ("+t.why+"), added by hand.":""].filter(Boolean).join("\n"),
+    fields:{ig_followers:t.followers}});
+  if(!lead)return null;
+  const who=session&&session.user?session.user.email:"";
+  SOC.ig=SOC.ig.map(x=>x.account===t.account&&x.thread_id===t.thread_id?{...x,status:"kept",status_by:who,lead_id:lead.id}:x);emit();
+  await leadWrite("the link",()=>sb.from("crm_ig_threads").update({status:"kept",status_by:who,lead_id:lead.id}).eq("account",t.account).eq("thread_id",t.thread_id));
+  return lead;
+}
+
 /* ---------- connection state for the page ---------- */
 function gate(){
   if(!SB_URL||!SB_KEY)return {title:"Supabase isn't connected yet",body:"Add the project URL and anon key to .env.local, rebuild the page, then reload.",action:"retry"};
@@ -1201,7 +1232,7 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
-  liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,
+  liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
 };
 start();

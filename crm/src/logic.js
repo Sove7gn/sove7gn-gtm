@@ -853,7 +853,22 @@ class Component extends DCLogic {
       icp:abuf('icp'),setIcp:e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__a_icp:v}}));},saveIcp:asave('icp'),
       toggles:[tog('enabled','Check my posts automatically','Twice a day, at 9:00 and 21:00 IST.'),tog('add_hot','Add hot leads to Leads','Founders and decision makers who could buy.'),tog('add_warm','Add warm leads too','People who could buy or refer later.')],
       runs,hasRuns:runs.length>0,running:rs.running,notRunning:!rs.running,run:()=>AK.socialRun(),ready:AK.leadsState().loaded};
-    return{auto,lists,fields,currency:(s.led.__cur!=null?s.led.__cur:cur),setCurrency:e=>{const v=e.target.value.toUpperCase();this.setState(z=>({led:{...z.led,__cur:v}}));},
+    // Instagram DMs (7 Nov): what the hourly ig-sync job keeps and filters out; anyone filtered can be added by hand.
+    const IS=AK.leadSetting('instagram')||{};const IT=AK.SOC.ig||[];const ir=AK.SOC.igRuns[0];
+    const igLive=AK.SOC.igRunning||(!!ir&&!ir.finished_at&&Date.now()-new Date(ir.started_at).getTime()<3*60e3);
+    const kept=IT.filter(t=>t.status==='kept'),filt=IT.filter(t=>t.status==='filtered').sort((a,b)=>new Date(b.qualified_at||b.first_seen)-new Date(a.qualified_at||a.first_seen));
+    const lastOk=AK.SOC.igRuns.find(r=>r.ok&&r.finished_at&&!(r.summary&&r.summary.skipped));const behind=lastOk&&lastOk.summary&&Object.values(lastOk.summary.accounts||{}).some(a=>!a.caught_up);
+    const ig={running:igLive,notRunning:!igLive,run:()=>AK.igRun(),
+      status:igLive?'Reading your DMs now…':!ir?'Not running yet. Once the Instagram job is switched on, it reads your DMs every hour.':ir.ok===false?'The last check didn’t finish ('+this.since(ir.started_at)+'): '+ir.error:
+        ir.summary&&ir.summary.skipped?ir.summary.skipped:'Last checked '+this.since(ir.finished_at||ir.started_at)+'. Checks every hour.'+(behind?' Still going back through the last '+(IS.backfill_days||30)+' days.':''),
+      statusFg:ir&&(ir.ok===false||(ir.summary&&ir.summary.skipped))?'var(--bad-ink)':'var(--ink-3)',
+      counts:kept.length+(kept.length===1?' person':' people')+' added to Leads from Instagram, '+filt.length+' filtered out.',
+      rules:'A DM counts once you’ve sent them '+[(IS.our_links||[]).join(', '),(IS.our_phones||[]).join(' or ')].filter(Boolean).join(', or your number ')+'. Filtered out: under '+Number(IS.min_followers||1000).toLocaleString('en-US')+' followers, people looking for clipping work, and '+(IS.ignore||[]).map(h=>'@'+h).join(', ')+'.',
+      accounts:(IS.accounts||[]).map(h=>'@'+h).join(' and ')||'your Instagram accounts',
+      filtered:filt.slice(0,60).map(t=>({handle:'@'+t.handle,acct:'to @'+t.account,why:t.why||'Filtered out',when:this.since(t.qualified_at||t.first_seen),
+        open:()=>open('https://instagram.com/'+t.handle),add:async()=>{const l=await AK.igToLead(t);if(l)this.toast('Added @'+t.handle+' to Leads.');}})),
+      hasFiltered:filt.length>0};
+    return{auto,ig,lists,fields,currency:(s.led.__cur!=null?s.led.__cur:cur),setCurrency:e=>{const v=e.target.value.toUpperCase();this.setState(z=>({led:{...z.led,__cur:v}}));},
       saveCurrency:()=>{const v=String(this.state.led.__cur||'').trim().toUpperCase();this.setState(z=>{const m={...z.led};delete m.__cur;return{led:m};});if(/^[A-Z]{3}$/.test(v)&&v!==cur)AK.leadSettingSave('currency',v);}};}
   // The side panel for one lead (or a new one): every field edits in place and saves when you leave it.
   leadPanel(){const s=this.state;const id=s.lid;if(!id)return{open:false};const isNew=id==='new';const l=isNew?s.lnew:AK.LD.rows.find(r=>r.id===id);

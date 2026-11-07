@@ -128,7 +128,7 @@ await ok("leads: strangers and anonymous visitors get nothing", async () => {
 await ok("leads: starting settings are there", async () => {
   await as("authenticated", "me@example.com");
   const s = Object.fromEntries((await db.query("select key, value from public.crm_lead_settings")).rows.map((r) => [r.key, r.value]));
-  assert.deepEqual(s.stages.map((x) => x.name), ["New", "Contacted", "In talks", "Proposal sent", "Won", "Lost"]);
+  assert.deepEqual(s.stages.map((x) => x.name), ["New", "Contacted", "In talks", "Call booked", "Proposal sent", "Won", "Lost"]);
   assert.ok(s.sources.includes("Instagram"));
   assert.deepEqual([s.groups, s.categories, s.fields, s.currency], [[], [], [], "USD"]);
 });
@@ -213,5 +213,26 @@ await ok("tracking: leads get a Hot/Warm label and an 'engaged' history entry; t
   assert.ok((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch);
   const a = (await db.query("select value from public.crm_lead_settings where key = 'automation'")).rows[0].value;
   assert.deepEqual([a.add_hot, a.add_warm, a.enabled], [true, false, true]);
+});
+await ok("instagram: threads are written by the job, read by members; their messages aren't a touch, ours are", async () => {
+  await as("service_role");
+  const id = (await db.query("insert into public.crm_leads (name, instagram, source, origin_key, created_by) values ('Dheeraj', '@b2cwithdheeraj', 'Instagram', 'ig:b2cwithdheeraj', 'automation') returning id")).rows[0].id;
+  await db.query("insert into public.crm_ig_threads (account, thread_id, handle, followers, status, lead_id) values ('sove7gn', 't1', 'b2cwithdheeraj', 5200, 'kept', $1), ('sove7gn', 't2', 'tiny', 300, 'filtered', null)", [id]);
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text, by_email) values ($1, 'message', '@b2cwithdheeraj: Lets connect on call once', 'b2cwithdheeraj@ig-contact')", [id]);
+  assert.equal((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch, null);
+  await db.query("insert into public.crm_lead_events (lead_id, kind, text, by_email) values ($1, 'message', '@sove7gn: Here you go', 'sove7gn@instagram')", [id]);
+  assert.ok((await db.query("select last_touch from public.crm_leads where id = $1", [id])).rows[0].last_touch);
+  await as("authenticated", "me@example.com");
+  assert.equal((await db.query("select count(*)::int n from public.crm_ig_threads")).rows[0].n, 2);
+  await assert.rejects(db.query("insert into public.crm_ig_threads (account, thread_id) values ('x', 'fake')"), /permission denied/);
+  await assert.rejects(db.query("update public.crm_ig_threads set followers = 9999"), /permission denied/);
+  await db.query("update public.crm_ig_threads set status = 'kept', why = '', status_by = 'me@example.com' where thread_id = 't2'");
+  await assert.rejects(db.query("update public.crm_ig_threads set status = 'maybe'"), /check constraint/);
+  const ig = (await db.query("select value from public.crm_lead_settings where key = 'instagram'")).rows[0].value;
+  assert.deepEqual([ig.min_followers, ig.accounts, ig.ignore.includes("namanz11")], [1000, ["reyanshbuilds", "sove7gn"], true]);
+  await as("authenticated", "stranger@example.com");
+  assert.equal((await db.query("select count(*)::int n from public.crm_ig_threads")).rows[0].n, 0);
+  await as("anon");
+  await assert.rejects(db.query("select * from public.crm_ig_threads"), /permission denied/);
 });
 console.log(`\n${passed} checks passed`);

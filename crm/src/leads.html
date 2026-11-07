@@ -251,6 +251,31 @@
 </sc-if>
 </section>
 </sc-if>
+<sc-if value="{{ ld.auto.ready }}">
+<section style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transition:opacity 500ms var(--ease);">
+<div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+<div style="flex:1; min-width:240px; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">Track my Instagram DMs</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">Reads the DMs on {{ ld.ig.accounts }}. People you’ve given your booking link or number to land in Leads. After that, every message goes into their history, and the next step (reply, follow up, waiting) keeps itself up to date.</span></div>
+<sc-if value="{{ ld.ig.notRunning }}"><button onClick="{{ ld.ig.run }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Check now</button></sc-if>
+<sc-if value="{{ ld.ig.running }}"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Reading… about two minutes</span></sc-if>
+</div>
+<span style="font-size:var(--fs-xs); color:{{ ld.ig.statusFg }};">{{ ld.ig.status }}</span>
+<span style="font-size:var(--fs-sm); font-weight:500;">{{ ld.ig.counts }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ ld.ig.rules }}</span>
+<sc-if value="{{ ld.ig.hasFiltered }}">
+<div style="display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--hairline);">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Filtered out</span>
+<sc-for list="{{ ld.ig.filtered }}" as="t">
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:var(--fs-xs);">
+<button onClick="{{ t.open }}" style="border:0; background:transparent; padding:0; font-family:inherit; font-size:var(--fs-sm); font-weight:500; color:var(--ink); cursor:pointer;" style-hover="text-decoration:underline;">{{ t.handle }}</button>
+<span style="color:var(--ink-4);">{{ t.acct }} · {{ t.when }}</span>
+<span style="flex:1; min-width:160px; color:var(--ink-2);">{{ t.why }}</span>
+<button onClick="{{ t.add }}" style="height:26px; padding:0 10px; border:0; border-radius:7px; background:var(--n-soft); color:var(--ink); font-size:var(--fs-2xs); font-weight:600; cursor:pointer;" style-hover="background:var(--hairline-strong);">Add to Leads</button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+</section>
+</sc-if>
 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3); align-items:start; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
 <sc-for list="{{ ld.lists }}" as="L">
 <section style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
