@@ -18,7 +18,7 @@ const BUDGET_MS = 80_000;    // the schedule waits 150 s; a last lookup (up to 4
 // Composio hands back answers up to about 30 KB, so threads are listed with their last 5 messages, 15 at a time, and only
 // the ones that matter are read further (25 messages each, 6 at a time).
 const LIST_FIELDS = "id,updated_time,participants,messages.limit(5){message,from,created_time}";
-const PAGE = 15, BATCH = 6, HISTORY = 25;
+const PAGE = 15, BATCH = 6, HISTORY = 25, SUMMARIES = 12;
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
@@ -144,7 +144,7 @@ async function syncInstagram() {
   const leads = new Map<string, any>(), leadByHandle = new Map<string, any>();
   for (const l of leadRows ?? []) { leads.set(l.id, l); if (l.instagram) leadByHandle.set(lc(l.instagram), l); if (l.origin_key?.startsWith("ig:")) leadByHandle.set(l.origin_key.slice(3), l); }
 
-  const out = { threads_read: 0, kept: 0, filtered: 0, leads_added: 0, messages_logged: 0, updated: 0, accounts: {} as Record<string, any> };
+  const out: Record<string, any> = { threads_read: 0, kept: 0, filtered: 0, leads_added: 0, messages_logged: 0, updated: 0, accounts: {} };
   const end = Date.now() + BUDGET_MS;
 
   for (let i = 0; i < wanted.length; i++) {
@@ -201,7 +201,46 @@ async function syncInstagram() {
     const { error } = await db.from("crm_leads").update({ next_step: next, fields: { ...f, ig_auto_next: next } }).eq("id", l.id);
     if (!error) out.updated++;
   }
+
+  // A short AI read of each conversation that changed (shown when you hover the ✦ on a lead's card).
+  if (Date.now() < end + 15e3) out.summarised = await summarise().catch(() => 0);
   return out;
+
+  async function summarise() {
+    const due = [...leads.values()].filter((l) => l.origin_key?.startsWith("ig:") && !l.archived && l.fields?.ig_last_at && l.fields.ig_sum_at !== l.fields.ig_last_at)
+      .sort((a, b) => b.fields.ig_last_at - a.fields.ig_last_at).slice(0, SUMMARIES);
+    if (!due.length) return 0;
+    const { data: ev } = await db.from("crm_lead_events").select("lead_id,at,text").eq("kind", "message").in("lead_id", due.map((l) => l.id)).order("at");
+    const { data: more } = await db.from("crm_leads").select("id,name,source_detail,stage").in("id", due.map((l) => l.id));
+    const info = new Map((more ?? []).map((l) => [l.id, l]));
+    const today = dayLabel(Date.now());
+    const items = due.map((l) => {
+      const i: any = info.get(l.id) ?? {}, acct = String(i.source_detail ?? "").match(/@([\w.]+)/)?.[1] ?? "our account";
+      const convo = (ev ?? []).filter((e) => e.lead_id === l.id).slice(-30).map((e) => e.text).join("\n");
+      return { id: l.id, prompt: "You help a founder keep track of Instagram DM leads for SOVE7GN, which sells clipping and done-for-you GTM services. " +
+        "Messages from @" + acct + " are us; the other person is " + (i.name || l.instagram) + " (" + l.instagram + "), " + (l.fields?.ig_followers ?? "unknown") + " followers, now in our stage “" + i.stage + "”. Today is " + today + ".\n" +
+        "Write JSON only: {\"summary\": at most 2 short sentences, under 220 characters: who they are and what they want, what we did (shared our number, sent the Calendly link, …) and where it stands, " +
+        "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\"}.\n\nConversation (oldest first):\n" + convo };
+    });
+    const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
+    const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
+      "items = json.loads(base64.b64decode('" + payload + "').decode())",
+      "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
+      "with ThreadPoolExecutor(6) as ex: res = dict(ex.map(one, items))",
+      "print('@@' + json.dumps(res))"].join("\n");
+    const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Summarise Instagram DM leads for the CRM" });
+    const res = JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
+    let n = 0;
+    for (const l of due) {
+      let s: any = null;
+      try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
+      if (!s?.summary) continue;
+      const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_sum_at: l.fields.ig_last_at };
+      const { error } = await db.from("crm_leads").update({ fields }).eq("id", l.id);
+      if (!error) { l.fields = fields; n++; }
+    }
+    return n;
+  }
 
   // One page of threads. The ones that matter (already tracked, or where we've sent our link or number) are read further,
   // new people are looked up, then each is handled.

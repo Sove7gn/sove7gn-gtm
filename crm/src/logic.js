@@ -82,7 +82,8 @@ const TRK_X={chart:'Total views over time',noChart:'The chart fills in after the
 const TRK_LI={chart:'Reactions per post, oldest to newest',noChart:'The chart fills in once two posts have reactions.',noTop:'Shows up once a post has reactions.',
   noPat:'Patterns show up once a few more posts have reactions.',c1:'Reactions',c2:'Post type',c3:'Checked',
   weekTip:'Green: a LinkedIn post went out that day (by the sheet’s date). Yellow: still queued, or today with nothing yet. Red: no post that day. Underneath: that day’s reactions.'};
-const HEAT_C={Hot:'oklch(0.66 0.17 40)',Warm:'var(--warn)'};
+const HEAT_C={Hot:'oklch(0.66 0.17 40)',Warm:'var(--warn)',Cold:'oklch(0.62 0.11 245)'};
+const HEAT_L={Hot:'Hot lead',Warm:'Warm lead',Cold:'Cold lead'};
 const FIT={hot:{label:'Hot lead',c:'oklch(0.66 0.17 40)'},warm:{label:'Warm',c:'var(--warn)'},'not a fit':{label:'Not a fit',c:'var(--ink-4)'},'':{label:'Checking…',c:'var(--ink-4)'}};
 const liMarkKey=t=>String(t||'').replace(/\s+/g,' ').trim().slice(0,80).toLowerCase();
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
@@ -128,7 +129,7 @@ class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -689,7 +690,7 @@ class Component extends DCLogic {
   tagOf(kind,name){const t=this.leadSet(kind).find(x=>(x.name||x)===name);return t&&t.color?t.color:'var(--ink-3)';}
   leadFiltered(){const f=this.state.lf;const q=f.q.trim().toLowerCase();
     return this.leadsAll().filter(l=>(!q||[l.name,l.company,l.role,l.email,l.x_handle,l.linkedin,l.instagram,l.pitch,l.notes,l.group_name,(l.categories||[]).join(' ')].join(' ').toLowerCase().includes(q))
-      &&(!f.source||l.source===f.source)&&(!f.heat||l.heat===f.heat)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
+      &&(!f.source||l.source===f.source)&&(!f.heat||this.heatOf(l)===f.heat)&&(!f.group||l.group_name===f.group)&&(!f.cat||(l.categories||[]).includes(f.cat))&&(!f.dir||l.direction===f.dir));}
   // Saves edits still in the panel's buffer (closing it skips the inputs' blur), then clears the buffer.
   flushLead(){const s=this.state;const id=s.lid;if(!id||id==='new')return;const l=AK.LD.rows.find(r=>r.id===id);if(!l)return;
     const patch={};let fields=null;
@@ -707,24 +708,57 @@ class Component extends DCLogic {
   since(t){if(!t)return '';const d=new Date(t);const days=Math.floor((new Date().setHours(0,0,0,0)-new Date(d).setHours(0,0,0,0))/AK.DAY);
     return days<=0?'today '+hhmm(d):days===1?'yesterday':days<7?days+' days ago':dLabel(d);}
   leadNext(l){if(!l.next_date&&!l.next_step)return null;const t0=new Date();t0.setHours(0,0,0,0);const d=l.next_date?new Date(l.next_date+'T00:00:00'):null;
-    const late=d&&d<t0,today=d&&AK.sameDay(d,t0);return{label:(l.next_step||'Next step')+(d?' · '+(today?'today':late?'overdue, '+dLabel(d):dLabel(d)):''),tone:late?'bad':today?'warn':'neutral',late,today};}
+    const late=d&&d<t0,today=d&&AK.sameDay(d,t0);const when=d?(today?'today':late?'overdue, '+dLabel(d):dLabel(d)):'';
+    return{label:(l.next_step||'Next step')+(when?' · '+when:''),when:when||'no date',tone:late?'bad':today?'warn':'neutral',late,today};}
+  // Instagram leads (7 Nov): hot up to 3 days after the last message, warm up to 7, cold after that. Others keep what was set.
+  heatOf(l){const t=l.fields&&l.fields.ig_last_at;if(!t||l.origin_key&&!String(l.origin_key).startsWith('ig:')&&l.source!=='Instagram')return l.heat||'';
+    const d=(Date.now()-Number(t))/AK.DAY;return d<=3?'Hot':d<=7?'Warm':'Cold';}
+  // The next step in a word or two, for cards: "Reply", "Follow up", "Waiting for reply"…
+  nextShort(l){const s=String(l.next_step||'').trim();return /^reply/i.test(s)?'Reply':/^follow/i.test(s)?'Follow up':/^waiting/i.test(s)?'Waiting for reply':s?clip(s,26):'Next step';}
+  igAcct(l){const m=String(l.source_detail||'').match(/@([\w.]+)/);return m?'@'+m[1]:'';}
+  // What the ✦ on a card shows: the AI read of the chat when there is one, else what we can piece together from the history.
+  leadTip(l){const f=l.fields||{};const ev=AK.LD.events.filter(e=>e.lead_id===l.id&&e.kind==='message').sort((a,b)=>new Date(a.at)-new Date(b.at));
+    const them=ev.filter(e=>String(e.by_email||'').endsWith('@ig-contact'));const asked=them.map(e=>String(e.text).replace(/^@[\w.]+:\s*/,'')).find(t=>t.length>12);
+    const last=ev[ev.length-1];const lastWho=last?(String(last.by_email||'').endsWith('@ig-contact')?'They':'You'):'';
+    const summary=f.ig_summary||(asked?'They said: “'+clip(asked,160)+'”':clip(String(l.notes||'').replace(/\s+/g,' '),220));
+    const nx=this.leadNext(l);const lines=[];
+    if(nx)lines.push(['Next',this.nextShort(l)+' · '+nx.when]);
+    if(f.ig_ai_next)lines.push(['AI suggests',f.ig_ai_next]);
+    if(last)lines.push(['Last message',lastWho+', '+this.since(last.at)+': “'+clip(String(last.text).replace(/^@[\w.]+:\s*/,''),70)+'”']);
+    if(f.ig_followers!=null)lines.push(['Followers',Number(f.ig_followers).toLocaleString('en-US')]);
+    return{summary,ai:!!f.ig_summary,lines:lines.map(([k,v])=>({k,v})),has:!!(summary||lines.length)};}
   srcIcon(src){return {X:'𝕏',LinkedIn:'in',Instagram:'◎',Email:'✉',Referral:'↪',Website:'⌂'}[src]||'•';}
   tagPill(label,color){return{label,dot:color,bg:'color-mix(in oklch, '+color+' 12%, white)',fg:'color-mix(in oklch, '+color+' 70%, black)'};}
   leadCard(l){const st=this.stageOf(l.stage);const nx=this.leadNext(l);const a=avatar(l.name||l.company||'?');
     return{...a,id:l.id,name:l.name||'(no name)',company:[l.role,l.company].filter(Boolean).join(' · ')||l.email||l.x_handle||'',src:(l.source?this.srcIcon(l.source)+' '+l.source:'No source')+' · '+(l.direction||''),
-      value:this.money(l.price,l.currency),hasValue:l.price!=null&&l.price!=='',next:nx?pill(nx.label,nx.tone):null,hasNext:!!nx,stage:this.tagPill(l.stage,st.color),
+      value:this.money(l.price,l.currency),hasValue:l.price!=null&&l.price!=='',next:nx?pill(this.nextShort(l)+(nx.when!=='no date'?' · '+nx.when:''),nx.tone):null,hasNext:!!nx,
+      isIg:l.source==='Instagram',notIg:l.source!=='Instagram',igLine:this.igAcct(l)?'via '+this.igAcct(l):'Instagram',stage:this.tagPill(l.stage,st.color),
       group:l.group_name?this.tagPill(l.group_name,this.tagOf('groups',l.group_name)):null,hasGroup:!!l.group_name,
-      heat:l.heat?this.tagPill(l.heat==='Hot'?'Hot lead':'Warm lead',HEAT_C[l.heat]):null,hasHeat:!!l.heat,
+      heat:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),
       cats:(l.categories||[]).slice(0,3).map(c=>this.tagPill(c,this.tagOf('categories',c))),when:l.last_touch?'Touched '+this.since(l.last_touch):'Added '+this.since(l.created_at),
-      open:()=>this.openLead(l.id)};}
+      open:()=>this.openLead(l.id),...this.leadCardActs(l)};}
+  // The bin moves a lead to Lost (in Lost, it archives it), with undo; the ✦ shows what's going on with them.
+  leadCardActs(l){const ST=this.leadSet('stages');const lostSt=ST.find(x=>x.kind==='lost');const inLost=this.stageOf(l.stage).kind==='lost';const who=l.name||l.company||'the lead';
+    const tip=this.leadTip(l);
+    const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=300;const below=r.bottom+230<window.innerHeight;
+      this.setState({ldTip:{id:l.id,x:Math.max(8,Math.min(r.right-w,window.innerWidth-w-8)),y:below?r.bottom+6:r.top-6,up:!below}});};
+    return{hasTip:tip.has,tipShow:e=>place(e),tipHide:()=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});},
+      tipClick:stop(e=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});else place(e);}),
+      binTitle:inLost?'Archive (take off the board)':'Move to '+(lostSt?lostSt.name:'Lost'),
+      bin:stop(()=>{this.setState({ldTip:null});if(inLost||!lostSt){AK.leadArchive(l.id,true);this.toast('Archived '+who+'.',()=>AK.leadArchive(l.id,false));return;}
+        const prev=l.stage;AK.leadSave(l.id,{stage:lostSt.name});this.toast('Moved '+who+' to '+lostSt.name+'.',()=>AK.leadSave(l.id,{stage:prev}));})};}
+  // The hover card for the ✦, drawn once over the whole board.
+  leadTipBox(){const t=this.state.ldTip;const l=t&&AK.LD.rows.find(r=>r.id===t.id);if(!l)return{on:false};const tip=this.leadTip(l);
+    return{on:true,left:t.x+'px',top:t.y+'px',tf:t.up?'translateY(-100%)':'none',name:l.name||l.instagram||'(no name)',acct:this.igAcct(l),hasAcct:!!this.igAcct(l),
+      summary:tip.summary,hasSummary:!!tip.summary,label:tip.ai?'✦ AI summary':'From the chat',lines:tip.lines};}
   leadHdr(page,h){const L=this.leadsAll();const open=L.filter(l=>this.stageOf(l.stage).kind==='open');const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});
     h={...h,eyebrow:'Leads · '+PAGES[page].label,title:PAGES[page].label==='Overview'?'Leads':PAGES[page].label,cta:'New lead',go:()=>this.newLead()};
     const st=AK.leadsState();
     if(!st.loaded)h.next=st.err?'Couldn’t load leads: '+st.err:'Loading leads…';
-    else if(page==='leads'&&open.some(l=>l.heat==='Hot'&&!l.last_touch)){const f=open.filter(l=>l.heat==='Hot'&&!l.last_touch).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    else if(page==='leads'&&open.some(l=>this.heatOf(l)==='Hot'&&!l.last_touch)){const f=open.filter(l=>this.heatOf(l)==='Hot'&&!l.last_touch).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
       h.next=f.length+(f.length===1?' new hot lead':' new hot leads')+' from your posts, not contacted yet. Newest: '+(f[0].name||f[0].company)+(f[0].role||f[0].company?' ('+[f[0].role,f[0].company].filter(Boolean).join(', ')+')':'')+'.';}
     else if(page==='leads')h.next=due.length?due.length+(due.length===1?' lead needs':' leads need')+' you today, starting with '+(due[0].name||due[0].company)+': '+(due[0].next_step||'next step')+'.':L.length?open.length+' open '+(open.length===1?'lead':'leads')+', nothing due today.':'No leads yet. Add one, or bring people in from X and LinkedIn.';
-    else if(page==='leadBoard')h.next='Drag a card to move it to another stage. '+open.length+' open, worth '+this.moneySum(open)+'.';
+    else if(page==='leadBoard')h.next='Drag a card to another stage, drag the background to scroll. Hover ✦ for a quick read. '+open.length+' open, worth '+this.moneySum(open)+'.';
     else if(page==='leadList')h.next=L.length+(L.length===1?' lead':' leads')+'. Click a column to sort, and a row to open it.';
     else if(page==='leadAdd'){const n=this.candidates().filter(c=>!c.added).length;h.next=n?n+' people from X and LinkedIn you haven’t added yet.':'Everyone from X and LinkedIn is already in.';}
     else if(page==='leadSetup')h.next='Your stages, sources, groups, categories and extra fields. Changes apply to every lead.';
@@ -736,7 +770,7 @@ class Component extends DCLogic {
     return{q:f.q,onQ:e=>set('q',e.target.value),source:f.source,onSource:e=>set('source',e.target.value),group:f.group,onGroup:e=>set('group',e.target.value),cat:f.cat,onCat:e=>set('cat',e.target.value),dir:f.dir,onDir:e=>set('dir',e.target.value),
       sources:opts('All sources',this.leadSet('sources')),groups:opts('All groups',this.leadSet('groups')),cats:opts('All categories',this.leadSet('categories')),dirs:opts('Inbound and outbound',['Inbound','Outbound']),
       hasGroups:this.leadSet('groups').length>0,hasCats:this.leadSet('categories').length>0,
-      heat:f.heat,onHeat:e=>set('heat',e.target.value),heats:[{v:'',l:'All leads'},{v:'Hot',l:'Hot leads'},{v:'Warm',l:'Warm leads'}],
+      heat:f.heat,onHeat:e=>set('heat',e.target.value),heats:[{v:'',l:'All leads'},{v:'Hot',l:'Hot leads'},{v:'Warm',l:'Warm leads'},{v:'Cold',l:'Cold leads'}],
       active:!!(f.q||f.source||f.group||f.cat||f.dir||f.heat),clear:()=>this.setState({lf:{q:'',source:'',group:'',cat:'',dir:'',heat:''}}),
       exportCsv:()=>this.exportLeads()};}
   exportLeads(){const L=this.leadFiltered();if(!L.length){this.toast('No leads to export.',null,true);return;}
@@ -756,11 +790,11 @@ class Component extends DCLogic {
     const open=L.filter(l=>kindOf(l)==='open'),won=L.filter(l=>kindOf(l)==='won'),lost=L.filter(l=>kindOf(l)==='lost');
     const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const wonM=won.filter(l=>new Date(l.stage_at||l.updated_at)>=m0);
     const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});const cold=open.filter(l=>!this.leadNext(l)&&Date.now()-new Date(l.last_touch||l.created_at).getTime()>7*AK.DAY);
-    const fresh=open.filter(l=>l.heat==='Hot'&&!l.last_touch&&!due.includes(l));const coldOnly=cold.filter(l=>!fresh.includes(l));
+    const fresh=open.filter(l=>this.heatOf(l)==='Hot'&&!l.last_touch&&!due.includes(l));const coldOnly=cold.filter(l=>!fresh.includes(l));
     const kpis=[{label:'Open leads',v:String(open.length),d:L.length+' in total',tone:'var(--ink-3)'},{label:'Open pipeline',v:this.moneySum(open),d:'Value of every open lead',tone:'var(--ink-3)'},
       {label:'Won this month',v:String(wonM.length),d:wonM.length?this.moneySum(wonM):'Nothing closed yet this month',tone:'var(--ok-ink)'},
       {label:'Win rate',v:won.length+lost.length?Math.round(won.length/(won.length+lost.length)*100)+'%':'–',d:won.length+' won, '+lost.length+' lost',tone:'var(--ink-3)'},
-      {label:'Hot leads',v:String(open.filter(l=>l.heat==='Hot').length),d:fresh.length?fresh.length+' new, not contacted yet':'Found automatically from your posts',tone:fresh.length?'var(--warn-ink)':'var(--ink-3)'},
+      {label:'Hot leads',v:String(open.filter(l=>this.heatOf(l)==='Hot').length),d:fresh.length?fresh.length+' new, not contacted yet':'Found automatically from your posts',tone:fresh.length?'var(--warn-ink)':'var(--ink-3)'},
       {label:'Need you',v:String(due.length+coldOnly.length+fresh.length),d:(fresh.length?fresh.length+' new hot, ':'')+due.length+' due or overdue, '+coldOnly.length+' quiet for a week',tone:due.length?'var(--bad-ink)':'var(--ink-3)'}];
     const att=[...fresh.map(l=>({l,why:'New hot lead · '+(l.source_detail||'found automatically'),tone:'warn'})),...due.map(l=>({l,why:this.leadNext(l).label,tone:this.leadNext(l).late?'bad':'warn'})),...coldOnly.map(l=>({l,why:'No touch since '+this.since(l.last_touch||l.created_at)+' and no next step',tone:'neutral'}))].slice(0,8)
       .map(x=>({...this.leadCard(x.l),why:pill(x.why,x.tone)}));
@@ -782,7 +816,10 @@ class Component extends DCLogic {
         add:()=>this.newLead({stage:x.name}),
         over:e=>{e.preventDefault();if(this.state.ldOver!==x.name)this.setState({ldOver:x.name});},
         drop:e=>{e.preventDefault();const id=this.ldDrag;this.ldDrag=null;this.setState({ldOver:null});const l=id&&AK.LD.rows.find(r=>r.id===id);if(l&&l.stage!==x.name)AK.leadSave(id,{stage:x.name});}};});
-    return{cols,count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
+    const el=()=>document.getElementById('lead-board');const step=d=>{const b=el();if(b)b.scrollBy({left:d*284*2,behavior:'smooth'});};
+    return{cols,tip:this.leadTipBox(),pan:e=>{this.setState({ldTip:null});this.calPan(e);},left:()=>step(-1),right:()=>step(1),
+      edge:e=>{const b=e.currentTarget;const r=b.getBoundingClientRect();const x=e.clientX;if(x<r.left+90)b.scrollLeft-=Math.ceil((r.left+90-x)/5);else if(x>r.right-90)b.scrollLeft+=Math.ceil((x-r.right+90)/5);},
+      count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
   leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
     const SORT={name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
     const by=SORT[key]||SORT.touch;const sorted=L.slice().sort((a,b)=>{const x=by(a),y=by(b);return(x<y?-1:x>y?1:0)*dir;});const lim=s.lmore?sorted.length:50;
@@ -884,7 +921,7 @@ class Component extends DCLogic {
       row('X','x_handle','text',{ph:'@handle'}),row('LinkedIn','linkedin','text',{ph:'Profile link'}),row('Instagram','instagram','text',{ph:'@handle'}),row('Website','website','text')];
     const deal=[row('Direction','direction','select',{opts:opt(['Inbound','Outbound'])}),row('Source','source','select',{opts:opt(withCur(this.leadSet('sources'),l.source),'Pick a source')}),row('Came from','source_detail','text',{ph:'Which post, campaign or person'}),
       row('Group','group_name','select',{opts:opt(withCur(this.leadSet('groups'),l.group_name),'No group')}),row('Owner','owner','select',{opts:opt(withCur(Object.keys(AK.HANDLES),l.owner),'Nobody')}),
-      row('Lead heat','heat','select',{opts:[{v:'',l:'–'},{v:'Hot',l:'Hot lead'},{v:'Warm',l:'Warm lead'}]}),row('Pitching','pitch','textarea',{ph:'What we’re pitching them'}),row('Value','price','number',{ph:'Deal value'}),row('Currency','currency','text',{ph:'USD'}),row('Pricing','pricing_note','text',{ph:'e.g. $4,000 a month, 3 months'}),
+      row('Lead heat','heat','select',{opts:[{v:'',l:'–'},{v:'Hot',l:'Hot lead'},{v:'Warm',l:'Warm lead'},{v:'Cold',l:'Cold lead'}]}),row('Pitching','pitch','textarea',{ph:'What we’re pitching them'}),row('Value','price','number',{ph:'Deal value'}),row('Currency','currency','text',{ph:'USD'}),row('Pricing','pricing_note','text',{ph:'e.g. $4,000 a month, 3 months'}),
       row('Closed for','closed_for','text',{ph:'What they bought, once won'}),row('Next step','next_step','text',{ph:'e.g. Send the proposal'}),row('Next step date','next_date','date')];
     const F=this.leadSet('fields');const fv=k=>{if(isNew)return(l.fields||{})[k]??'';const e=s.led['f:'+k];return e!=null?e:((l.fields||{})[k]??'');};
     const custom=F.map(x=>({label:x.label,type:x.type,isText:x.type==='text',isNum:x.type==='number',isDate:x.type==='date',isSel:x.type==='select',isArea:x.type==='textarea',val:fv(x.key),ph:'',opts:[{v:'',l:'–'},...(x.options||[]).map(o=>({v:o,l:o}))],
@@ -909,7 +946,7 @@ class Component extends DCLogic {
     const st=this.stageOf(l.stage);const a=avatar(l.name||l.company||'?');
     const archive=()=>{this.closeLead();AK.leadArchive(l.id,true);this.toast('Archived '+(l.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));};
     return{open:true,isNew,notNew:!isNew,...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
-      stageP:this.tagPill(l.stage||'',st.color),heatP:l.heat?this.tagPill(l.heat==='Hot'?'Hot lead':'Warm lead',HEAT_C[l.heat]):null,hasHeat:!!l.heat,srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
+      stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
       noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
