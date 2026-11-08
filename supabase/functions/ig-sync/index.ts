@@ -240,9 +240,10 @@ async function syncInstagram() {
         "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\", " +
         "\"stage\": exactly one of \"Call booked\" (a call or meeting is agreed, scheduled, or already happened), \"In talks\" (they are actively talking with us), " +
         "\"Waiting\" (we are waiting for them to reply), \"Not interested\" (they said no), " +
-        "\"intent\": exactly one of \"buyer\" (a brand, creator, business or agency that might pay us for clipping, marketing, GTM or campaigns, or bring us paying clients), " +
+        "\"intent\": exactly one of \"buyer\" (a brand, creator, business or agency that might pay us for clipping, marketing, GTM or campaigns, or bring us paying clients; " +
+        "a creator or brand who wants views, reach, growth, distribution or clipping is a buyer even if price hasn't come up), " +
         "\"job\" (wants to work for us, be hired, intern, work for free, become a clipper or editor, or earn money from us), " +
-        "\"learn\" (wants advice, mentorship, to learn how we do it, or a favour, with no sign they would pay), \"other\"}.\n\nConversation (oldest first):\n" + convo };
+        "\"learn\" (only wants to learn the skill to do it themselves, or career advice or mentorship for themselves; someone asking what our service is, how it works or what it costs is a buyer, not learn), \"other\"}.\n\nConversation (oldest first):\n" + convo };
     });
     const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
     const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
@@ -257,7 +258,7 @@ async function syncInstagram() {
       let s: any = null;
       try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
       if (!s?.summary) continue;
-      const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_sum_at: l.fields.ig_last_at };
+      const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_intent: String(s.intent ?? ""), ig_sum_at: l.fields.ig_last_at };
       const { error } = await db.from("crm_leads").update({ fields }).eq("id", l.id);
       if (!error) { l.fields = fields; n++; }
       // Not a buyer (after a job, advice or to learn): off Leads (archived) and onto the Filtered out list, unless someone on the
