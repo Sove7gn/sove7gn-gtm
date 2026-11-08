@@ -6,7 +6,9 @@
   "scripts": {
     "build": "python -I crm/src/build_app.py",
     "db:setup": "node supabase/setup.mjs",
-    "test": "node supabase/test.mjs",
+    "test": "node supabase/test.mjs && node scripts/test-gtm.mjs",
+    "test:gtm": "node scripts/test-gtm.mjs",
+    "mock": "node scripts/mock-crm.mjs",
     "env:check": "node scripts/check-env.mjs",
     "serve": "python -m http.server 8787 --directory crm",
     "login": "node scripts/login.mjs"
