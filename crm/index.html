@@ -441,7 +441,7 @@ const CST={Posted:{dot:'var(--ok)',bg:'var(--ok-soft)',fg:'var(--ok-ink)'},Sched
 // Daily slots (team ask, 2 Nov): every X account posts 3 a day, one per slot. Our Posts AB "Daily slot" says which;
 // rows from before then fall back to their post type. The calendar, the Drafts picker and Our posts filter on these.
 const SLOTS3=['Account tag','Founder','Data & product'];
-const SLOT_HINT={'Account tag':'Tag ICP people or companies: a map, shoutout or insight','Founder':'The founders\u2019 life, a story or milestone, with their photo','Data & product':'Data, tech or startup post with a real clip or image of the product'};
+const SLOT_HINT={'Account tag':'Tag 4 to 6 founders who just raised or are hiring for GTM, with a true line on each','Founder':'A lesson or take in Reyansh’s voice, shaped like a viral GTM post','Data & product':'Our own numbers, how the system works, or a free list or script to offer'};
 const slotOf=o=>{const v=String(o['Daily slot']||'').trim();if(SLOTS3.includes(v))return v;const t=String(o['Post type']||'');
   return /tag/i.test(t)?'Account tag':/founder|behind the scenes/i.test(t)?'Founder':/data|lead magnet|how it works|operator floor|company news/i.test(t)?'Data & product':'';};
 const POST_KINDS=[...SLOTS3,'Other'];
@@ -744,7 +744,7 @@ class Component extends DCLogic {
       for(const r of W){const d=r.cells.filter(c=>c.k!=='future'&&!c.today&&c.n===0).map(c=>AK.DOW[c.day.getDay()]);if(d.length)miss.push(ownerName(r.account)+' posted nothing on '+and(d));}
       h.next=miss.length?miss.join('. ')+'. Each account posts 3 a day.':'Every account has posted every day this week so far.';h.cta='Open Calendar';h.go=()=>this.go('calendar');}
     if(page==='pdm'){const L2=this.pdmCards().filter(p=>p.status==='To message');
-      h.next=L2.length?(L2.length===1?'1 person who fits our ICP is':L2.length+' people who fit our ICP are')+' waiting for a DM. Start with '+L2[0].name+': '+String(L2[0].bio).replace(/\.$/,'')+'.':'No ICP repliers waiting for a DM. Everyone else gets a public reply or nothing.';h.cta=L2.length?'Show who to message':'';h.go=L2.length?()=>this.setState({pdmTab:'To message'}):null;}
+      h.next=L2.length?(L2.length===1?'1 person who fits our ICP is':L2.length+' people who fit our ICP are')+' waiting for a DM. Start with '+L2[0].name+': '+String(L2[0].bio).replace(/\.$/,'')+'.':'Nobody who fits is waiting for a DM. Replies, quotes and mentions on our X posts are checked every 6 hours.';h.cta=L2.length?'Show who to message':'';h.go=L2.length?()=>this.setState({pdmTab:'To message'}):null;}
     if(page==='comps'){const top=this.compList().filter(c=>c.freshUncopied>0).sort((a,b)=>b.freshUncopied-a.freshUncopied)[0];
       h.next=top?top.name+' posted '+top.freshUncopied+' post'+(top.freshUncopied===1?'':'s')+' in the last 7 days that we haven’t copied yet.':'No competitor has posted anything new and uncopied in the last 7 days.';h.cta=top?'Open '+top.name:'';h.go=top?()=>this.openComp(top.id):null;}
     if(sec==='leads')h=this.leadHdr(page,h);
@@ -1866,7 +1866,7 @@ class Component extends DCLogic {
 
   /* ---------- competitors ---------- */
   compList(){const v=AK.version();if(this._cv===v)return this._comps;this._cv=v;
-    const GL={same:'Same thing as us',data:'Overlaps on data',soft:'Overlaps on software',big:'Big account',other:'Other'};
+    const GL={same:'GTM agencies (same as us)',data:'GTM engineers',soft:'GTM software founders',big:'Big account',other:'Other'};
     const wk=Date.now()-7*AK.DAY;
     this._comps=AK.M.comps.map(c=>{const id=AK.norm(c.Name);const posts=AK.M.theirs.filter(t=>t._comp===c);const hc=String(c['How close']||'');
       const group=/same/i.test(hc)?'same':/data/i.test(hc)?'data':/software/i.test(hc)?'soft':/big/i.test(hc)?'big':'other';
@@ -1893,7 +1893,7 @@ class Component extends DCLogic {
     return{...c,...avatar(c.name),handle:c.handle||'No company X account',stats:[{label:'Followers',v:c.followers,sub:c.folSub},{label:'Posting rate',v:c.rate,sub:'From the sheet'},{label:'Typical engagement',v:c.eng,sub:'Per saved post (median)'},{label:'Best post type',v:c.best,sub:'By engagement'}],
       hasChart,noChart:!hasChart,chart:{line:ch.line,area:ch.area,dash:E?'0':'1600',peakX:hasChart?ch.dots[pk].cx:'0',peakY:hasChart?ch.dots[pk].cy:'0',peakL:hasChart?fmtK(series[pk])+(useViews?' views':' engagement'):'',max:fmtK(ch.max),mid:fmtK(ch.max/2),label:useViews?'Views per post, last 30 days':'Engagement per post, last 30 days'},
       top,hasTop:top.length>0,noTop:!top.length,copied:c.copied+' of '+top.length+' copied',best:c.top.slice(0,5).map((t,i)=>({n:'#'+(i+1),text:firstLine(t.Hook||t['Full text']),views:vl(t),bt:i===0?'none':'1px solid var(--hairline)'})),hasBest:c.top.length>0,latest,hasLatest:latest.length>0};}
-  allPostsVals(){const s=this.state;const F=['All','Same thing as us','Overlaps on data','Overlaps on software','Big accounts'];const G={'Same thing as us':'same','Overlaps on data':'data','Overlaps on software':'soft','Big accounts':'big'};
+  allPostsVals(){const s=this.state;const F=['All','GTM agencies','GTM engineers','GTM software founders','Big accounts'];const G={'GTM agencies':'same','GTM engineers':'data','GTM software founders':'soft','Big accounts':'big'};
     const gOf=new Map(this.compList().map(c=>[c.c,c]));
     const L=AK.M.theirs.filter(t=>{const c=gOf.get(t._comp);return s.compFilter==='All'||(c&&c.group===G[s.compFilter]);}).slice().sort(AK.bigFirst);
     const lim=s.more.allp||10;const shown=L.slice(0,lim);
@@ -1903,7 +1903,7 @@ class Component extends DCLogic {
   compVals(){const s=this.state;const C=this.compList();const tabs=this.tabs([['Competitors',String(C.length)],['All their posts',String(AK.M.theirs.length)]],s.compTab,t=>this.setState({compTab:t,compId:null}));
     const isList=s.compTab==='Competitors'&&!s.compId,isDetail=s.compTab==='Competitors'&&!!s.compId&&C.some(c=>c.id===s.compId),isAll=s.compTab==='All their posts';
     const o={tabs,isList:isList||(s.compTab==='Competitors'&&!isDetail),isDetail,isAll,back:()=>this.setState({compId:null}),shownNote:C.length+' accounts, from the Competitors tab of the sheet. Followers and posting rates refresh every other day.'};
-    const CG=[{id:'same',title:'Same thing as us',help:'They sell what we sell'},{id:'data',title:'Overlaps on data',help:'They sell data or research to our buyers'},{id:'soft',title:'Overlaps on software',help:'Software our buyers also use'},{id:'big',title:'Big accounts',help:'Huge audiences in our space'},{id:'other',title:'Other accounts',help:'Not grouped in the sheet'}];
+    const CG=[{id:'same',title:'GTM agencies',help:'Done-for-you GTM, outbound and founder content: they sell what we sell'},{id:'data',title:'GTM engineers',help:'They post GTM playbooks our buyers read'},{id:'soft',title:'GTM software founders',help:'They sell GTM tools to the same founders'},{id:'big',title:'Big accounts',help:'Huge audiences in our space'},{id:'other',title:'Other accounts',help:'Not grouped in the sheet'}];
     if(o.isList)o.groups=CG.map(g=>({...g,list:C.filter(c=>c.group===g.id)})).filter(g=>g.list.length).map(g=>({...g,n:String(g.list.length),rows:g.list.map((c,i)=>({...c,...avatar(c.name),handle:c.handle||'No company X account',copiedLabel:c.copied+' of '+c.top.length+' copied',dots:c.top.map((t,k)=>({bg:k<c.copied?'var(--in)':'var(--n-soft-2)'})),open:()=>this.openComp(c.id),bt:i===0?'none':'1px solid var(--hairline)'}))}));
     if(isDetail)o.d=this.compDetail(s.compId);if(isAll)o.all=this.allPostsVals();return o;}
   midVals(pg){const s=this.state;const o={};const n=s.narrow;
