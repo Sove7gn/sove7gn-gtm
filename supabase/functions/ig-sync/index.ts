@@ -127,6 +127,9 @@ async function syncInstagram() {
   const booked = has("Call booked") ? "Call booked" : "";
   const closed = new Set(stages.filter((s) => s.kind === "won" || s.kind === "lost").map((s) => s.name));
   const follow = stages.find((s) => /^follow/i.test(s.name))?.name ?? "";   // where we park people we're chasing
+  const cold = stages.find((s) => /^cold/i.test(s.name))?.name ?? "";       // gone quiet for a week; reach out later
+  const parked = new Set([follow, cold].filter(Boolean));
+  const COLD_DAYS = 7;
   const links = (set.our_links ?? []).map(lc).filter(Boolean);
   const phones = (set.our_phones ?? []).map(digits).filter((p) => p.length >= 8);
   const ignore = new Set((set.ignore ?? []).map(lc));
@@ -203,13 +206,26 @@ async function syncInstagram() {
     if (!error) out.updated++;
   }
 
+  // No message either way for a week: park them in Cold lead (from New, Contacted, In talks or Follow up only).
+  if (cold) {
+    const early = new Set([stages[0]?.name, "Contacted", talks, follow].filter(Boolean));
+    for (const l of leads.values()) {
+      const t = Number(l.fields?.ig_last_at ?? 0);
+      if (!l.origin_key?.startsWith("ig:") || l.archived || !t || !early.has(l.stage) || Date.now() - t < COLD_DAYS * 86400e3) continue;
+      const { error } = await db.from("crm_leads").update({ stage: cold }).eq("id", l.id);
+      if (error) continue;
+      l.stage = cold; out.cold = (out.cold ?? 0) + 1;
+      await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", by_email: "automation", text: "Moved to " + cold + " automatically: no messages either way since " + dayLabel(t) + "." });
+    }
+  }
+
   // A short AI read of each conversation that changed (shown when you hover the ✦ on a lead's card).
   if (Date.now() < end + 15e3) out.summarised = await summarise().catch(() => 0);
   return out;
 
   async function summarise() {
     const due = [...leads.values()].filter((l) => l.origin_key?.startsWith("ig:") && !l.archived && l.fields?.ig_last_at && l.fields.ig_sum_at !== l.fields.ig_last_at)
-      .sort((a, b) => b.fields.ig_last_at - a.fields.ig_last_at).slice(0, SUMMARIES);
+      .sort((a, b) => (a.fields.ig_summary ? 1 : 0) - (b.fields.ig_summary ? 1 : 0) || b.fields.ig_last_at - a.fields.ig_last_at).slice(0, SUMMARIES);
     if (!due.length) return 0;
     const { data: ev } = await db.from("crm_lead_events").select("lead_id,at,text,by_email").eq("kind", "message").in("lead_id", due.map((l) => l.id)).order("at");
     const { data: more } = await db.from("crm_leads").select("id,name,source_detail,stage").in("id", due.map((l) => l.id));
@@ -223,7 +239,10 @@ async function syncInstagram() {
         "Write JSON only: {\"summary\": at most 2 short sentences, under 220 characters: who they are and what they want, what we did (shared our number, sent the Calendly link, …) and where it stands, " +
         "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\", " +
         "\"stage\": exactly one of \"Call booked\" (a call or meeting is agreed, scheduled, or already happened), \"In talks\" (they are actively talking with us), " +
-        "\"Waiting\" (we are waiting for them to reply), \"Not interested\" (they said no)}.\n\nConversation (oldest first):\n" + convo };
+        "\"Waiting\" (we are waiting for them to reply), \"Not interested\" (they said no), " +
+        "\"intent\": exactly one of \"buyer\" (a brand, creator, business or agency that might pay us for clipping, marketing, GTM or campaigns, or bring us paying clients), " +
+        "\"job\" (wants to work for us, be hired, intern, work for free, become a clipper or editor, or earn money from us), " +
+        "\"learn\" (wants advice, mentorship, to learn how we do it, or a favour, with no sign they would pay), \"other\"}.\n\nConversation (oldest first):\n" + convo };
     });
     const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
     const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
@@ -233,7 +252,7 @@ async function syncInstagram() {
       "print('@@' + json.dumps(res))"].join("\n");
     const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Summarise Instagram DM leads for the CRM" });
     const res = JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
-    let n = 0, moves = 0;
+    let n = 0, moves = 0, removed = 0;
     for (const l of due) {
       let s: any = null;
       try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
@@ -241,13 +260,28 @@ async function syncInstagram() {
       const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_sum_at: l.fields.ig_last_at };
       const { error } = await db.from("crm_leads").update({ fields }).eq("id", l.id);
       if (!error) { l.fields = fields; n++; }
+      // Not a buyer (after a job, advice or to learn): off Leads (archived) and onto the Filtered out list, unless someone on the
+      // team added them back by hand.
+      const intent = String(s.intent ?? "").toLowerCase();
+      const byHand = [...threads.values()].some((t) => t.lead_id === l.id && t.status_by && t.status_by !== "auto");
+      if ((intent === "job" || intent === "learn") && !byHand) {
+        const why = (intent === "job" ? "Wants to work for us, not to buy" : "Wants advice or to learn, not to buy") + ": " + clip(String(s.summary), 160);
+        const { error: e3 } = await db.from("crm_leads").update({ archived: true }).eq("id", l.id);
+        if (!e3) {
+          l.archived = true; removed++;
+          await db.from("crm_ig_threads").update({ status: "filtered", why }).eq("lead_id", l.id).eq("status_by", "auto");
+          for (const t of threads.values()) if (t.lead_id === l.id) { t.status = "filtered"; t.why = why; }
+          await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", by_email: "automation", text: "Taken off Leads automatically: " + why });
+        }
+        continue;
+      }
       // Forward only, as above: Follow up → In talks / Call booked once they've written back; In talks → Call booked.
       const want = String(s.stage ?? "").toLowerCase();
       const since = l.stage_at ? ms(l.stage_at) : 0;
       const replied = (ev ?? []).some((e) => e.lead_id === l.id && String(e.by_email).endsWith("@ig-contact") && ms(e.at) > since);
       let to = "";
-      if (booked && want === "call booked" && (l.stage === talks || (follow && l.stage === follow && replied))) to = booked;
-      else if (want === "in talks" && follow && l.stage === follow && replied) to = talks;
+      if (booked && want === "call booked" && (l.stage === talks || (parked.has(l.stage) && replied))) to = booked;
+      else if (want === "in talks" && parked.has(l.stage) && replied) to = talks;
       if (to && to !== l.stage) {
         const { error: e2 } = await db.from("crm_leads").update({ stage: to }).eq("id", l.id);
         if (!e2) { l.stage = to; moves++;
@@ -255,6 +289,7 @@ async function syncInstagram() {
       }
     }
     if (moves) out.moved = (out.moved ?? 0) + moves;
+    if (removed) out.not_buyers = removed;
     return n;
   }
 
@@ -262,7 +297,7 @@ async function syncInstagram() {
   // new people are looked up, then each is handled.
   async function handlePage(acct: string, alias: string, items: any[], seeded: boolean) {
     const themOf = (c: any) => { const o = (c.participants?.data ?? []).filter((p: any) => !mine.has(lc(p.username))); return o.length === 1 && !ignore.has(lc(o[0].username)) ? lc(o[0].username) : ""; };
-    const ours = (list: any[], h: string) => list.some((m: any) => lc(m.from?.username) !== h && sentOurs(String(m.message ?? "")));
+    const ours = (list: any[], h: string) => list.some((m: any) => lc(m.from?.username) !== h ? sentOurs(String(m.message ?? "")) : THEIR_PHONE.test(String(m.message ?? "")));
     const cand = items.filter((c) => { const h = themOf(c); return !!h && (seeded || threads.has(acct + "|" + c.id) || ours(c.messages?.data ?? [], h)); });
     if (!cand.length) return;
     const full: (any | null)[] = [];
@@ -282,7 +317,7 @@ async function syncInstagram() {
       .filter((m: Msg) => !isNaN(m.at)).sort((a: Msg, b: Msg) => a.at - b.at);
     const key = acct + "|" + c.id;
     let row = threads.get(key);
-    const firstOurs = msgs.find((m) => m.us && sentOurs(m.text));
+    const firstOurs = msgs.find((m) => (m.us && sentOurs(m.text)) || (!m.us && THEIR_PHONE.test(m.text)));
     if (!row && !firstOurs) return;
     const lastThem = [...msgs].reverse().find((m) => !m.us), lastUs = [...msgs].reverse().find((m) => m.us);
 
@@ -324,7 +359,7 @@ async function syncInstagram() {
           lead = made;
           out.leads_added++;
           await db.from("crm_lead_events").insert({ lead_id: lead.id, kind: "note", by_email: "automation",
-            text: "Found automatically in the Instagram DMs to @" + acct + ": we sent our " + (links.some((x) => firstOurs!.text.toLowerCase().includes(x)) ? "booking link" : "number") +
+            text: "Found automatically in the Instagram DMs to @" + acct + ": " + (!firstOurs!.us ? "they sent us their number" : "we sent our " + (links.some((x) => firstOurs!.text.toLowerCase().includes(x)) ? "booking link" : "number")) +
               " on " + dayLabel(ms(row.qualified_at)) + "." });
         }
         leads.set(lead.id, lead); leadByHandle.set(handle, lead);
@@ -351,7 +386,7 @@ async function syncInstagram() {
         // set), and In talks goes to Call booked once a call is set. Never back, never to Lost, never into Follow up.
         let moved = "";
         const since = lead.stage_at ? ms(lead.stage_at) : 0;
-        if (follow && lead.stage === follow && msgs.some((m) => !m.us && m.at > since)) {
+        if (parked.has(lead.stage) && msgs.some((m) => !m.us && m.at > since)) {
           patch.stage = booked && msgs.some((m) => m.at > since && BOOKED.test(m.text)) ? booked : talks;
           moved = "they replied on Instagram" + (patch.stage === booked ? " and a call is set" : "") + ".";
         } else if (booked && lead.stage === talks && msgs.some((m) => m.at >= sinceQ && BOOKED.test(m.text))) {

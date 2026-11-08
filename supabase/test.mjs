@@ -128,7 +128,7 @@ await ok("leads: strangers and anonymous visitors get nothing", async () => {
 await ok("leads: starting settings are there", async () => {
   await as("authenticated", "me@example.com");
   const s = Object.fromEntries((await db.query("select key, value from public.crm_lead_settings")).rows.map((r) => [r.key, r.value]));
-  assert.deepEqual(s.stages.map((x) => x.name), ["New", "Contacted", "In talks", "Follow up", "Call booked", "Proposal sent", "Won", "Lost"]);
+  assert.deepEqual(s.stages.map((x) => x.name), ["New", "Contacted", "In talks", "Follow up", "Call booked", "Proposal sent", "Won", "Cold lead", "Lost"]);
   assert.ok(s.sources.includes("Instagram"));
   assert.deepEqual([s.groups, s.categories, s.fields, s.currency], [[], [], [], "USD"]);
 });
