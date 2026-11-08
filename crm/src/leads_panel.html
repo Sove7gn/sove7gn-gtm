@@ -41,6 +41,145 @@
 </sc-if>
 </div>
 
+<sc-if value="{{ lp.hasDup }}"><div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 12px; border-radius:var(--r-md); background:var(--warn-soft); box-shadow:inset 0 0 0 1px var(--warn-line); font-size:var(--fs-xs); color:var(--warn-ink);"><span style="flex:1 1 200px;">{{ lp.dupTxt }}</span><button onClick="{{ lp.openDup }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff;">Open it</button><button onClick="{{ lp.saveAnyway }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">Save anyway</button></div></sc-if>
+<sc-if value="{{ lp.hasTabs }}"><div role="tablist" aria-label="Lead sections" style="display:flex; gap:2px; padding:3px; border-radius:var(--r-btn); background:var(--n-soft); align-self:flex-start;"><sc-for list="{{ lp.tabs }}" as="t"><button role="tab" onClick="{{ t.go }}" style="height:28px; padding:0 14px; border:0; border-radius:8px; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ t.label }}</button></sc-for></div></sc-if>
+
+<sc-if value="{{ lp.tabIntel }}">
+<section style="display:flex; flex-direction:column; gap:8px;">
+<div style="display:flex; flex-wrap:wrap; gap:5px;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.scoreP.bg }}; color:{{ lp.g.scoreP.fg }}; box-shadow:{{ lp.g.scoreP.bd }};">{{ lp.g.scoreP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.levelP.bg }}; color:{{ lp.g.levelP.fg }}; box-shadow:{{ lp.g.levelP.bd }};">{{ lp.g.levelP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.relP.bg }}; color:{{ lp.g.relP.fg }}; box-shadow:{{ lp.g.relP.bd }};">{{ lp.g.relP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.statusP.bg }}; color:{{ lp.g.statusP.fg }}; box-shadow:{{ lp.g.statusP.bd }};">{{ lp.g.statusP.label }}</span></div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.45;">{{ lp.g.explain }}</span>
+<sc-if value="{{ lp.g.hasTags }}"><div style="display:flex; flex-wrap:wrap; gap:5px;"><sc-for list="{{ lp.g.tags }}" as="t"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ t.bg }}; color:{{ t.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ t.dot }};"></span>{{ t.label }}</span></sc-for></div></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px;">
+<label style="display:flex; flex-direction:column; gap:3px;"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">Acquisition source</span><select value="{{ lp.g.acq }}" onChange="{{ lp.g.pickAcq }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.acqOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+<label style="display:flex; flex-direction:column; gap:3px;"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">LinkedIn connection</span><select value="{{ lp.g.conn }}" onChange="{{ lp.g.pickConn }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.connOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Buying window</span>
+<div style="display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline);">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink);">{{ lp.g.radar.action }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">Angle: {{ lp.g.radar.angle }}</span>
+<sc-if value="{{ lp.g.radar.noWhy }}"><span style="font-size:var(--fs-xs); color:var(--ink-4);">No buying signals yet. Add one below, or fill the funding and GTM facts.</span></sc-if>
+<sc-for list="{{ lp.g.radar.why }}" as="w"><div style="display:flex; align-items:flex-start; gap:8px; font-size:var(--fs-xs); padding-top:6px; border-top:1px solid var(--hairline);"><span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ w.kindP.bg }}; color:{{ w.kindP.fg }}; box-shadow:{{ w.kindP.bd }};">{{ w.kindP.label }}</span></span><span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;"><span style="font-weight:600; color:var(--ink);">{{ w.label }} <span style="font-weight:500; color:var(--ink-2);">{{ w.text }}</span></span><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ w.when }}</span></span><sc-if value="{{ w.hasSrc }}"><button onClick="{{ w.openSrc }}" style="border:0; background:transparent; padding:0; font-size:var(--fs-3xs); color:var(--ink-3); text-decoration:underline; cursor:pointer;">Source ↗</button></sc-if><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-3);">{{ w.pts }}</span></div></sc-for>
+</div>
+<sc-if value="{{ lp.g.hasSigs }}"><div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;"><sc-for list="{{ lp.g.sigs }}" as="z"><div style="display:flex; align-items:flex-start; gap:8px; padding:8px 12px; border-bottom:1px solid var(--hairline); font-size:var(--fs-xs);"><span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ z.kindP.bg }}; color:{{ z.kindP.fg }}; box-shadow:{{ z.kindP.bd }};">{{ z.kindP.label }}</span></span><span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;"><span><b>{{ z.label }}</b> · {{ z.text }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ z.when }} · {{ z.seen }}</span></span><sc-if value="{{ z.hasSrc }}"><button onClick="{{ z.openSrc }}" style="border:0; background:transparent; padding:0; font-size:var(--fs-3xs); color:var(--ink-3); text-decoration:underline; cursor:pointer;">Source ↗</button></sc-if><button onClick="{{ z.del }}" title="Remove" aria-label="Remove signal" style="width:20px; height:20px; border:0; border-radius:6px; background:transparent; color:var(--ink-4); cursor:pointer;" style-hover="color:var(--bad-ink); background:var(--bad-soft);">×</button></div></sc-for></div></sc-if>
+<div style="display:flex; flex-wrap:wrap; gap:6px; padding:10px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong);">
+<select value="{{ lp.g.sg.type }}" onChange="{{ lp.g.setSgType }}" aria-label="Signal type" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 150px;"><sc-for list="{{ lp.g.sgTypes }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<input type="date" value="{{ lp.g.sg.at }}" onChange="{{ lp.g.setSgAt }}" aria-label="When it happened" title="When it happened" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:0 1 140px; font-family:inherit;">
+<input value="{{ lp.g.sg.text }}" onChange="{{ lp.g.setSgText }}" placeholder="What happened, e.g. Raised a $4M seed led by Accel" aria-label="What happened" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1 1 100%;">
+<input value="{{ lp.g.sg.src }}" onChange="{{ lp.g.setSgSrc }}" placeholder="Source link (without one it is kept as an inference)" aria-label="Source link" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1 1 200px;">
+<button onClick="{{ lp.g.addSig }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff; height:30px;">Add signal</button>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">ICP score</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ lp.g.dims }}" as="d"><div style="display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--hairline);">
+<span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; line-height:1.3;"><span style="font-size:var(--fs-xs); font-weight:600; color:var(--ink);">{{ d.label }} <span style="font-weight:400; color:var(--ink-4);">/ {{ d.w }}</span></span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ d.why }}</span></span>
+<span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ d.kindP.bg }}; color:{{ d.kindP.fg }}; box-shadow:{{ d.kindP.bd }};">{{ d.kindP.label }}</span></span>
+<span style="flex:0 0 64px; text-align:right; font-family:var(--font-mono); font-size:var(--fs-2xs); color:{{ d.ptsFg }};">{{ d.pts }}</span>
+<input type="number" min="0" max="{{ d.w }}" value="{{ d.ov }}" onChange="{{ d.setOv }}" onBlur="{{ d.saveOv }}" placeholder="auto" title="Override the points by hand (empty = from evidence)" aria-label="Override points" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; width:54px; flex:0 0 54px; height:26px; font-size:var(--fs-2xs);">
+</div></sc-for>
+</div>
+<sc-if value="{{ lp.g.notDq }}"><div style="display:flex; gap:6px;"><input value="{{ lp.g.dqVal }}" onChange="{{ lp.g.setDq }}" placeholder="Disqualify: why (e.g. B2C, competitor, no budget)" aria-label="Why disqualified" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1;"><button onClick="{{ lp.g.doDq }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; height:30px; background:transparent; color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line);">Disqualify</button></div></sc-if>
+<sc-if value="{{ lp.g.isDq }}"><div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r-md); background:var(--bad-soft); color:var(--bad-ink); font-size:var(--fs-xs);"><span style="flex:1;">Disqualified: {{ lp.g.dq }}</span><button onClick="{{ lp.g.undoDq }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">Requalify</button></div></sc-if>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Intelligence card</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Fill from public sources (company site, press, Crunchbase, job boards) and paste the link. Nothing is scraped from LinkedIn. Values without a link count as weaker evidence; empty means UNKNOWN.</span>
+<sc-if value="{{ lp.g.hasResearch }}"><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ lp.g.research }}" as="r"><button onClick="{{ r.go }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">{{ r.label }} ↗</button></sc-for></div></sc-if>
+<sc-for list="{{ lp.g.groups }}" as="g">
+<span style="font-size:var(--fs-xs); font-weight:600; color:var(--ink-2); margin-top:4px;">{{ g.label }}</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ g.rows }}" as="f"><div style="display:flex; flex-direction:column; gap:4px; padding:7px 12px; border-bottom:1px solid var(--hairline);">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="flex:0 0 112px; font-size:var(--fs-xs); color:var(--ink-3);">{{ f.label }}</span>
+<sc-if value="{{ f.isText }}"><input value="{{ f.val }}" onChange="{{ f.set }}" onBlur="{{ f.save }}" placeholder="{{ f.ph }}" aria-label="{{ f.label }}" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1;"></sc-if>
+<sc-if value="{{ f.isSel }}"><select value="{{ f.val }}" onChange="{{ f.pick }}" aria-label="{{ f.label }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1;"><sc-for list="{{ f.opts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ f.isArea }}"><textarea value="{{ f.val }}" onChange="{{ f.set }}" onBlur="{{ f.save }}" placeholder="{{ f.ph }}" rows="2" aria-label="{{ f.label }}" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none; flex:1;"></textarea></sc-if>
+<span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ f.kindP.bg }}; color:{{ f.kindP.fg }}; box-shadow:{{ f.kindP.bd }};">{{ f.kindP.label }}</span></span>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding-left:120px;">
+<input value="{{ f.src }}" onChange="{{ f.setSrc }}" onBlur="{{ f.save }}" placeholder="Source link (https://…)" aria-label="Source link" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1; height:24px; font-size:var(--fs-2xs);">
+<span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4); white-space:nowrap;">{{ f.at }}</span>
+<sc-if value="{{ f.hasSrcLink }}"><button onClick="{{ f.openSrc }}" title="Open the source" aria-label="Open the source" style="border:0; background:transparent; padding:0; font-size:var(--fs-2xs); color:var(--ink-3); cursor:pointer;">↗</button></sc-if>
+</div>
+<sc-if value="{{ f.hasDer }}"><span style="padding-left:120px; font-size:var(--fs-3xs); color:var(--ink-4);">Read from {{ f.der }} (no source link yet)</span></sc-if>
+</div></sc-for>
+</div>
+</sc-for>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">SOVE7GN opportunity</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ lp.g.oppRows }}" as="o"><label style="display:flex; flex-direction:column; gap:4px; padding:8px 12px; border-bottom:1px solid var(--hairline);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ o.label }}</span><textarea value="{{ o.val }}" onChange="{{ o.set }}" onBlur="{{ o.save }}" placeholder="{{ o.ph }}" rows="2" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none;"></textarea></label></sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ lp.tabOut }}">
+<div style="display:flex; flex-direction:column; gap:4px; padding:10px 12px; border-radius:var(--r-md); background:var(--warn-soft); box-shadow:inset 0 0 0 1px var(--warn-line); font-size:var(--fs-xs); color:var(--warn-ink); line-height:1.45;">
+<span><b>Nothing is sent from the CRM.</b> Copy a draft, send it yourself on LinkedIn, then press Mark sent.</span>
+<span style="color:var(--ink-2);">{{ lp.g.midNote }}</span>
+</div>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Next follow-up</span>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+<span style="flex:1 1 180px; font-size:var(--fs-sm); color:{{ lp.g.nextFg }};">{{ lp.g.nextTxt }}</span>
+<button onClick="{{ lp.g.fu3 }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">In 3 days</button><button onClick="{{ lp.g.fu7 }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">In a week</button>
+<input type="date" onChange="{{ lp.g.pickFu }}" aria-label="Pick a follow-up date" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; height:28px; font-family:inherit;">
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Drafts, founder to founder</span>
+<sc-for list="{{ lp.g.drafts }}" as="m">
+<div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.label }}</span><span style="margin-left:auto; font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4);">{{ m.n }}</span></div>
+<span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ m.hint }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; color:var(--ink); white-space:pre-wrap; user-select:text;">{{ m.text }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ m.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:{{ m.cbg }}; color:{{ m.cfg }}; box-shadow:{{ m.csh }};">{{ m.copyLabel }}</button><button onClick="{{ m.sent }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:transparent; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline-strong);">Mark sent</button></div>
+</div>
+</sc-for>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Log an interaction</span>
+<div style="display:flex; flex-direction:column; gap:8px; padding:10px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong);">
+<div style="display:flex; flex-wrap:wrap; gap:6px;">
+<select value="{{ lp.g.tf.dir }}" onChange="{{ lp.g.setTDir }}" aria-label="Who" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 120px;"><option value="in">They → us</option><option value="out">We → them</option></select>
+<select value="{{ lp.g.tf.type }}" onChange="{{ lp.g.setTType }}" aria-label="What happened" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 150px;"><sc-for list="{{ lp.g.types }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<select value="{{ lp.g.tf.ch }}" onChange="{{ lp.g.setTCh }}" aria-label="Channel" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 110px;"><sc-for list="{{ lp.g.chOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<input type="date" value="{{ lp.g.tf.at }}" onChange="{{ lp.g.setTAt }}" aria-label="When" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:0 1 140px; font-family:inherit;">
+</div>
+<textarea value="{{ lp.g.tf.text }}" onChange="{{ lp.g.setTText }}" rows="3" placeholder="What they said, or what we sent (paste it)" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none;"></textarea>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+<sc-if value="{{ lp.g.isOut }}"><select value="{{ lp.g.tf.fu }}" onChange="{{ lp.g.setTFu }}" aria-label="Follow-up" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.fuOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<button onClick="{{ lp.g.logT }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff; margin-left:auto; height:30px;">Log it</button>
+</div>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Conversation history</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ lp.g.histSum }}</span>
+<sc-if value="{{ lp.g.noTouches }}"><span style="font-size:var(--fs-xs); color:var(--ink-4);">Nothing logged here yet. Earlier activity is in the history on the Details tab.</span></sc-if>
+<sc-for list="{{ lp.g.touches }}" as="t"><div style="display:flex; gap:10px; padding:8px 2px; border-bottom:1px solid var(--hairline);">
+<span style="width:22px; height:22px; flex:0 0 22px; border-radius:50%; display:grid; place-items:center; font-size:12px; background:{{ t.bg }}; color:{{ t.fg }};">{{ t.arrow }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+<span style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;"><span style="font-size:var(--fs-2xs); font-weight:600;">{{ t.who }} · {{ t.type }}</span><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4);">{{ t.ch }} · {{ t.date }}</span></span>
+<sc-if value="{{ t.hasText }}"><span style="font-size:var(--fs-sm); color:var(--ink); line-height:1.45; white-space:pre-wrap;">{{ t.text }}</span></sc-if>
+<sc-if value="{{ t.hasTpl }}"><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ t.tpl }}</span></sc-if>
+</div></div></sc-for>
+</section>
+</sc-if>
+
+<sc-if value="{{ lp.tabDetails }}">
 <sc-if value="{{ lp.notNew }}">
 <section style="display:flex; flex-direction:column; gap:8px;">
 <span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Log what happened</span>
@@ -128,6 +267,7 @@
 <span style="font-size:var(--fs-2xs); color:var(--ink-4);">{{ lp.added }}</span>
 <button onClick="{{ lp.archive }}" style="margin-left:auto; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line); font-size:var(--fs-xs); font-weight:500; cursor:pointer;" style-hover="background:var(--bad-soft);">Archive lead</button>
 </div>
+</sc-if>
 </sc-if>
 </div>
 </sc-if>

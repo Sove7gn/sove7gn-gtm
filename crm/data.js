@@ -1155,6 +1155,124 @@ async function igToLead(t){
   return lead;
 }
 
+/* ---------- GTM intelligence (8 Nov) ----------
+   ICP scoring, relationship views, the intelligence card, buying signals and outreach history all live in the lead's
+   fields.gtm (rules in crm/src/gtm.js, window.GTM). No new tables. Every write re-reads the row's fields first, so what a
+   sync job (ig_*) or a teammate saved a moment ago is never overwritten with an older copy. Nothing here sends anything. */
+const G_=()=>window.GTM;
+const meEmail=()=>session&&session.user?session.user.email:"";
+const todayIso=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const gtmCfg=()=>G_().icpConfig(leadSetting("icp"),window.CRM_CONFIG||{});
+async function leadGtmSave(id,update,extra){
+  const l=LD.rows.find(r=>r.id===id);if(!l){toast("That lead isn't loaded. Reload and try again.",true);return false}
+  let fresh=l.fields||{};
+  if(sb){try{const r=await sb.from("crm_leads").select("fields").eq("id",id).single();if(!r.error&&r.data)fresh=r.data.fields||{}}catch(e){}}
+  const cur=fresh.gtm&&typeof fresh.gtm==="object"?JSON.parse(JSON.stringify(fresh.gtm)):{};
+  let next;try{next=typeof update==="function"?update(cur):{...cur,...(update||{})}}catch(e){toast(e.message||String(e),true);return false}
+  if(!next)return false;
+  next.v=1;next.at=new Date().toISOString();
+  return leadSave(id,{...(extra||{}),fields:{...fresh,gtm:next}});
+}
+// One fact on the card: {v, src, at}. v '' clears it. Checked before saving; at defaults to today.
+async function gtmIntel(id,key,{v,src,at}={}){
+  const err=G_().validateIntel(key,v,src,at);if(err){toast(err,true);return false}
+  return leadGtmSave(id,g=>{const I={...(g.intel||{})};
+    if(v==null||String(v).trim()===""){delete I[key]}
+    else{const f=G_().FIELD[key];const val=f.type==="int"||f.type==="num"?Number(v):String(v).trim();I[key]={v:val,src:String(src||"").trim(),at:at||todayIso(),by:meEmail()}}
+    return{...g,intel:I}});
+}
+// Several facts at once (enrichment by a job or by Claude): {key: {v, src, at}}. Stops on the first invalid one.
+async function gtmIntelMany(id,patch){
+  for(const k in patch){const x=patch[k]||{};const err=G_().validateIntel(k,x.v,x.src,x.at);if(err){toast(err,true);return false}}
+  return leadGtmSave(id,g=>{const I={...(g.intel||{})};for(const k in patch){const x=patch[k]||{};const f=G_().FIELD[k];
+    if(x.v==null||String(x.v).trim()==="")delete I[k];else I[k]={v:f.type==="int"||f.type==="num"?Number(x.v):String(x.v).trim(),src:String(x.src||"").trim(),at:x.at||todayIso(),by:meEmail()}}
+    return{...g,intel:I}});
+}
+// A buying signal: {type, text, at (when it happened), src}. A signal without a source link is kept as an inference.
+async function gtmSignal(id,s){
+  s=s||{};if(!G_().SIGNALS[s.type]){toast("Pick what kind of signal it is.",true);return false}
+  if(!String(s.text||"").trim()){toast("Say what the signal is, e.g. “Raised a $4M seed led by Accel”.",true);return false}
+  if(s.src&&!G_().isUrl(s.src)){toast("The source must be a link starting with http:// or https://",true);return false}
+  if(s.at&&!G_().parseDay(s.at)){toast("The date must look like 2026-10-14.",true);return false}
+  const sig={id:"s"+Date.now().toString(36),type:s.type,text:String(s.text).trim().slice(0,240),at:s.at||"",seen:todayIso(),src:String(s.src||"").trim(),kind:s.src?"fact":"inference",by:meEmail()};
+  return leadGtmSave(id,g=>({...g,signals:[...(g.signals||[]),sig]}));
+}
+async function gtmSignalDel(id,sid){return leadGtmSave(id,g=>({...g,signals:(g.signals||[]).filter(x=>x.id!==sid)}))}
+// Small settings on a lead: rel.acq, rel.conn, icp.dq, icp.ov.<dim> ({pts, why} or null), opp.<why|angle|hook|msg>.
+async function gtmSet(id,path,value){
+  const ok={"rel.acq":v=>v===""||G_().ACQ.includes(v),"rel.conn":v=>["","connected","pending","none"].includes(v),"icp.dq":v=>typeof v==="string"};
+  const p=String(path).split(".");
+  if(ok[path]&&!ok[path](value)){toast("That isn't a valid value for "+path+".",true);return false}
+  if(p[0]==="icp"&&p[1]==="ov"){const d=(G_().ICP_DEFAULT.weights)[p[2]];if(d==null){toast("Unknown ICP dimension "+p[2]+".",true);return false}
+    if(value&&value.pts!=null&&value.pts!==""&&!(Number(value.pts)>=0&&Number(value.pts)<=(gtmCfg().weights[p[2]]||d))){toast("Points for that must be between 0 and "+(gtmCfg().weights[p[2]]||d)+".",true);return false}}
+  if(!["rel","icp","opp"].includes(p[0])){toast("Can't set "+path+".",true);return false}
+  return leadGtmSave(id,g=>{const out={...g};let o=out;for(let i=0;i<p.length-1;i++){o[p[i]]={...(o[p[i]]||{})};o=o[p[i]]}
+    if(value==null||value==="")delete o[p[p.length-1]];else o[p[p.length-1]]=value;return out});
+}
+// The first stage whose engagement status is this one (New, Contacted, Engaged, Meeting booked, Qualified, …).
+const stageFor=status=>(leadSetting("stages")||[]).find(s=>G_().statusOf(s.name,s.kind)===status);
+const STATUS_RANK=s=>["New","Contacted","Engaged","Meeting booked","Qualified","Proposal","Won"].indexOf(s);
+/* Logs one touch: {dir:'out'|'in', type, ch:'LinkedIn', text, tpl, angle, at}. Never sends anything.
+   - We reached out: the lead moves from New to Contacted. A LinkedIn DM means they're connected.
+   - They replied, asked, showed interest or booked: the lead becomes Midbound and moves forward to the first engaged stage
+     (In talks) or the meeting stage (Call booked), and gets heat Hot, like the outreach job does. Accepting a connection only
+     marks them connected. Stages only ever move forward here; Won and Lost are left alone.
+   opts.followUpDays sets the next step to a follow-up that many days out. */
+async function gtmTouch(id,t,opts){
+  const G=G_();t=t||{};opts=opts||{};const l=LD.rows.find(r=>r.id===id);if(!l){toast("That lead isn't loaded. Reload and try again.",true);return false}
+  if(!["in","out"].includes(t.dir)||!G.TOUCH_TYPES[t.type]){toast("Pick who it was from and what happened.",true);return false}
+  const text=String(t.text||"").trim().slice(0,4000);
+  if(G.QUALIFYING.includes(t.type)&&t.type!=="meeting"&&!text){toast("Paste or sum up what they said, so the history shows it.",true);return false}
+  // A plain date from the form: today means now; an earlier day means midday that day (not UTC midnight, which would sort
+  // a reply logged today before the message we sent this morning).
+  const at=!t.at||String(t.at).slice(0,10)===todayIso()?new Date().toISOString():/^\d{4}-\d\d-\d\d$/.test(String(t.at))?new Date(t.at+"T12:00:00").toISOString():!isNaN(new Date(t.at))?new Date(t.at).toISOString():new Date().toISOString();
+  if(new Date(at)-Date.now()>864e5){toast("That date is in the future.",true);return false}
+  const touch={id:"t"+Date.now().toString(36),at,dir:t.dir,type:t.type,ch:t.ch||"LinkedIn",text,tpl:t.tpl||"",angle:t.angle||"",by:meEmail()};
+  const ST=leadSetting("stages")||[];const kind=(ST.find(s=>s.name===l.stage)||{}).kind;const now=G.statusOf(l.stage,kind);
+  const extra={};const fwd=st=>{const s=stageFor(st);if(s&&STATUS_RANK(st)>STATUS_RANK(now)&&!["Won","Lost"].includes(now))extra.stage=s.name;};
+  const first=G.firstName(l.name);
+  if(t.dir==="out"&&G.OUT_TYPES.includes(t.type)&&t.type!=="connection")fwd("Contacted");
+  if(t.dir==="in"&&G.QUALIFYING.includes(t.type)){
+    if(t.type==="meeting"){fwd("Meeting booked");extra.next_step="Prep the call with "+first;}
+    else{if(now==="Nurture"){const s=stageFor("Engaged");if(s)extra.stage=s.name}else fwd("Engaged");extra.next_step="Reply to "+first+" on "+touch.ch;extra.next_date=todayIso();}
+    extra.heat="Hot";
+  }
+  if(opts.followUpDays>0){const d=new Date();d.setDate(d.getDate()+Number(opts.followUpDays));const n=((G.gtmOf(l).touches||[]).filter(x=>x.dir==="out"&&x.type==="followup").length)+(t.type==="followup"?1:0);
+    extra.next_step=n>=2?"Last check-in with "+first+" (2 follow-ups sent)":"Follow up with "+first+" on "+touch.ch+" (follow-up "+(n+1)+")";extra.next_date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+  const ok=await leadGtmSave(id,g=>{const rel={...(g.rel||{})};
+    if(t.type==="accepted"||(t.dir==="out"&&t.type==="dm"&&touch.ch==="LinkedIn"))rel.conn="connected";else if(t.type==="connection"&&rel.conn!=="connected")rel.conn="pending";
+    return{...g,rel,touches:[...(g.touches||[]),touch].slice(-200)}},extra);
+  if(!ok)return false;
+  const who=t.dir==="out"?"We → them":"Them → us";const label=G.TOUCH_TYPES[t.type];
+  const evKind=t.type==="meeting"?"meeting":t.type==="email"?"email":["dm","followup","reply","question","interest","connection"].includes(t.type)?"message":"note";
+  await leadNote(id,evKind,touch.ch+" · "+who+" · "+label+(touch.tpl?" ("+touch.tpl+")":"")+(text?": "+text:""));
+  return true;
+}
+// Possible duplicates, and the lead a new record would duplicate.
+const gtmDupes=()=>G_().dupes(LD.rows);
+const gtmFind=o=>G_().findDup(LD.rows,o||{});
+// Merges a duplicate into the lead we keep: fills the kept lead's empty fields, joins notes, history (touches, signals,
+// facts it lacks), then archives the duplicate (Undo-able from Bring in). The outreach job's own lead (li-outreach key) is
+// the one to keep, so its key keeps matching.
+async function gtmMerge(keepId,dupId){
+  const a=LD.rows.find(r=>r.id===keepId),b=LD.rows.find(r=>r.id===dupId);if(!a||!b||a.id===b.id){toast("Pick two different leads to merge.",true);return false}
+  const fill={};for(const k of ["company","role","email","phone","x_handle","linkedin","instagram","website","source_detail","group_name","pitch","next_step","owner"])if(!String(a[k]||"").trim()&&String(b[k]||"").trim())fill[k]=b[k];
+  if(String(b.notes||"").trim()&&!String(a.notes||"").includes(String(b.notes).trim()))fill.notes=[a.notes,"From the merged duplicate:\n"+b.notes].filter(x=>String(x||"").trim()).join("\n\n");
+  const cats=[...new Set([...(a.categories||[]),...(b.categories||[])])];if(cats.length!==(a.categories||[]).length)fill.categories=cats;
+  if(!a.heat&&b.heat)fill.heat=b.heat;
+  const bg=G_().gtmOf(b);
+  const ok=await leadGtmSave(keepId,g=>({...g,intel:{...(bg.intel||{}),...(g.intel||{})},signals:[...(g.signals||[]),...(bg.signals||[]).filter(s=>!(g.signals||[]).some(x=>x.id===s.id))],
+    touches:[...(g.touches||[]),...(bg.touches||[]).filter(s=>!(g.touches||[]).some(x=>x.id===s.id))].sort((x,y)=>new Date(x.at)-new Date(y.at)),
+    merged:[...(g.merged||[]),{id:b.id,name:b.name,origin_key:b.origin_key||"",at:new Date().toISOString()}]}),fill);
+  if(!ok)return false;
+  await leadNote(keepId,"note","Merged with a duplicate: "+(b.name||"(no name)")+(b.company?" ("+b.company+")":"")+(b.origin_key?" · "+b.origin_key:""));
+  await leadNote(dupId,"note","Archived as a duplicate of "+(a.name||"(no name)")+(a.company?" ("+a.company+")":""));
+  await leadArchive(dupId,true);
+  return true;
+}
+// One lead, classified (relationship, source, status, ICP score, radar, tags).
+function gtmClassify(id){const l=LD.rows.find(r=>r.id===id);if(!l)return null;return G_().classify(l,LD.events.filter(e=>e.lead_id===id),leadSetting("stages")||[],gtmCfg(),new Date())}
+
 /* ---------- connection state for the page ---------- */
 function gate(){
   if(!SB_URL||!SB_KEY)return {title:"Supabase isn't connected yet",body:"Add the project URL and anon key to .env.local, rebuild the page, then reload.",action:"retry"};
@@ -1234,6 +1352,9 @@ window.AK={
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
+  // GTM intelligence (8 Nov): for the page and for scheduled jobs that enrich leads or log replies. Nothing here sends a message.
+  gtm:{save:leadGtmSave,intel:gtmIntel,intelMany:gtmIntelMany,signal:gtmSignal,signalDel:gtmSignalDel,set:gtmSet,touch:gtmTouch,
+    dupes:gtmDupes,find:gtmFind,merge:gtmMerge,classify:gtmClassify,cfg:gtmCfg,stageFor},
 };
 start();
 })();

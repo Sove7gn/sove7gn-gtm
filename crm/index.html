@@ -7,8 +7,399 @@
 <title>SOVE7GN CRM</title>
 <style>.ak-board::-webkit-scrollbar{height:10px}.ak-board::-webkit-scrollbar-thumb{background:rgba(19,20,24,.22);border-radius:6px}.ak-board::-webkit-scrollbar-track{background:rgba(19,20,24,.05);border-radius:6px}.ak-board{scrollbar-color:rgba(19,20,24,.25) rgba(19,20,24,.05)}</style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script>window.CRM_CONFIG={"brand": "SOVE7GN", "accounts": [{"name": "Reyansh", "x": "r3yanshJuneja", "liName": "Reyansh Juneja"}], "pilot": {"start": "2026-11-02", "end": "2027-01-31", "followerTarget": 1000}, "aimed": ["Founders", "Growth leads", "Sales leaders", "Everyone"], "folders": [], "automation": {"linkedin_profile": "https://www.linkedin.com/in/reyansh-juneja/", "icp": "We sell go-to-market help and short-form clipping to startups: getting funded founders seen on LinkedIn and X by the people who buy from them. Hot = a founder, co-founder, CEO, or head of growth, marketing or sales at a startup or growing business that could buy this. Warm = could buy or refer later: investors, senior operators, consultants, coaches. Not a fit = students, job seekers, people selling to us, unrelated roles, and other clipping or GTM agencies (they are competitors)."}, "supabaseUrl": "https://rmadxyyvdiqdujuwecdt.supabase.co", "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtYWR4eXl2ZGlxZHVqdXdlY2R0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTgxNzcsImV4cCI6MjEwODk3NDE3N30.18PORo5Mu4Uidu-5CZtKCZZjEAASk3YWW9O2HWqpa2k"};</script>
-<script src="./data.js?v=2269486ff2"></script>
+<script>window.CRM_CONFIG={"brand": "SOVE7GN", "accounts": [{"name": "Reyansh", "x": "r3yanshJuneja", "liName": "Reyansh Juneja"}], "pilot": {"start": "2026-11-02", "end": "2027-01-31", "followerTarget": 1000}, "aimed": ["Founders", "Growth leads", "Sales leaders", "Everyone"], "folders": [], "automation": {"linkedin_profile": "https://www.linkedin.com/in/reyansh-juneja/", "icp": "We sell go-to-market help and short-form clipping to startups: getting funded founders seen on LinkedIn and X by the people who buy from them. Hot = a founder, co-founder, CEO, or head of growth, marketing or sales at a startup or growing business that could buy this. Warm = could buy or refer later: investors, senior operators, consultants, coaches. Not a fit = students, job seekers, people selling to us, unrelated roles, and other clipping or GTM agencies (they are competitors)."}, "icp": {"references": ["Aktoria.com", "Alibaba Distribution Head", "Cedar YC founders", "Imagine.ai", "Ankit from Riceberg Ventures"]}, "supabaseUrl": "", "supabaseAnonKey": ""};</script>
+<script>
+/* GTM intelligence (8 Nov): the ICP as one definition, evidence-based ICP scoring, relationship classification
+   (New / Outbound / Midbound / Inbound), acquisition source and engagement status, the Buying Window Radar, outreach drafts,
+   dedupe and outreach analytics. Pure functions: no DOM, no Supabase. Inlined into the page as window.GTM by build_app.py
+   and loaded by scripts/test-gtm.mjs.
+
+   Everything a lead knows lives in lead.fields.gtm (no schema change):
+     intel:   {key: {v, src, at, by}}    facts; src is the URL it came from, at the day it was last checked
+     signals: [{id, type, text, at, seen, src, kind}]   buying signals; kind 'fact' needs a src, else 'inference'
+     icp:     {ov: {dim: {pts, why}}, dq: 'reason'}      manual overrides and disqualification
+     rel:     {acq, conn}                acquisition source override; LinkedIn connection: connected / pending / none
+     touches: [{id, at, dir, ch, type, text, tpl, angle}] outreach and replies, newest last
+     opp:     {why, angle, hook, msg}    our own notes on the opportunity (not facts)
+   Unknown is never scored as positive: a dimension with no evidence scores 0 and is shown as UNKNOWN. */
+(function(root){
+'use strict';
+const DAY=864e5;
+const clip=(s,n)=>{s=String(s==null?'':s);return s.length>n?s.slice(0,n-1).trimEnd()+'…':s;};
+const low=s=>String(s==null?'':s).toLowerCase();
+const has=v=>v!=null&&String(v).trim()!=='';
+const iso=d=>{const x=new Date(d);return isNaN(x)?'':x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');};
+
+/* ---------- the ICP: one definition, editable on Setup (setting "icp"), defaults from the user's spec ---------- */
+const ICP_DEFAULT={
+  summary:'Funded B2B / B2B2C software, SaaS, AI or deep-tech startups (5–50 people, seed to Series C, raised in the last 6 months) where a founder or C-suite leader owns the growth budget, GTM is still founder-led, there is no Head of Marketing or SDR team, and LinkedIn / X presence is weak. Must be able to afford about $20k a month.',
+  models:['B2B','B2B2C'],
+  industries:['software','saas','ai','artificial intelligence','machine learning','ml','deep tech','deeptech','devtools','developer','infrastructure','api','data','security','fintech','hardware','biotech','climate'],
+  empMin:5,empMax:50,
+  stages:['Seed','Series A','Series B','Series C'],
+  recencyMonths:6,
+  budgetMonth:20000,
+  minRaise:2000000,     // raised at least this much (last round or total): affords ~$20k a month
+  accelerators:['YC','Y Combinator','Techstars','Antler','Entrepreneur First','500 Global','a16z speedrun','Neo','South Park Commons','Sequoia Arc','HF0','Pear'],
+  titles:['founder','co-founder','cofounder','ceo','chief','cto','coo','cmo','cgo','cro','cpo','president','managing director'],
+  references:[],        // lookalike profiles (from crm/config.json icp.references)
+  weights:{authority:15,industry:10,employees:10,stage:10,recency:15,founder_led:10,no_team:10,growth:10,organic_gap:5,afford:5},
+  bands:{high:85,strong:70,research:50},
+};
+const DIMS=[
+  ['authority','Decision-maker authority'],['industry','Industry'],['employees','Employee count'],['stage','Funding stage'],['recency','Funding recency'],
+  ['founder_led','Founder-led GTM'],['no_team','No marketing / SDR team'],['growth','Growth signals'],['organic_gap','Organic distribution gap'],['afford','Affordability'],
+];
+function icpConfig(saved,cfg){
+  const base={...ICP_DEFAULT,...((cfg&&cfg.icp)||{})};const s=saved&&typeof saved==='object'?saved:{};
+  const out={...base,...s,weights:{...base.weights,...(s.weights||{})},bands:{...base.bands,...(s.bands||{})}};
+  if(!Array.isArray(out.references)||!out.references.length)out.references=base.references||[];
+  return out;
+}
+
+/* ---------- the intelligence card: what we track, grouped ---------- */
+const INTEL=[
+  {g:'company',label:'Company',fields:[['website','Website','url'],['industry','Industry','text'],['model','Business model','select',['B2B','B2B2C','B2C','Marketplace','Services / agency']],
+    ['employees','Employees','int'],['hq','HQ','text'],['company_li','Company LinkedIn','url'],['description','What they do','area'],['accelerator','Accelerator','text']]},
+  {g:'funding',label:'Funding',fields:[['round','Latest round','select',['Pre-seed','Seed','Series A','Series B','Series C','Series D+','Bootstrapped','Grant / other']],
+    ['amount','Round amount (USD)','money'],['date','Round date','date'],['investors','Lead investors','text'],['total','Total raised (USD)','money']]},
+  {g:'person',label:'Decision-maker',fields:[['title','Title','text'],['authority','Authority','select',['Founder / CEO','C-suite','VP / Head of','Manager','Individual contributor']],
+    ['founder','Founder','select',['Yes','No']],['prev','Previous companies','text']]},
+  {g:'gtm',label:'GTM',fields:[['founder_led','Founder-led GTM','select',['Yes','No']],['hom','Head of Marketing','select',['No','Yes']],['sdr','SDR team','select',['None','1–2','3+']],
+    ['mkt_size','Marketing team size','int'],['hiring','GTM hiring (roles open)','text'],['jobs','Job posts','url'],['li_freq','Founder LinkedIn posts / month','num'],
+    ['x_freq','Founder X posts / month','num'],['followers','Founder followers (LinkedIn)','int']]},
+];
+const FIELD=Object.fromEntries(INTEL.flatMap(g=>g.fields.map(f=>[f[0],{key:f[0],label:f[1],type:f[2],opts:f[3]||null,g:g.g}])));
+const SIGNALS={raise:'Recent raise',hiring:'GTM hiring',founder_post:'Founder posting about acquisition',launch:'Launch',expansion:'Expansion',mkt_gap:'No marketing team',weak_organic:'Weak organic presence',other:'Other'};
+const TOUCH_TYPES={connection:'Connection request',dm:'Direct message',followup:'Follow-up',email:'Email',accepted:'Accepted connection',reply:'Reply',question:'Question',interest:'Showed interest',meeting:'Meeting booked',not_interested:'Not interested',other:'Other'};
+const OUT_TYPES=['connection','dm','followup','email'];
+const QUALIFYING=['reply','question','interest','meeting'];   // these move an outbound lead to Midbound; accepting a connection does not
+const POSITIVE=['interest','meeting'];
+
+// Money as people write it: "$17M", "17.0m", "2.5 million", "500k", "1,200,000".
+function parseMoney(v){
+  if(v==null||v==='')return null;if(typeof v==='number')return isFinite(v)?v:null;
+  const m=String(v).replace(/,/g,'').match(/\$?\s*(\d+(?:\.\d+)?)\s*(k|m|mn|million|b|bn|billion)?\b/i);if(!m)return null;
+  const n=parseFloat(m[1]),u=low(m[2]||'');return Math.round(n*(u==='k'?1e3:/^m/.test(u)?1e6:/^b/.test(u)?1e9:1));
+}
+const fmtMoney=n=>n==null?'':n>=1e9?'$'+(n/1e9).toFixed(n%1e9?1:0)+'B':n>=1e6?'$'+(n/1e6).toFixed(n%1e6?1:0)+'M':n>=1e3?'$'+Math.round(n/1e3)+'k':'$'+n;
+// "2026-09", "2026-09-14", "Sep 2026" → a Date (first of the month when only the month is known).
+function parseDay(v){
+  if(!has(v))return null;const s=String(v).trim();let m=s.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/);
+  if(m){const d=new Date(+m[1],+m[2]-1,+(m[3]||1));return isNaN(d)?null:d;}
+  m=s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{4})$/);if(m){const i=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(low(m[1]));if(i>=0)return new Date(+m[2],i,1);}
+  const d=new Date(s);return isNaN(d)?null:d;
+}
+const isUrl=s=>/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(String(s||'').trim());
+// Checks one intel value before it is saved. Returns '' when fine, else what's wrong.
+function validateIntel(key,val,src,at,now){
+  const f=FIELD[key];if(!f)return 'Unknown field '+key;now=now||new Date();
+  if(has(val)){
+    if(f.type==='url'&&!isUrl(val))return f.label+' must be a link starting with http:// or https://';
+    if((f.type==='int'||f.type==='num')&&!(isFinite(Number(val))&&Number(val)>=0))return f.label+' must be a number';
+    if(f.type==='money'&&parseMoney(val)==null)return f.label+' must be an amount, e.g. $2.5M';
+    if(f.type==='date'){const d=parseDay(val);if(!d)return f.label+' must be a date, e.g. 2026-09 or 2026-09-14';if(d-now>DAY)return f.label+' can’t be in the future';}
+    if(f.type==='select'&&f.opts&&!f.opts.includes(val))return f.label+' must be one of: '+f.opts.join(', ');
+  }
+  if(has(src)&&!isUrl(src))return 'The source must be a link starting with http:// or https://';
+  if(has(at)){const d=parseDay(at);if(!d)return 'Last verified must be a date';if(d-now>DAY)return 'Last verified can’t be in the future';}
+  return '';
+}
+
+/* ---------- LinkedIn URLs and dedupe ---------- */
+function normLi(u){
+  let s=String(u||'').trim();if(!s)return '';try{s=decodeURIComponent(s);}catch(e){}
+  s=s.toLowerCase().replace(/[?#].*$/,'').replace(/^https?:\/\//,'').replace(/^(www\.|[a-z]{2}\.)?linkedin\.com/,'linkedin.com').replace(/\/+$/,'');
+  return /linkedin\.com\/(in|company)\//.test(s)?s:'';
+}
+const normName=s=>low(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+const normCo=s=>normName(String(s||'').replace(/\(.*?\)/g,'')).replace(/\b(inc|llc|ltd|labs|technologies|technology|ai|hq|co|corp|the)\b/g,'').replace(/\s+/g,' ').trim();
+// Possible duplicates among live (not archived) leads: same LinkedIn profile first, then same email, then same person at the same company.
+function dupes(rows){
+  const live=(rows||[]).filter(l=>!l.archived);const out=[];const used=new Set();
+  const pass=(why,keyOf)=>{const m=new Map();for(const l of live){if(used.has(l.id))continue;const k=keyOf(l);if(!k)continue;(m.get(k)||m.set(k,[]).get(k)).push(l);}
+    for(const [k,list] of m)if(list.length>1){list.forEach(l=>used.add(l.id));out.push({key:why+':'+k,why,ids:list.map(l=>l.id)});}};
+  pass('Same LinkedIn profile',l=>normLi(l.linkedin));
+  pass('Same email',l=>{const e=low(l.email).trim();return /@/.test(e)?e:'';});
+  pass('Same name and company',l=>{const n=normName(l.name),c=normCo(l.company);return n&&c?n+'|'+c:'';});
+  return out;
+}
+// The lead a new record would duplicate, if any (LinkedIn first, then email, then name + company).
+function findDup(rows,o){
+  const live=(rows||[]).filter(l=>!l.archived);const li=normLi(o.linkedin),em=low(o.email).trim(),n=normName(o.name),c=normCo(o.company);
+  return (li&&live.find(l=>normLi(l.linkedin)===li))||(/@/.test(em)&&live.find(l=>low(l.email).trim()===em))||(n&&c&&live.find(l=>normName(l.name)===n&&normCo(l.company)===c))||null;
+}
+
+/* ---------- evidence: what we know, from the card first, else read off the CRM record itself ---------- */
+const gtmOf=l=>{const g=l&&l.fields&&l.fields.gtm;return g&&typeof g==='object'?g:{};};
+// YC batches: W = winter (Jan), X = spring (Apr), S = summer (Jun), F = fall (Sep). Unknown letters give no date.
+const BATCH_M={w:0,x:3,s:5,f:8};
+function ycBatch(text){const m=String(text||'').match(/\b(?:YC|Y\s?Combinator)\s*[('’]?\s*([WSFXP])\s?'?(\d{2})\b/i);
+  if(!m)return null;const L=low(m[1]),y=2000+Number(m[2]);return{label:'YC '+m[1].toUpperCase()+m[2],date:BATCH_M[L]!=null?new Date(y,BATCH_M[L],1):null};}
+// One evidence item: {v, src, at, kind}. kind: 'fact' (has a source link), 'manual' (entered, no link), 'derived' (read off the
+// CRM record: role, notes, group, which came from the lead sheet or LinkedIn headline), 'inference' (an AI guess or a rule of thumb).
+function evidence(l){
+  const g=gtmOf(l);const I=g.intel||{};const E={};
+  for(const k in I){const x=I[k];if(x&&has(x.v))E[k]={v:x.v,src:x.src||'',at:x.at||'',kind:isUrl(x.src)?'fact':'manual'};}
+  const notes=String(l.notes||''),role=String(l.role||''),all=[notes,role,l.group_name,l.company,l.source_detail].join('\n');
+  const put=(k,v,kind,why)=>{if(!E[k]&&has(v))E[k]={v,src:'',at:'',kind,why};};
+  put('title',role,'derived','CRM role (LinkedIn headline)');
+  const yc=ycBatch(all);
+  if(yc)put('accelerator',yc.label,'derived','CRM notes');else if(/\bYC founders\b/i.test(l.group_name||''))put('accelerator','YC','derived','CRM group');
+  const r=notes.match(/\b(pre-?seed|seed|series\s+[a-e])\b[^\n$]{0,12}(\$\s*[\d.,]+\s*(?:k|m|mn|million|b|bn)?)?/i);
+  if(r){const round=/pre/i.test(r[1])?'Pre-seed':/^seed/i.test(r[1])?'Seed':'Series '+r[1].slice(-1).toUpperCase();
+    const ai=/^stage:/im.test(notes)&&/stage:\s*(pre-?seed|seed|series)/i.test(notes);   // social-sync's AI read: "Stage: seed"
+    put('round',round==='Series E'?'Series D+':round,ai?'inference':'derived',ai?'AI read of their profile (social sync)':'CRM notes');
+    if(r[2])put('amount',parseMoney(r[2]),'derived','CRM notes');}
+  else if(yc){put('round','Pre-seed','inference','YC standard deal');}
+  if(yc&&yc.date)put('date',iso(yc.date),'inference','YC batch start ('+yc.label+')');
+  const d=notes.split('\n').map(x=>x.trim()).find(x=>/^[^:]{2,60}:\s.{20,}/.test(x)&&!/^(stage|booking link)/i.test(x));
+  if(d)put('description',d.replace(/^[^:]+:\s*/,''),'inference','AI read of their profile (social sync)');
+  return E;
+}
+const KW=(kinds)=>kinds.reduce((a,k)=>a+({fact:1,manual:.8,override:.8,derived:.6,inference:.4}[k]||0),0)/Math.max(1,kinds.length);
+
+/* ---------- ICP score: 100 points, evidence only ---------- */
+function score(l,cfg,now){
+  cfg=cfg||ICP_DEFAULT;now=now||new Date();const W=cfg.weights;const E=evidence(l);const g=gtmOf(l);const ov=(g.icp&&g.icp.ov)||{};const sig=signals(l,now);
+  const ev=k=>E[k];const val=k=>E[k]?E[k].v:null;const D={};
+  // A dimension is only as strong as its weakest evidence: any inference makes it an inference, any CRM-derived value makes it derived.
+  const dim=(key,pts,state,why,used)=>{const w=W[key]||0;const U2=(used||[]).filter(Boolean);const kinds=U2.map(u=>u.kind||'derived');
+    D[key]={key,label:DIMS.find(x=>x[0]===key)[1],w,pts:pts==null?null:Math.max(0,Math.min(w,Math.round(pts))),state,why,
+      kind:['inference','derived','manual','fact'].find(k=>kinds.includes(k))||'',src:U2.map(u=>u.src).filter(Boolean)[0]||'',kinds};};
+  const U=(key,why)=>dim(key,null,'unknown',why||'UNKNOWN',[]);
+  // 1. authority
+  { const t=low([val('title'),val('authority')].join(' '));const f=val('founder');
+    if(f==='Yes'||/founder|ceo|chief executive/.test(t)||val('authority')==='Founder / CEO')dim('authority',W.authority,'yes','Founder / CEO: owns the growth budget',[ev('founder')||ev('title')||ev('authority')]);
+    else if(val('authority')==='C-suite'||/\bc[a-z]o\b|chief|president|managing director/.test(t))dim('authority',W.authority,'yes','C-suite',[ev('title')||ev('authority')]);
+    else if(val('authority')==='VP / Head of'||/\bvp\b|vice president|head of|director/.test(t))dim('authority',W.authority*.5,'partial','VP / Head of: influences, may not own the budget',[ev('title')||ev('authority')]);
+    else if(has(t))dim('authority',0,'no','Not a decision-maker ('+clip(val('title')||val('authority'),40)+')',[ev('title')||ev('authority')]);
+    else U('authority'); }
+  // 2. industry
+  { const m=val('model'),ind=low([val('industry'),val('description')].join(' '));const sw=cfg.industries.some(k=>new RegExp('\\b'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b').test(ind));
+    if(m&&!cfg.models.includes(m))dim('industry',0,'no',m+' (we sell to '+cfg.models.join(' / ')+')',[ev('model')]);
+    else if(m&&sw)dim('industry',W.industry,'yes',m+' '+clip(val('industry')||'software',30),[ev('model'),ev('industry')||ev('description')]);
+    else if(m)dim('industry',W.industry*.4,'partial',m+', but not clearly software / AI / deep tech',[ev('model')]);
+    else if(has(ind)&&sw)dim('industry',W.industry*.5,'partial','Software / AI, business model UNKNOWN',[ev('industry')||ev('description')]);
+    else if(has(val('industry')))dim('industry',0,'no','Industry: '+clip(val('industry'),40),[ev('industry')]);
+    else U('industry'); }
+  // 3. employees
+  { const n=has(val('employees'))?Number(val('employees')):null;
+    if(n==null)U('employees');else if(n>=cfg.empMin&&n<=cfg.empMax)dim('employees',W.employees,'yes',n+' people',[ev('employees')]);
+    else if(n>=cfg.empMin-2&&n<=cfg.empMax*2)dim('employees',W.employees*.4,'partial',n+' people (outside '+cfg.empMin+'–'+cfg.empMax+')',[ev('employees')]);
+    else dim('employees',0,'no',n+' people (outside '+cfg.empMin+'–'+cfg.empMax+')',[ev('employees')]); }
+  // 4. funding stage
+  { const r=val('round');
+    if(!r)U('stage');else if(cfg.stages.includes(r))dim('stage',W.stage,'yes',r,[ev('round')]);
+    else if(r==='Pre-seed')dim('stage',W.stage*.6,'partial','Pre-seed',[ev('round')]);
+    else if(r==='Series D+')dim('stage',W.stage*.2,'partial','Later than Series C',[ev('round')]);
+    else dim('stage',0,'no',r,[ev('round')]); }
+  // 5. funding recency
+  { const d=parseDay(val('date'));
+    if(!d)U('recency',val('round')?'Round date UNKNOWN':'UNKNOWN');else{const mo=(now-d)/(30.44*DAY);const when=Math.max(0,Math.round(mo))+(Math.round(mo)===1?' month ago':' months ago');
+      if(mo<=cfg.recencyMonths)dim('recency',W.recency,'yes','Raised '+when,[ev('date')]);else if(mo<=12)dim('recency',W.recency*.4,'partial','Raised '+when,[ev('date')]);
+      else dim('recency',0,'no','Last raise '+when,[ev('date')]);} }
+  // 6. founder-led GTM
+  { const f=val('founder_led');if(f==='Yes')dim('founder_led',W.founder_led,'yes','Founders run sales and marketing',[ev('founder_led')]);else if(f==='No')dim('founder_led',0,'no','GTM is run by a team',[ev('founder_led')]);else U('founder_led'); }
+  // 7. no marketing / SDR team: half for no Head of Marketing, half for no SDRs
+  { const h=val('hom'),s=val('sdr'),ms=has(val('mkt_size'))?Number(val('mkt_size')):null;const half=W.no_team/2;let p=0,known=0,bits=[],used=[];
+    if(h==='No'||ms===0){p+=half;known++;bits.push('no Head of Marketing');used.push(ev('hom')||ev('mkt_size'));}else if(h==='Yes'){known++;bits.push('has a Head of Marketing');used.push(ev('hom'));}
+    if(s==='None'){p+=half;known++;bits.push('no SDRs');used.push(ev('sdr'));}else if(s){known++;bits.push('SDRs: '+s);used.push(ev('sdr'));}
+    if(!known)U('no_team');else dim('no_team',p,p>=W.no_team?'yes':p>0?'partial':'no',bits.join(', ')+(known<2?' (other half UNKNOWN)':''),used); }
+  // 8. growth signals: GTM hiring, a launch or an expansion in the last 6 months
+  { const s=sig.filter(x=>['hiring','launch','expansion'].includes(x.type)&&(!x.date||now-x.date<=183*DAY));const hire=val('hiring');
+    if(s.length)dim('growth',W.growth,'yes',s.map(x=>SIGNALS[x.type]).filter((v,i,a)=>a.indexOf(v)===i).join(', '),s.map(x=>({kind:x.kind,src:x.src})));
+    else if(has(hire)&&!/^(no|none|0)$/i.test(String(hire).trim()))dim('growth',W.growth,'yes','Hiring: '+clip(hire,40),[ev('hiring')]);
+    else if(has(hire))dim('growth',0,'no','No GTM roles open',[ev('hiring')]);
+    else U('growth'); }
+  // 9. organic distribution gap: the founder rarely posts, or has a small following
+  { const lf=has(val('li_freq'))?Number(val('li_freq')):null,fo=has(val('followers'))?Number(val('followers')):null;
+    if(lf==null&&fo==null)U('organic_gap');
+    else if((lf!=null&&lf<4)||(fo!=null&&fo<5000))dim('organic_gap',W.organic_gap,'yes',[lf!=null?lf+' LinkedIn posts a month':'',fo!=null?fo.toLocaleString('en-US')+' followers':''].filter(Boolean).join(', '),[ev('li_freq')||ev('followers')]);
+    else dim('organic_gap',0,'no','Already active: '+[lf!=null?lf+' posts a month':'',fo!=null?fo.toLocaleString('en-US')+' followers':''].filter(Boolean).join(', '),[ev('li_freq')||ev('followers')]); }
+  // 10. affordability: raised enough to pay ~$20k a month
+  { const a=parseMoney(val('amount')),t=parseMoney(val('total'));const m=Math.max(a||0,t||0)||null;
+    if(m==null)U('afford');else if(m>=cfg.minRaise)dim('afford',W.afford,'yes','Raised '+fmtMoney(m),[ev('total')||ev('amount')]);
+    else if(m>=cfg.minRaise/2)dim('afford',W.afford*.4,'partial','Raised '+fmtMoney(m)+': tight for $'+Math.round(cfg.budgetMonth/1000)+'k a month',[ev('total')||ev('amount')]);
+    else dim('afford',0,'no','Raised '+fmtMoney(m)+': too small for $'+Math.round(cfg.budgetMonth/1000)+'k a month',[ev('total')||ev('amount')]); }
+  // Manual overrides win, and count as known.
+  for(const k in ov){if(!D[k]||ov[k]==null||ov[k].pts==null||ov[k].pts==='')continue;const p=Number(ov[k].pts);if(!isFinite(p))continue;
+    D[k]={...D[k],pts:Math.max(0,Math.min(D[k].w,Math.round(p))),state:'override',why:'Set by hand'+(ov[k].why?': '+ov[k].why:'')+(D[k].state!=='unknown'?' (evidence said: '+D[k].why+')':''),kind:'override',kinds:['override']};}
+  const dims=DIMS.map(([k])=>D[k]);
+  const pts=dims.reduce((a,d)=>a+(d.pts||0),0),unk=dims.filter(d=>d.pts==null).reduce((a,d)=>a+d.w,0),tot=dims.reduce((a,d)=>a+d.w,0)||100;
+  const conf=Math.round(dims.reduce((a,d)=>a+(d.pts==null?0:d.w*KW(d.kinds.length?d.kinds:['derived'])),0)/tot*100);
+  const B=cfg.bands;const dq=g.icp&&g.icp.dq;
+  const band=dq?'disqualified':pts>=B.high?'high':pts>=B.strong?'strong':pts>=B.research?'research':pts+unk>=B.research?'unverified':'excluded';
+  const reasons=dims.filter(d=>d.pts&&d.pts>=d.w*.5).sort((a,b)=>b.pts-a.pts).map(d=>d.why);
+  const gaps=dims.filter(d=>d.pts==null).sort((a,b)=>b.w-a.w).map(d=>d.label);
+  return{score:pts,max:pts+unk,unknown:unk,conf,confLabel:conf>=70?'High':conf>=40?'Medium':'Low',band,label:BAND[band].label,icp:['high','strong','research'].includes(band),dq:dq||'',dims,reasons,gaps,
+    explain:(dq?'Disqualified by hand: '+dq+'. ':'')+pts+' of 100 from evidence; '+unk+' points UNKNOWN'+(gaps.length?' ('+gaps.slice(0,4).join(', ')+(gaps.length>4?'…':'')+')':'')+'. Confidence '+conf+'%.'};
+}
+const BAND={high:{label:'High priority',tone:'ok'},strong:{label:'Strong fit',tone:'in'},research:{label:'Research',tone:'warn'},unverified:{label:'Needs research',tone:'neutral'},excluded:{label:'Excluded',tone:'ghost'},disqualified:{label:'Disqualified',tone:'bad'}};
+
+/* ---------- buying signals and the Buying Window Radar ---------- */
+// Explicit signals from the card, plus the ones the evidence implies (a dated round, open GTM roles, no marketing lead, low posting).
+function signals(l,now){
+  now=now||new Date();const g=gtmOf(l);const E=evidence(l);const out=[];
+  for(const s of g.signals||[]){if(!s||!SIGNALS[s.type])continue;const d=parseDay(s.at)||parseDay(s.seen);
+    out.push({id:s.id||'',type:s.type,text:s.text||SIGNALS[s.type],date:d,seen:parseDay(s.seen)||d,src:s.src||'',kind:isUrl(s.src)&&s.kind!=='inference'?'fact':'inference',own:true});}
+  const e=E.date;const d=e&&parseDay(e.v);
+  if(d&&!out.some(s=>s.type==='raise'))out.push({type:'raise',text:(E.round?E.round.v:'Funding round')+(E.amount?' '+fmtMoney(parseMoney(E.amount.v)):'')+(e.kind==='inference'?' ('+(e.why||'inferred')+')':''),date:d,seen:parseDay(e.at)||null,src:e.src,kind:e.kind==='fact'?'fact':'inference'});
+  if(E.hiring&&!/^(no|none|0)$/i.test(String(E.hiring.v).trim())&&!out.some(s=>s.type==='hiring'))out.push({type:'hiring',text:'Hiring: '+clip(E.hiring.v,60),date:parseDay(E.hiring.at),seen:parseDay(E.hiring.at),src:E.hiring.src,kind:E.hiring.kind==='fact'?'fact':'inference',derived:true});
+  if(E.hom&&E.hom.v==='No'&&!out.some(s=>s.type==='mkt_gap'))out.push({type:'mkt_gap',text:'No Head of Marketing',date:parseDay(E.hom.at),seen:parseDay(E.hom.at),src:E.hom.src,kind:E.hom.kind==='fact'?'fact':'inference',static:true,derived:true});
+  const lf=E.li_freq?Number(E.li_freq.v):null;
+  if(lf!=null&&lf<4&&!out.some(s=>s.type==='weak_organic'))out.push({type:'weak_organic',text:'Founder posts '+lf+' times a month on LinkedIn',date:parseDay(E.li_freq.at),seen:parseDay(E.li_freq.at),src:E.li_freq.src,kind:E.li_freq.kind==='fact'?'fact':'inference',static:true,derived:true});
+  return out;
+}
+// Points per signal type by age in days: [[max age, points], ...]; static ones don't fade.
+const RADAR={raise:[[90,30],[183,22],[365,8]],hiring:[[60,20],[120,10]],founder_post:[[30,20],[90,10]],launch:[[60,15],[120,7]],expansion:[[90,10],[183,5]],mkt_gap:'static:10',weak_organic:'static:10',other:[[60,5]]};
+function radar(l,now){
+  now=now||new Date();const S=signals(l,now);const best={};
+  for(const s of S){const r=RADAR[s.type];let p=0;
+    // An undated signal (no event date and no "last verified") gets its lowest tier: we can't tell how fresh it is.
+    if(typeof r==='string')p=Number(r.split(':')[1]);else{const age=s.date?(now-s.date)/DAY:null;if(age==null)p=r[r.length-1][1];else for(const [a,v] of r)if(age<=a){p=v;break;}}
+    if(s.kind!=='fact')p*=.6;s.pts=Math.round(p);if(!best[s.type]||best[s.type].pts<s.pts)best[s.type]=s;}
+  const used=Object.values(best).filter(s=>s.pts>0).sort((a,b)=>b.pts-a.pts);
+  const sc=Math.min(100,used.reduce((a,s)=>a+s.pts,0));
+  const level=sc>=55?'HIGH':sc>=30?'MEDIUM':'LOW';
+  const top=used[0];
+  return{score:sc,level,top:top?top.type:'',angle:ANGLES[top?top.type:'peer'],why:used.map(s=>({type:s.type,label:SIGNALS[s.type],text:s.text,when:s.date?iso(s.date):'',seen:s.seen?iso(s.seen):'',kind:s.kind,src:s.src,pts:s.pts,derived:!!s.derived})),all:S};
+}
+const ANGLES={
+  raise:{id:'raise',label:'Post-raise: turn the round into pipeline',q:'now that the round is closed, how are you thinking about pipeline: keep it founder-led, or bring in a GTM hire first?'},
+  hiring:{id:'hiring',label:'First GTM hire vs. founder-led distribution',q:'how are you thinking about the first growth hire versus keeping distribution founder-led for a while longer?'},
+  founder_post:{id:'founder_post',label:'Respond to what they posted about acquisition',q:'your post on getting customers stuck with me. What has actually worked for you so far?'},
+  launch:{id:'launch',label:'Launch distribution',q:'how are you getting the launch in front of buyers beyond the first spike?'},
+  expansion:{id:'expansion',label:'New-market awareness',q:'how are you building awareness in the new market before sales gets there?'},
+  mkt_gap:{id:'mkt_gap',label:'Founder-led GTM without a marketing team',q:'with no marketing team yet, how much of the founders’ week goes into distribution?'},
+  weak_organic:{id:'weak_organic',label:'Founder presence on LinkedIn / X',q:'have you thought about founder-led content on LinkedIn as a channel, or is it not a priority yet?'},
+  other:{id:'other',label:'Founder to founder',q:'what is the hardest part of GTM for you right now?'},
+  peer:{id:'peer',label:'Founder to founder',q:'what is the hardest part of GTM for you right now?'},
+};
+
+/* ---------- relationship, acquisition source, engagement status ---------- */
+const STATUSES=['New','Contacted','Engaged','Meeting booked','Qualified','Proposal','Won','Lost','Nurture'];
+const ACQ=['Inbound','Outbound','Referral','Content','Event','Other'];
+const REL={new:'New connection',outbound:'Outbound',midbound:'Midbound',inbound:'Inbound'};
+const STAGE_STATUS={'new':'New','contacted':'Contacted','in talks':'Engaged','follow up':'Contacted','call booked':'Meeting booked','qualified':'Qualified','proposal sent':'Proposal','won':'Won','lost':'Lost','cold lead':'Nurture','nurture':'Nurture'};
+function statusOf(stage,kind){const s=low(stage).trim();if(STAGE_STATUS[s])return STAGE_STATUS[s];if(kind==='won')return 'Won';if(kind==='lost')return 'Lost';
+  return /proposal/.test(s)?'Proposal':/call|meeting|demo/.test(s)?'Meeting booked':/qualif/.test(s)?'Qualified':/nurture|cold|later/.test(s)?'Nurture':/talk|engag|repl/.test(s)?'Engaged':/contact|sent|follow/.test(s)?'Contacted':'New';}
+const ENGAGED_ST=['Engaged','Meeting booked','Qualified','Proposal','Won'];
+// Whether they answered at some point: a logged reply, a stage they reached (the outreach job moves replies to In talks), or the stage now.
+function engagedEvidence(l,events,stages){
+  const g=gtmOf(l);const T=g.touches||[];const t=T.filter(x=>x.dir==='in'&&QUALIFYING.includes(x.type));if(t.length)return{how:t[t.length-1].type,at:t[t.length-1].at,src:'touch'};
+  const kindOf=n=>{const s=(stages||[]).find(x=>x.name===n);return s?s.kind:'';};
+  const st=statusOf(l.stage,kindOf(l.stage));
+  for(const e of events||[])if(e.kind==='stage'){const to=String(e.text).split('→').pop().trim();if(ENGAGED_ST.includes(statusOf(to,kindOf(to))))return{how:'stage',at:e.at,src:'stage history: '+e.text};}
+  if(ENGAGED_ST.includes(st))return{how:'stage',at:l.stage_at,src:'stage '+l.stage};
+  return null;
+}
+// LinkedIn connection: set on the card, else read off what the outreach job wrote (a DM or group chat can only go to a 1st-degree connection).
+function connOf(l,events){
+  const g=gtmOf(l);if(g.rel&&g.rel.conn)return g.rel.conn;const T=g.touches||[];if(T.some(t=>t.type==='accepted'||(t.dir==='out'&&t.type==='dm'&&t.ch==='LinkedIn')))return 'connected';
+  const sd=String(l.source_detail||'');
+  if(/\b(DM|message)\b[^;]*\bsent\b|group chat[^;]*sent|accepted|new connection|1st[- ]degree/i.test(sd))return 'connected';
+  if((events||[]).some(e=>/accepted (the |their |our )?invite|accepted (the )?connection|now connected/i.test(e.text)))return 'connected';
+  if(/invite sent|request sent|pending/i.test(sd))return 'pending';
+  if(/followed/i.test(sd))return 'none';
+  return '';
+}
+function contactedOf(l,events,stages){
+  const g=gtmOf(l);const T=(g.touches||[]).filter(t=>t.dir==='out'&&t.type!=='connection');if(T.length)return{at:T[0].at,n:T.length,how:T[0].type};
+  const sd=String(l.source_detail||'');const m=sd.match(/\b(?:DM|group chat|message)\b[^;]*?\bsent\s+(\d{4}-\d\d-\d\d)/i);if(m)return{at:m[1],n:1,how:'dm'};
+  const kindOf=n=>{const s=(stages||[]).find(x=>x.name===n);return s?s.kind:'';};
+  const st=statusOf(l.stage,kindOf(l.stage));if(st!=='New')return{at:l.stage_at||l.last_touch||'',n:1,how:'stage'};
+  return null;
+}
+function acqOf(l){
+  const g=gtmOf(l);if(g.rel&&ACQ.includes(g.rel.acq))return g.rel.acq;const sd=low(l.source_detail);
+  if(l.source==='Referral'||/referr|intro(duced)? by/.test(sd))return 'Referral';
+  if(/event|meetup|conference|summit|demo day/.test(sd))return 'Event';
+  if(String(l.origin_key||'').startsWith('li-person:')||/liked your post|commented on your post|engaged with your linkedin post|reacted to/.test(sd)&&l.direction==='Inbound')return 'Content';
+  if(l.direction==='Inbound')return 'Inbound';if(l.direction==='Outbound')return 'Outbound';return 'Other';
+}
+// Everything about one lead the views need. events = this lead's events; stages = the stage settings.
+function classify(l,events,stages,cfg,now){
+  now=now||new Date();const kindOf=n=>{const s=(stages||[]).find(x=>x.name===n);return s?s.kind:'open';};
+  const status=statusOf(l.stage,kindOf(l.stage));const eng=engagedEvidence(l,events,stages);const conn=connOf(l,events);const contacted=contactedOf(l,events,stages);
+  const rel=l.direction==='Inbound'?'inbound':eng?'midbound':conn==='connected'&&!contacted?'new':'outbound';
+  const g=gtmOf(l);const T=(g.touches||[]).slice().sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const sc=score(l,cfg,now);const rd=radar(l,now);const tg=tags(l,sc,rd,cfg);
+  const lastIn=[...T].reverse().find(t=>t.dir==='in');const lastAny=T[T.length-1];
+  const fuN=T.filter(t=>t.dir==='out'&&t.type==='followup').length;
+  return{id:l.id,rel,relLabel:REL[rel],acq:acqOf(l),status,closed:['Won','Lost'].includes(status),conn,contacted,engaged:eng,score:sc,radar:rd,tags:tg,touches:T,fuN,
+    lastIn,lastAny,positive:T.some(t=>t.dir==='in'&&POSITIVE.includes(t.type))||['Meeting booked','Qualified','Proposal','Won'].includes(status)};
+}
+// Multi-tags, each with the evidence behind it.
+const TAGS=['YC','AI','Deep Tech','Recently Funded','Founder-led GTM','Hiring Growth','High Intent','Weak Organic Presence'];
+function tags(l,sc,rd,cfg){
+  const E=evidence(l);const out=[];const txt=low([E.industry&&E.industry.v,E.description&&E.description.v,l.company,l.role].join(' '));
+  if(E.accelerator&&/\b(yc|y combinator)\b/i.test(E.accelerator.v))out.push('YC');
+  if(/\b(ai|artificial intelligence|machine learning|llm|genai|agents?)\b/.test(txt))out.push('AI');
+  if(/deep ?tech|robotic|quantum|biotech|semiconductor|space|fusion|hardware/.test(txt))out.push('Deep Tech');
+  const rec=sc.dims.find(d=>d.key==='recency');if(rec&&rec.state==='yes')out.push('Recently Funded');
+  if(E.founder_led&&E.founder_led.v==='Yes')out.push('Founder-led GTM');
+  if(rd.all.some(s=>s.type==='hiring'))out.push('Hiring Growth');
+  if(rd.level==='HIGH')out.push('High Intent');
+  if(rd.all.some(s=>s.type==='weak_organic'))out.push('Weak Organic Presence');
+  return out;
+}
+
+/* ---------- outreach drafts: relationship-first, founder to founder; never sent automatically ---------- */
+function firstName(n){const w=String(n||'').trim().split(/\s+/)[0]||'';return /^[A-Za-z][a-z'’-]+$/.test(w)?w:w?w.charAt(0).toUpperCase()+w.slice(1).toLowerCase():'there';}
+function messages(l,c,me){
+  me=me||'Reyansh';const fn=firstName(l.name);const co=String(l.company||'').replace(/\s*\(.*?\)\s*/g,' ').trim();const E=evidence(l);const rd=c?c.radar:radar(l);
+  const top=rd.why[0];const ang=ANGLES[(top&&top.type)||'peer']||ANGLES.peer;const at=co?' at '+co:'';
+  const opp=gtmOf(l).opp||{};
+  const raiseTxt=E.round&&E.round.kind!=='inference'?'the '+E.round.v+(E.amount&&E.amount.kind!=='inference'?' ('+fmtMoney(parseMoney(E.amount.v))+')':''):'the recent round';
+  const hook=has(opp.hook)?opp.hook:
+    !top?'I like what you’re building'+at:
+    top.type==='raise'&&top.kind==='fact'?'congrats on '+raiseTxt+(co?' for '+co:''):
+    top.type==='raise'?'congrats on getting '+(co||'it')+' off the ground':
+    top.type==='hiring'?'saw '+(co||'you')+' is hiring for growth':
+    top.type==='founder_post'?'your post about getting customers stuck with me':
+    top.type==='launch'?'congrats on the launch'+(co?' at '+co:''):
+    top.type==='expansion'?'saw '+(co||'you')+' is expanding':
+    'I like what you’re building'+at;
+  const H=hook.charAt(0).toUpperCase()+hook.slice(1);
+  const connect=clip('Hi '+fn+', '+hook+'. I’m '+me+', a founder too, and I spend most of my week on founder-led GTM. Would be good to connect and swap notes.',300);
+  const opener='Thanks for connecting, '+fn+'! '+H+'. Quick question, founder to founder: '+(has(opp.angle)?opp.angle:ang.q)+'\nAsking because it’s the problem I think about most while building SOVE7GN, and I’d love to learn how you see it.';
+  const fu1='Hey '+fn+', no rush at all. Curious how distribution is going'+at+' right now: is it still mostly you, or have you brought someone in? Happy to share what’s been working for other early-stage founders if useful.';
+  const fu2='Last nudge from me, '+fn+'. If it helps, I can put together a short teardown of how '+(co||'your company')+' shows up on LinkedIn and what founders at your stage do differently. No strings either way, and rooting for you.';
+  const why=has(opp.why)?opp.why:whyUs(l,c);
+  return{angle:ang,hook:H,why,list:[{id:'rf-connect-v1',label:'Connection note',hint:'Only if sending with a note (our invites normally go without one). Max 300 characters.',text:connect},
+    {id:'rf-open-v1',label:'Opener (first DM)',hint:'After they accept, or as the first reply.',text:has(opp.msg)?opp.msg:opener},
+    {id:'rf-fu1-v1',label:'Follow-up 1',hint:'About 4 days after the opener, if no reply.',text:fu1},{id:'rf-fu2-v1',label:'Follow-up 2',hint:'About a week after follow-up 1. Then stop.',text:fu2}]};
+}
+function whyUs(l,c){const sc=c?c.score:score(l);const d=Object.fromEntries(sc.dims.map(x=>[x.key,x]));const bits=[];
+  if(d.no_team&&d.no_team.pts)bits.push('no marketing team yet');if(d.founder_led&&d.founder_led.pts)bits.push('GTM is founder-led');if(d.organic_gap&&d.organic_gap.pts)bits.push('weak organic presence');
+  if(d.recency&&d.recency.state==='yes')bits.push('fresh capital to deploy');if(d.growth&&d.growth.pts)bits.push('growth signals');
+  return bits.length?'They likely need us: '+bits.join(', ')+'.':'UNKNOWN until their GTM team and presence are researched.';}
+
+/* ---------- analytics over classified leads ---------- */
+// c = classify() result, l = the lead. Legacy outreach (before drafts were logged) is grouped by what source_detail says was sent.
+function templateOf(l,c){const t=[...c.touches].reverse().find(x=>x.dir==='out'&&x.tpl);if(t)return t.tpl;const sd=String(l.source_detail||'');
+  return /post-engager/i.test(sd)?'Reyansh DM · post engager':/group chat with Naman/i.test(sd)?'Group chat with Naman (old pitch)':/DM from Reyansh/i.test(sd)?'Reyansh DM · new connection':c.contacted?'Not logged':'';}
+function angleOf(c){const t=[...c.touches].reverse().find(x=>x.dir==='out'&&x.angle);return t?(ANGLES[t.angle]||{}).label||t.angle:c.contacted?'Not logged':'';}
+function personaOf(l){const E=evidence(l);const t=low([E.title&&E.title.v,E.authority&&E.authority.v].join(' '));
+  return /founder|ceo/.test(t)?'Founder / CEO':/\bc[a-z]o\b|chief|president/.test(t)?'Other C-suite':has(t)?'Other role':'UNKNOWN';}
+function funnelRow(name,list){
+  const n=list.length,sent=list.filter(x=>x.c.contacted).length,resp=list.filter(x=>x.c.contacted&&x.c.engaged).length,pos=list.filter(x=>x.c.contacted&&x.c.positive).length;
+  const meet=list.filter(x=>['Meeting booked','Qualified','Proposal','Won'].includes(x.c.status)).length,won=list.filter(x=>x.c.status==='Won').length;
+  const pct=(a,b)=>b?Math.round(a/b*100)+'%':'–';
+  return{name,n,sent,resp,pos,meet,won,respRate:pct(resp,sent),posRate:pct(pos,sent),meetRate:pct(meet,n),winRate:pct(won,n)};
+}
+function groupBy(items,keyOf,order){const m=new Map();for(const x of items){const k=keyOf(x)||'UNKNOWN';(m.get(k)||m.set(k,[]).get(k)).push(x);}
+  const keys=[...m.keys()].sort((a,b)=>order?(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(b)<0?99:order.indexOf(b)):m.get(b).length-m.get(a).length);
+  return keys.map(k=>funnelRow(k,m.get(k)));}
+
+root.GTM={ICP_DEFAULT,DIMS,INTEL,FIELD,SIGNALS,TOUCH_TYPES,OUT_TYPES,QUALIFYING,POSITIVE,STATUSES,ACQ,REL,TAGS,BAND,ANGLES,
+  icpConfig,parseMoney,fmtMoney,parseDay,isUrl,validateIntel,normLi,normName,normCo,dupes,findDup,gtmOf,ycBatch,evidence,score,signals,radar,
+  statusOf,engagedEvidence,connOf,contactedOf,acqOf,classify,tags,firstName,messages,whyUs,templateOf,angleOf,personaOf,funnelRow,groupBy,iso};
+})(typeof window!=='undefined'?window:globalThis);
+
+</script>
+<script src="./data.js?v=87667dbd6c"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -30,10 +421,10 @@ const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=dat
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},liPeople:{sec:'mid',label:'Who engaged'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'LinkedIn views'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Who engaged'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
-const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBoard','leadList','leadAdd','leadSetup']};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','gtmNow','gtmViews','leadBoard','leadList','gtmDash','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
@@ -97,6 +488,31 @@ const TRK_LI={chart:'Reactions per post, oldest to newest',noChart:'The chart fi
 const HEAT_C={Hot:'oklch(0.66 0.17 40)',Warm:'var(--warn)',Cold:'oklch(0.62 0.11 245)'};
 const HEAT_L={Hot:'Hot lead',Warm:'Warm lead',Cold:'Cold lead'};
 const FIT={hot:{label:'Hot lead',c:'oklch(0.66 0.17 40)'},warm:{label:'Warm',c:'var(--warn)'},'not a fit':{label:'Not a fit',c:'var(--ink-4)'},'':{label:'Checking…',c:'var(--ink-4)'}};
+// GTM intelligence (8 Nov): views, their columns, tag colours. Rules in window.GTM (crm/src/gtm.js).
+const GTM=window.GTM;
+const TAG_C={YC:'oklch(0.68 0.16 45)',AI:'var(--in)','Deep Tech':'var(--mid)','Recently Funded':'var(--ok)','Founder-led GTM':'var(--out)','Hiring Growth':'oklch(0.62 0.11 245)','High Intent':'var(--bad)','Weak Organic Presence':'var(--warn)'};
+const GF0={q:'',band:'',min:'',stage:'',status:'',rec:'',emp:'',ind:'',des:'',acq:'',rel:'',last:'',next:'',owner:'',tag:'',sort:''};
+const GV=[
+  {id:'newconn',label:'New connections',icp:true,hint:'Connected on LinkedIn, not contacted yet. ICP only unless you show the rest.',empty:'Nobody is connected-but-not-contacted right now. When someone accepts an invite and hasn’t had a message yet, they show here (mark them “Connected” on the Outreach tab, or the outreach job logs it).',f:x=>x.c.rel==='new'&&!x.c.closed},
+  {id:'icp',label:'ICP qualified',icp:true,hint:'Every open lead scoring 50+ on evidence, best first.',empty:'No lead scores 50+ yet. Scores only count what’s known: fill the Intel tab (funding, team, GTM) for the leads under Needs research.',f:x=>!x.c.closed},
+  {id:'outbound',label:'Outbound',icp:true,hint:'Cold ICP prospects we’re reaching out to: when, how, follow-ups and whether they answered.',empty:'No outbound prospects.',f:x=>x.c.rel==='outbound'&&!x.c.closed&&x.c.status!=='Nurture'},
+  {id:'midbound',label:'Midbound',hint:'We reached out first, then they engaged: a reply, a question, interest or a meeting. Accepting an invite alone doesn’t count.',empty:'Nobody has engaged after our outreach yet. Log a reply on a lead’s Outreach tab and it moves here.',f:x=>x.c.rel==='midbound'&&!x.c.closed},
+  {id:'inbound',label:'Inbound',hint:'They came to us: a DM, an enquiry, a reply to our content, the website or a referral.',empty:'No inbound leads.',f:x=>x.c.rel==='inbound'&&!x.c.closed},
+  {id:'meetings',label:'Meetings booked',hint:'A call is booked.',empty:'No meetings booked.',f:x=>x.c.status==='Meeting booked'},
+  {id:'qualified',label:'Qualified opportunities',hint:'Qualified after the call.',empty:'No qualified opportunities. Add a Qualified stage on Setup → ICP if it’s missing.',f:x=>x.c.status==='Qualified'},
+  {id:'proposal',label:'Proposal sent',hint:'Waiting on a decision.',empty:'No proposals out.',f:x=>x.c.status==='Proposal'},
+  {id:'won',label:'Won',hint:'Customers.',empty:'Nothing won yet.',f:x=>x.c.status==='Won'},
+  {id:'lost',label:'Lost',hint:'Said no, or went away.',empty:'Nothing lost.',f:x=>x.c.status==='Lost'},
+  {id:'nurture',label:'Nurture',hint:'Not now: keep warm until a new buying signal.',empty:'Nobody in Nurture.',f:x=>x.c.status==='Nurture'},
+  {id:'dq',label:'Disqualified',hint:'Disqualified by hand, or can’t reach 50 even if every UNKNOWN turned out positive.',empty:'Nobody is disqualified.',f:x=>['excluded','disqualified'].includes(x.c.score.band)},
+];
+const GCOLS={newconn:[['size','Size'],['fund','Last funding'],['icp','ICP score'],['why','Why they qualify'],['angle','Recommended angle']],
+  icp:[['size','Size'],['fund','Last funding'],['icp','ICP score'],['window','Buying window'],['why','Why they qualify'],['rel','Relationship']],
+  outbound:[['sent','Contacted'],['msg','Message'],['fu','Next follow-up'],['resp','Response'],['icp','ICP score']],
+  midbound:[['orig','Original outreach'],['lastint','Last interaction'],['response','Their response'],['etype','Engagement'],['next','Next action'],['meet','Meeting']],
+  inbound:[['src','Source'],['ctx','Context'],['lastint','Last interaction'],['next','Next action'],['icp','ICP score']],
+  status:[['rel','Relationship'],['src','Source'],['icp','ICP score'],['value','Value'],['next','Next step'],['touch','Last touch']],
+  dq:[['icp','ICP score'],['dq','Why excluded'],['rel','Relationship'],['src','Source']]};
 const liMarkKey=t=>String(t||'').replace(/\s+/g,' ').trim().slice(0,80).toLowerCase();
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
 
@@ -141,7 +557,7 @@ class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -709,11 +1125,17 @@ class Component extends DCLogic {
     for(const [k,v] of Object.entries(s.led)){if(k.startsWith('__'))continue;
       if(k.startsWith('f:')){const fk=k.slice(2);if(String(v)!==String((l.fields||{})[fk]??'')){fields=fields||{...(l.fields||{})};fields[fk]=v;}}
       else if(String(v)!==String(l[k]??''))patch[k]=v;}
-    if(fields)patch.fields=fields;if(Object.keys(patch).length)AK.leadSave(id,patch);}
+    if(fields)patch.fields=fields;if(Object.keys(patch).length)AK.leadSave(id,patch);
+    // Intel edits still in the buffer (closing the panel skips their blur): save each one that changed.
+    const ik=[...new Set(Object.keys(s.led).filter(k=>k.startsWith('__gi:')).map(k=>k.split(':')[1]))];for(const k of ik)this.gtmSaveIntel(l,k);}
   closeLead(extra){this.flushLead();this.setState({lid:null,led:{},lnew:null,...(extra||{})});}
-  openLead(id){this.flushLead();this.setState({lid:id,led:{},lnew:null,lnote:'',lkind:'note'});}
-  newLead(seed){this.flushLead();this.setState({lid:'new',led:{},lnew:{name:'',company:'',direction:'Inbound',source:'',stage:(this.leadSet('stages')[0]||{}).name||'New',currency:AK.leadSetting('currency')||'USD',owner:this.state.owner!=='Everyone'?this.state.owner:(Object.keys(AK.HANDLES)[0]||''),...(seed||{})}});}
+  openLead(id,tab){this.flushLead();const l=AK.LD.rows.find(r=>r.id===id);const t=tab||(l&&(l.source==='Instagram'||String(l.origin_key||'').startsWith('ig:'))?'details':'intel');
+    this.setState({lid:id,led:{},lnew:null,lnote:'',lkind:'note',ltab:t});}
+  newLead(seed){this.flushLead();this.setState({lid:'new',led:{},ltab:'details',lnewForce:false,lnew:{name:'',company:'',direction:'Inbound',source:'',stage:(this.leadSet('stages')[0]||{}).name||'New',currency:AK.leadSetting('currency')||'USD',owner:this.state.owner!=='Everyone'?this.state.owner:(Object.keys(AK.HANDLES)[0]||''),...(seed||{})}});}
   async createLead(){const d=this.state.lnew;if(!d||this._creating)return;if(!String(d.name||d.company||'').trim()){this.toast('Give the lead a name or a company first.',null,true);return;}
+    if(d.linkedin&&!GTM.normLi(d.linkedin)&&/linkedin/i.test(d.linkedin)){this.toast('That LinkedIn link doesn’t look like a profile (linkedin.com/in/…).',null,true);return;}
+    if(d.email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email).trim())){this.toast('That email doesn’t look right.',null,true);return;}
+    const dup=AK.gtm.find(d);if(dup&&!this._force){this.toast('Already in Leads: '+(dup.name||dup.company)+'. Open it from the note at the top, or press Save anyway.',null,true);return;}
     this._creating=true;try{const row=await AK.leadCreate(d);if(row&&this.state.lid==='new')this.setState({lid:row.id,lnew:null,led:{}});}finally{this._creating=false;}}
   // Pretty money: "$4,000"; falls back to "4000 XYZ" for a currency code Intl doesn't know.
   money(v,cur){if(v==null||v==='')return '';const n=Number(v);if(!isFinite(n))return '';try{return new Intl.NumberFormat('en-US',{style:'currency',currency:cur||'USD',maximumFractionDigits:0}).format(n);}catch(e){return n.toLocaleString()+' '+(cur||'');}}
@@ -738,7 +1160,18 @@ class Component extends DCLogic {
     if(f.ig_ai_next)lines.push(['AI suggests',f.ig_ai_next]);
     if(last)lines.push(['Last message',lastWho+', '+this.since(last.at)+': “'+clip(String(last.text).replace(/^@[\w.]+:\s*/,''),70)+'”']);
     if(f.ig_followers!=null)lines.push(['Followers',Number(f.ig_followers).toLocaleString('en-US')]);
-    return{summary,ai:!!f.ig_summary,lines:lines.map(([k,v])=>({k,v})),has:!!(summary||lines.length)};}
+    // GTM intelligence (8 Nov): the bubble is a compact intelligence card. UNKNOWN where nothing is known; sources are on the Intel tab.
+    const x=this.gtmOne(l.id);const isIg=l.source==='Instagram'||String(l.origin_key||'').startsWith('ig:');let chips=[],intel=[],sum2='';
+    if(x){const {c}=x;const E=x.ev;const U='UNKNOWN';const v=k=>E[k]?(k==='amount'||k==='total'?GTM.fmtMoney(GTM.parseMoney(E[k].v)):String(E[k].v))+(E[k].kind==='inference'?' (inferred)':''):'';
+      chips=[this.gtmScoreP(c.score),this.gtmLevelP(c.radar),this.gtmRelP(c)];
+      const row=(k2,val)=>({k:k2,v:val||U,fg:val?'var(--ink-2)':'var(--ink-4)'});
+      intel=[row('Funding',[v('round'),v('amount'),E.date?'('+String(E.date.v).slice(0,7)+')':''].filter(Boolean).join(' ')),row('Company',[x.emp!=null?x.emp+' people':'',v('industry'),v('hq'),v('accelerator')].filter(Boolean).join(' · ')),
+        row('Person',[v('title'),E.founder&&E.founder.v==='Yes'?'founder':''].filter(Boolean).join(', ')),row('GTM',[E.hom?'Head of Marketing: '+E.hom.v:'',E.sdr?'SDRs: '+E.sdr.v:'',E.hiring?'hiring: '+clip(E.hiring.v,30):'',E.li_freq?E.li_freq.v+' posts/mo':''].filter(Boolean).join(' · ')),
+        row('Status',c.status+' · '+c.acq),row('Why now',c.radar.why.slice(0,2).map(w=>w.text+(w.kind==='fact'?'':' (inference)')).join('; ')),row('Angle',c.radar.angle.label)];
+      if(!isIg)sum2=E.description?String(E.description.v)+(E.description.kind==='inference'?' (inferred)':''):'';}
+    const all=isIg?[...lines.map(([k,v])=>({k,v,fg:'var(--ink-2)'})),...intel.slice(4,5)]:[...intel,...lines.filter(z=>z[0]==='Next').map(([k,v])=>({k,v,fg:'var(--ink-2)'}))];
+    const sm=isIg?summary:(sum2||clip(String(l.notes||'').replace(/\s+/g,' '),200));
+    return{summary:sm,ai:!!f.ig_summary,label:isIg?(f.ig_summary?'✦ AI summary':'From the chat'):'✦ Intelligence',chips,lines:all,has:true};}
   srcIcon(src){return {X:'𝕏',LinkedIn:'in',Instagram:'◎',Email:'✉',Referral:'↪',Website:'⌂'}[src]||'•';}
   tagPill(label,color){return{label,dot:color,bg:'color-mix(in oklch, '+color+' 12%, white)',fg:'color-mix(in oklch, '+color+' 70%, black)'};}
   leadCard(l){const st=this.stageOf(l.stage);const nx=this.leadNext(l);const a=avatar(l.name||l.company||'?');
@@ -747,12 +1180,13 @@ class Component extends DCLogic {
       isIg:l.source==='Instagram',notIg:l.source!=='Instagram',igLine:this.igAcct(l)?'via '+this.igAcct(l):'Instagram',stage:this.tagPill(l.stage,st.color),
       group:l.group_name?this.tagPill(l.group_name,this.tagOf('groups',l.group_name)):null,hasGroup:!!l.group_name,
       heat:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),
+      ...(()=>{const x=this.gtmOne(l.id);return x?{icpP:this.gtmScoreP(x.c.score),hasIcp:true,relP:this.gtmRelP(x.c),hasRel:x.c.rel!=='inbound'||l.source!=='Instagram'}:{hasIcp:false,hasRel:false};})(),
       cats:(l.categories||[]).slice(0,3).map(c=>this.tagPill(c,this.tagOf('categories',c))),when:l.last_touch?'Touched '+this.since(l.last_touch):'Added '+this.since(l.created_at),
       open:()=>this.openLead(l.id),...this.leadCardActs(l)};}
   // The bin moves a lead to Lost (in Lost, it archives it), with undo; the ✦ shows what's going on with them.
   leadCardActs(l){const ST=this.leadSet('stages');const lostSt=ST.find(x=>x.kind==='lost');const inLost=this.stageOf(l.stage).kind==='lost';const who=l.name||l.company||'the lead';
     const tip=this.leadTip(l);
-    const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=300;const below=r.bottom+230<window.innerHeight;
+    const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=340;const below=r.bottom+330<window.innerHeight;
       this.setState({ldTip:{id:l.id,x:Math.max(8,Math.min(r.right-w,window.innerWidth-w-8)),y:below?r.bottom+6:r.top-6,up:!below}});};
     // Instagram: straight to the DM thread (ig.me opens it in whichever account you're signed in to in that browser).
     const igH=String(l.instagram||'').trim().replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,'').replace(/[/?#].*$/,'');
@@ -787,7 +1221,7 @@ class Component extends DCLogic {
   // The hover card for the ✦, drawn once over the whole board.
   leadTipBox(){const t=this.state.ldTip;const l=t&&AK.LD.rows.find(r=>r.id===t.id);if(!l)return{on:false};const tip=this.leadTip(l);
     return{on:true,left:t.x+'px',top:t.y+'px',tf:t.up?'translateY(-100%)':'none',name:l.name||l.instagram||'(no name)',acct:this.igAcct(l),hasAcct:!!this.igAcct(l),
-      summary:tip.summary,hasSummary:!!tip.summary,label:tip.ai?'✦ AI summary':'From the chat',lines:tip.lines};}
+      summary:tip.summary,hasSummary:!!tip.summary,label:tip.label,chips:tip.chips,hasChips:tip.chips.length>0,lines:tip.lines,more:'Open the lead for sources and the full card'};}
   leadHdr(page,h){const L=this.leadsAll();const open=L.filter(l=>this.stageOf(l.stage).kind==='open');const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});
     h={...h,eyebrow:'Leads · '+PAGES[page].label,title:PAGES[page].label==='Overview'?'Leads':PAGES[page].label,cta:'New lead',go:()=>this.newLead()};
     const st=AK.leadsState();
@@ -798,7 +1232,10 @@ class Component extends DCLogic {
     else if(page==='leadBoard')h.next='Drag a card to another stage, drag the background to scroll. Hover ✦ for a quick read. '+open.length+' open, worth '+this.moneySum(open)+'.';
     else if(page==='leadList')h.next=L.length+(L.length===1?' lead':' leads')+'. Click a column to sort, and a row to open it.';
     else if(page==='leadAdd'){const n=this.candidates().filter(c=>!c.added).length;h.next=n?n+' people from X and LinkedIn you haven’t added yet.':'Everyone from X and LinkedIn is already in.';}
-    else if(page==='leadSetup')h.next='Your stages, sources, groups, categories and extra fields. Changes apply to every lead.';
+    else if(page==='leadSetup')h.next='Your ICP, stages, sources, groups, categories and extra fields. Changes apply to every lead.';
+    else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a HIGH buying window. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
+    else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
+    else if(page==='gtmDash')h.next='Outreach, replies and conversion, by source, ICP band, template, angle and stage.';
     return h;}
   moneySum(list){const cur=AK.leadSetting('currency')||'USD';const same=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)===cur);const other=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)!==cur).length;
     return this.money(same.reduce((a,l)=>a+Number(l.price||0),0),cur)+(other?' + '+other+' in other currencies':'');}
@@ -828,7 +1265,10 @@ class Component extends DCLogic {
     if(page==='leadBoard')return{...base,...this.leadBoard()};
     if(page==='leadList')return{...base,...this.leadList()};
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
-    if(page==='leadSetup')return{...base,...this.leadSetupVals()};
+    if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
+    if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
+    if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
+    if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
     return base;}
   leadOverview(){const s=this.state;const E=s.entered;const L=this.leadsAll();const ST=this.leadSet('stages');const kindOf=l=>this.stageOf(l.stage).kind;
     const open=L.filter(l=>kindOf(l)==='open'),won=L.filter(l=>kindOf(l)==='won'),lost=L.filter(l=>kindOf(l)==='lost');
@@ -866,9 +1306,9 @@ class Component extends DCLogic {
       edge:e=>{const b=e.currentTarget;const r=b.getBoundingClientRect();const x=e.clientX;if(x<r.left+90)b.scrollLeft-=Math.ceil((r.left+90-x)/5);else if(x>r.right-90)b.scrollLeft+=Math.ceil((x-r.right+90)/5);},
       count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
   leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
-    const SORT={name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
+    const SORT={icp:l=>{const x=this.gtmOne(l.id);return x?-x.c.score.score:0;},name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
     const by=SORT[key]||SORT.touch;const sorted=L.slice().sort((a,b)=>{const x=by(a),y=by(b);return(x<y?-1:x>y?1:0)*dir;});const lim=s.lmore?sorted.length:50;
-    const heads=[['name','Lead'],['stage','Stage'],['source','Source'],['group','Group'],['value','Value'],['next','Next step'],['touch','Last touch']].map(([k,label])=>({label,arrow:key===k?(dir>0?'↑':'↓'):'',fg:key===k?'var(--ink)':'var(--ink-3)',
+    const heads=[['name','Lead'],['stage','Stage'],['icp','ICP'],['source','Source'],['group','Group'],['value','Value'],['next','Next step'],['touch','Last touch']].map(([k,label])=>({label,arrow:key===k?(dir>0?'↑':'↓'):'',fg:key===k?'var(--ink)':'var(--ink-3)',
       sort:()=>this.setState(z=>({lsort:k,ldir:z.lsort===k?-z.ldir:1})),right:k==='value'}));
     const rows=sorted.slice(0,lim).map((l,i)=>{const c=this.leadCard(l);return{...c,stageP:c.stage,source:l.source?this.srcIcon(l.source)+' '+l.source:'–',dir:l.direction||'',groupP:c.group,hasGroup:c.hasGroup,
       value:c.value||'–',nextL:c.next?c.next.label:'–',nextFg:c.next?c.next.fg:'var(--ink-4)',touch:l.last_touch?this.since(l.last_touch):'–',bt:i===0?'none':'1px solid var(--hairline)'};});
@@ -990,12 +1430,261 @@ class Component extends DCLogic {
       l.instagram&&{label:'Instagram',go:()=>open('https://instagram.com/'+String(l.instagram).replace(/^@/,''))},l.website&&{label:'Website',go:()=>open(/^https?:/.test(l.website)?l.website:'https://'+l.website)}].filter(Boolean);
     const st=this.stageOf(l.stage);const a=avatar(l.name||l.company||'?');
     const archive=()=>{this.closeLead();AK.leadArchive(l.id,true);this.toast('Archived '+(l.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));};
-    return{open:true,isNew,notNew:!isNew,...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
+    const tab=isNew?'details':s.ltab;const g=isNew?{ok:false}:this.gtmPanel(l);const dup=isNew?AK.gtm.find(l):null;
+    const tabs=isNew?[]:[['intel','Intel'],['out','Outreach'],['details','Details']].map(([k,label])=>{const on=tab===k;return{label,go:()=>this.setState({ltab:k}),bg:on?'var(--ink)':'transparent',fg:on?'#fff':'var(--ink-2)'};});
+    return{open:true,isNew,notNew:!isNew,tabs,hasTabs:!isNew,tabIntel:tab==='intel'&&g.ok,tabOut:tab==='out'&&g.ok,tabDetails:tab==='details'||!g.ok,g,
+      hasDup:!!dup,dupTxt:dup?'Looks like '+(dup.name||dup.company)+(dup.company&&dup.name?' ('+dup.company+')':'')+' is already in Leads ('+dup.stage+').':'',openDup:()=>dup&&this.openLead(dup.id),
+      saveAnyway:()=>{this._force=true;Promise.resolve(this.createLead()).finally(()=>{this._force=false;});},
+      ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
       noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
+
+  /* ---------- GTM intelligence (8 Nov) ----------
+     LinkedIn views (New connections, ICP qualified, Outbound, Midbound, Inbound and the status views), Right now (the Buying
+     Window Radar), the GTM dashboard, the ICP on Setup, and the lead panel's Intel and Outreach tabs. The rules are in
+     window.GTM (crm/src/gtm.js); every lead is classified once per data change. Nothing here sends a message. */
+  gtmAll(){const v=AK.version()+'|'+this.state.owner+'|'+JSON.stringify(AK.leadSetting('icp')||{});if(this._gC&&this._gV===v)return this._gC;
+    const cfg=AK.gtm.cfg();const ST=this.leadSet('stages');const ev=new Map();for(const e of AK.LD.events)(ev.get(e.lead_id)||ev.set(e.lead_id,[]).get(e.lead_id)).push(e);
+    const now=new Date();const list=this.leadsAll().map(l=>{const E=GTM.evidence(l);const c=GTM.classify(l,ev.get(l.id)||[],ST,cfg,now);const fd=E.date&&GTM.parseDay(E.date.v);
+      const lastOut=[...c.touches].reverse().find(t=>t.dir==='out');const lc=lastOut?lastOut.at:c.contacted&&c.contacted.at||'';
+      return{l,c,ev:E,persona:GTM.personaOf(l),industry:E.industry?String(E.industry.v):'',emp:E.employees?Number(E.employees.v):null,fmo:fd?(now-fd)/(30.44*AK.DAY):null,lastContact:lc};});
+    this._gV=v;this._gC=list;this._gM=new Map(list.map(x=>[x.l.id,x]));return list;}
+  gtmOne(id){this.gtmAll();return this._gM.get(id)||null;}
+  gtmBandP(sc){return pill(sc.label,GTM.BAND[sc.band].tone);}
+  gtmScoreP(sc){return pill(sc.band==='unverified'||sc.band==='excluded'||sc.band==='disqualified'?sc.label+(sc.score?' · '+sc.score:''):'ICP '+sc.score+' · '+sc.label,GTM.BAND[sc.band].tone);}
+  gtmLevelP(rd){return pill('Window '+rd.level+(rd.score?' · '+rd.score:''),{HIGH:'out',MEDIUM:'warn',LOW:'ghost'}[rd.level]);}
+  gtmRelP(c){return pill(c.relLabel,{new:'warn',outbound:'out',midbound:'mid',inbound:'in'}[c.rel]);}
+  gtmKindP(k){return{fact:pill('Source','ok'),manual:pill('No source','warn'),derived:pill('From CRM','neutral'),inference:pill('Inference','warn'),override:pill('Override','mid')}[k]||pill('UNKNOWN','ghost');}
+  gtmId(x){const l=x.l;const a=avatar(l.name||l.company||'?');const li=GTM.normLi(l.linkedin)?(/^https?:/.test(l.linkedin)?l.linkedin:'https://'+String(l.linkedin).replace(/^\/+/,'')):'';
+    const tg=[...x.c.tags,...(l.categories||[])].filter((v,i,A)=>A.indexOf(v)===i);
+    return{...a,id:l.id,name:l.name||'(no name)',role:l.role||(x.ev.title?String(x.ev.title.v):'')||'Role UNKNOWN',company:l.company||'Company UNKNOWN',hasLi:!!li,openLi:stop(()=>open(li)),liLabel:li?li.replace(/^https?:\/\/(www\.)?/,'').slice(0,40):'',
+      tags:tg.slice(0,4).map(t=>this.tagPill(t,TAG_C[t]||this.tagOf('categories',t))),open:()=>this.openLead(l.id,'intel')};}
+  // One-click "move into outreach": the next step becomes sending the opener today, and the panel opens on Outreach.
+  async gtmStart(l){const first=GTM.firstName(l.name);const patch={next_step:'Send the opener to '+first,next_date:new Date().toISOString().slice(0,10)};if(l.direction!=='Outbound'&&l.direction!=='Inbound')patch.direction='Outbound';
+    const ok=await AK.leadSave(l.id,patch);if(ok){this.toast('Queued '+(l.name||'them')+' for outreach. Copy the opener and send it yourself.');this.openLead(l.id,'out');}}
+  gtmAction(view,x){const l=x.l;
+    if(view==='newconn'||(view==='icp'&&!x.c.contacted)||(view==='outbound'&&!x.c.contacted))return{label:'Start outreach',go:stop(()=>this.gtmStart(l)),primary:true};
+    if(view==='outbound')return{label:x.c.fuN>=2?'Log reply':'Follow up',go:stop(()=>this.openLead(l.id,'out')),primary:false};
+    if(view==='midbound'||view==='inbound')return{label:'Log / reply',go:stop(()=>this.openLead(l.id,'out')),primary:false};
+    return{label:'Open',go:stop(()=>this.openLead(l.id,'intel')),primary:false};}
+  gtmFilterVals(){const s=this.state;const f=s.gf;const A=this.gtmAll();const set=(k,v)=>this.setState(z=>({gf:{...z.gf,[k]:v},gmore:false}));const o=(all,list)=>[{v:'',l:all},...list.map(x=>Array.isArray(x)?{v:x[0],l:x[1]}:{v:x,l:x})];
+    const inds=[...new Set(A.map(x=>x.industry).filter(Boolean))].sort();const owners=[...new Set(A.map(x=>x.l.owner).filter(Boolean))].sort();
+    const sel=(k,label,opts)=>({k,label,val:f[k]||'',on:e=>set(k,e.target.value),opts,act:!!f[k]});
+    const sels=[sel('band','ICP band',o('Any ICP band',Object.keys(GTM.BAND).map(b=>[b,GTM.BAND[b].label]))),sel('min','ICP score',o('Any score',[['85','85+'],['70','70+'],['50','50+']])),
+      sel('stage','Stage',o('Any stage',this.leadSet('stages').map(x=>x.name))),sel('status','Status',o('Any status',GTM.STATUSES)),
+      sel('rec','Funding recency',o('Any funding date',[['3','Last 3 months'],['6','Last 6 months'],['12','Last 12 months'],['old','Over a year'],['u','UNKNOWN']])),
+      sel('emp','Employees',o('Any size',[['s','1–4'],['icp','5–50'],['m','51–200'],['l','200+'],['u','UNKNOWN']])),sel('ind','Industry',o('Any industry',[...inds,['u','UNKNOWN']])),
+      sel('des','Designation',o('Any designation',['Founder / CEO','Other C-suite','Other role','UNKNOWN'])),sel('acq','Source',o('Any source',GTM.ACQ)),
+      sel('rel','Relationship',o('Any relationship',Object.keys(GTM.REL).map(k=>[k,GTM.REL[k]]))),
+      sel('last','Last contacted',o('Last contacted: any',[['7','Last 7 days'],['30','Last 30 days'],['old','Over 30 days'],['never','Never']])),
+      sel('next','Next follow-up',o('Next follow-up: any',[['late','Overdue'],['today','Today'],['week','This week'],['none','None set']])),
+      sel('owner','Assignee',o('Any assignee',owners)),sel('tag','Tag',o('Any tag',[...GTM.TAGS,...this.leadSet('categories').map(c=>c.name||c)].filter((v,i,a)=>a.indexOf(v)===i))),
+      sel('sort','Sort',[{v:'',l:'Sort: ICP score'},{v:'radar',l:'Sort: buying window'},{v:'recent',l:'Sort: last touch'},{v:'name',l:'Sort: name'}])];
+    const active=Object.keys(f).some(k=>k!=='sort'&&f[k]);
+    return{q:f.q,onQ:e=>set('q',e.target.value),sels,active,clear:()=>this.setState({gf:{...GF0},gmore:false}),moreOn:!!s.gfMore,moreLabel:s.gfMore?'Fewer filters':'More filters',toggleMore:()=>this.setState(z=>({gfMore:!z.gfMore})),
+      main:sels.filter(x=>['band','status','acq','sort'].includes(x.k)),rest:sels.filter(x=>!['band','status','acq','sort'].includes(x.k))};}
+  gtmFiltered(list){const f=this.state.gf;const q=String(f.q||'').trim().toLowerCase();const now=Date.now();const t0=new Date();t0.setHours(0,0,0,0);
+    return list.filter(x=>{const {l,c}=x;
+      if(q&&![l.name,l.company,l.role,l.linkedin,l.notes,l.source_detail,x.industry].join(' ').toLowerCase().includes(q))return false;
+      if(f.band&&c.score.band!==f.band)return false;if(f.min&&c.score.score<Number(f.min))return false;if(f.stage&&l.stage!==f.stage)return false;if(f.status&&c.status!==f.status)return false;
+      if(f.rec){const m=x.fmo;if(f.rec==='u'?m!=null:m==null||!(f.rec==='old'?m>12:m<=Number(f.rec)))return false;}
+      if(f.emp){const n=x.emp;if(f.emp==='u'?n!=null:n==null||!(f.emp==='s'?n<5:f.emp==='icp'?n>=5&&n<=50:f.emp==='m'?n>50&&n<=200:n>200))return false;}
+      if(f.ind&&(f.ind==='u'?!!x.industry:x.industry!==f.ind))return false;if(f.des&&x.persona!==f.des)return false;if(f.acq&&c.acq!==f.acq)return false;if(f.rel&&c.rel!==f.rel)return false;
+      if(f.last){const d=x.lastContact?(now-new Date(x.lastContact))/AK.DAY:null;if(f.last==='never'?d!=null:d==null||!(f.last==='old'?d>30:d<=Number(f.last)))return false;}
+      if(f.next){const n=this.leadNext(l);const d=l.next_date?new Date(l.next_date+'T00:00:00'):null;if(f.next==='none'?!!n:!n||!(f.next==='late'?n.late:f.next==='today'?n.today:d&&d>=t0&&d-t0<=7*AK.DAY))return false;}
+      if(f.owner&&l.owner!==f.owner)return false;if(f.tag&&!c.tags.includes(f.tag)&&!(l.categories||[]).includes(f.tag))return false;
+      return true;});}
+  gtmSorted(list){const k=this.state.gf.sort;const by=k==='radar'?(x=>-(x.c.radar.score*1000+x.c.score.score)):k==='recent'?(x=>-new Date(x.l.last_touch||x.l.created_at).getTime()):k==='name'?(x=>(x.l.name||'').toLowerCase()):(x=>-(x.c.score.score*1000+x.c.score.max));
+    return list.slice().sort((a,b)=>{const x=by(a),y=by(b);return x<y?-1:x>y?1:0;});}
+  gtmViewsVals(){const s=this.state;const A=this.gtmAll();const vid=GV.some(v=>v.id===s.gv)?s.gv:'newconn';const V=GV.find(v=>v.id===vid);const excl=!!s.gx;
+    const inView=v=>A.filter(x=>v.f(x));const icpOnly=v=>v.icp&&!(excl&&v.id!=='icp');
+    const dup=AK.gtm.dupes();
+    const tabs=[...GV.map(v=>{const all=inView(v);const n=icpOnly(v)?all.filter(x=>x.c.score.icp).length:all.length;const on=v.id===vid&&s.gv!=='dupes';
+      return{label:v.label,count:String(n),go:()=>this.setState({gv:v.id,gmore:false}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};}),
+      ...(dup.length?[{label:'Possible duplicates',count:String(dup.length),go:()=>this.setState({gv:'dupes'}),bg:s.gv==='dupes'?'var(--bad)':'var(--bad-soft)',fg:s.gv==='dupes'?'#fff':'var(--bad-ink)',bd:'var(--bad-line)'}]:[])];
+    const base={tabs,wrap:s.narrow?'nowrap':'wrap',f:this.gtmFilterVals(),isDupes:s.gv==='dupes',notDupes:s.gv!=='dupes',hint:V.hint,title:V.label,
+      exclOn:excl,exclLabel:excl?'Showing excluded and unresearched':'ICP only',exclTitle:'Leads under 50, or not researched enough to score, are hidden from the ICP views. Show them too.',
+      canExcl:!!V.icp&&V.id!=='icp',toggleExcl:()=>{const v=!this.state.gx;store.set('gtm-excl',v);this.setState({gx:v});},
+      exclBg:excl?'var(--warn-soft)':'rgba(255,255,255,.85)',exclFg:excl?'var(--warn-ink)':'var(--ink)',exclSh:excl?'inset 0 0 0 1.5px var(--warn-line)':'inset 0 0 0 1px var(--hairline-strong)'};
+    if(s.gv==='dupes'&&dup.length)return{...base,...this.gtmDupesVals(dup)};
+    if(s.gv==='dupes')return{...base,isDupes:true,notDupes:false,groups:[],hasGroups:false,noGroups:true};
+    const all=inView(V);const pool=icpOnly(V)?all.filter(x=>x.c.score.icp):all;const hidden=all.length-pool.length;const unv=all.filter(x=>x.c.score.band==='unverified').length;
+    const list=this.gtmSorted(this.gtmFiltered(pool));const lim=s.gmore?list.length:60;
+    const heads=(GCOLS[vid]||GCOLS.status).map(c=>({label:c[1]}));
+    const rows=list.slice(0,lim).map((x,i)=>{const act=this.gtmAction(vid,x);return{...this.gtmId(x),cells:(GCOLS[vid]||GCOLS.status).map(c=>this.gtmCell(c[0],x)),
+      act:act.label,go:act.go,aBg:act.primary?'var(--out)':'var(--glass-strong)',aFg:act.primary?'#fff':'var(--ink)',aSh:act.primary?'none':'var(--shadow-sm), var(--hi)',bt:i===0?'none':'1px solid var(--hairline)'};});
+    const ld=AK.leadsState();
+    return{...base,heads,rows,hasRows:rows.length>0,noRows:!rows.length&&ld.loaded,loading:!ld.loaded,
+      empty:all.length?'No leads match these filters.':V.empty,hasHidden:hidden>0&&!excl&&!!V.icp&&vid!=='icp',
+      hiddenTxt:hidden+(hidden===1?' lead is':' leads are')+' hidden: '+(unv?unv+' need research before they can be scored'+(hidden>unv?', ':''):'')+(hidden>unv?(hidden-unv)+' score under 50 or are disqualified':'')+'.',
+      count:'Showing '+rows.length+' of '+list.length+(pool.length!==list.length?' (filtered from '+pool.length+')':''),hasMore:list.length>lim,more:()=>this.setState({gmore:true})};}
+  gtmCell(k,x){const {l,c}=x;const E=x.ev;const U='UNKNOWN';const T=(txt,sub,fg)=>({txt:txt==null||txt===''?U:String(txt),sub:sub||'',fg:fg||(txt==null||txt===''?'var(--ink-4)':'var(--ink-2)'),isPill:false,notPill:true});
+    const P=(p,sub)=>({isPill:true,notPill:false,p,sub:sub||'',txt:'',fg:''});const d=v=>v?String(v).slice(0,10):'';const ex=k2=>E[k2]?String(k2==='amount'||k2==='total'?GTM.fmtMoney(GTM.parseMoney(E[k2].v)):E[k2].v):'';
+    const lastOut=[...c.touches].reverse().find(t=>t.dir==='out');const n=this.leadNext(l);
+    switch(k){
+      case 'size':return T(x.emp!=null?x.emp+' people':'',ex('industry'));
+      case 'fund':return T([ex('round'),ex('amount')].filter(Boolean).join(' · '),E.date?(E.date.kind==='inference'?'≈ ':'')+d(E.date.v)+(E.date.kind==='inference'?' (inferred)':''):'Date UNKNOWN');
+      case 'icp':return P(this.gtmScoreP(c.score),'Confidence '+c.score.conf+'%');
+      case 'why':return T(c.score.reasons.slice(0,2).join('; '),c.score.gaps.length?'UNKNOWN: '+c.score.gaps.slice(0,3).join(', '):'');
+      case 'angle':return T(c.radar.angle.label,c.radar.why[0]?c.radar.why[0].text:'No signals yet');
+      case 'window':return P(this.gtmLevelP(c.radar),c.radar.why[0]?c.radar.why[0].label:'');
+      case 'sent':return T(c.contacted?d(c.contacted.at):'',lastOut?lastOut.ch:c.contacted?'LinkedIn':'');
+      case 'msg':return T(lastOut?clip(lastOut.text||GTM.TOUCH_TYPES[lastOut.type],60):c.contacted?GTM.templateOf(l,c):'',lastOut&&lastOut.tpl?lastOut.tpl:'');
+      case 'fu':return T(n?n.when:'',c.fuN+(c.fuN===1?' follow-up sent':' follow-ups sent'));
+      case 'resp':return T(c.engaged?(c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:'Replied'):c.contacted?'No reply yet':'Not contacted',c.lastIn?d(c.lastIn.at):'',c.engaged?'var(--mid-ink)':'var(--ink-3)');
+      case 'orig':return T(c.contacted?d(c.contacted.at):'',c.contacted?GTM.templateOf(l,c):'');
+      case 'lastint':return T(c.lastAny?d(c.lastAny.at):d(l.last_touch),c.lastAny?(c.lastAny.dir==='in'?'From them':'From us'):'');
+      case 'response':return T(c.lastIn?clip(c.lastIn.text,70):c.engaged?'See history ('+String(c.engaged.src||'').slice(0,40)+')':'',c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:'');
+      case 'etype':return T(c.engaged?(c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:c.engaged.how==='stage'?'Reached '+l.stage:c.engaged.how):'');
+      case 'next':return T(n?n.label:'',n&&n.late?'Overdue':'',n&&n.late?'var(--bad-ink)':undefined);
+      case 'meet':return T(['Meeting booked','Qualified','Proposal','Won'].includes(c.status)?c.status:'No meeting yet','',['Meeting booked','Qualified','Proposal','Won'].includes(c.status)?'var(--ok-ink)':'var(--ink-3)');
+      case 'src':return T(c.acq,[l.source,l.direction].filter(Boolean).join(' · '));
+      case 'ctx':return T(clip(l.source_detail||firstLine(l.notes),70),clip(firstLine(l.notes),60));
+      case 'rel':return P(this.gtmRelP(c),c.status);
+      case 'value':return T(this.money(l.price,l.currency)||'–','','var(--ink-2)');
+      case 'touch':return T(l.last_touch?this.since(l.last_touch):'Never','','var(--ink-3)');
+      case 'dq':return T(c.score.dq||(c.score.band==='excluded'?'Max '+c.score.max+' of 100 even if every UNKNOWN were positive':''),c.score.dims.filter(z=>z.state==='no').map(z=>z.label).slice(0,3).join(', '));
+      default:return T('');}}
+  gtmDupesVals(dup){const rows=AK.LD.rows;const by=id=>rows.find(r=>r.id===id);
+    const groups=dup.map(g=>{const L=g.ids.map(by).filter(Boolean);const keep=L.find(l=>String(l.origin_key||'').startsWith('li-outreach:'))||L.slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at))[0];
+      return{why:g.why,items:L.map(l=>({...avatar(l.name||l.company),name:l.name||'(no name)',sub:[l.role,l.company,l.stage,l.origin_key?String(l.origin_key).split(':')[0]:''].filter(Boolean).join(' · '),isKeep:l.id===keep.id,notKeep:l.id!==keep.id,
+        open:()=>this.openLead(l.id,'details'),merge:async()=>{if(await AK.gtm.merge(keep.id,l.id))this.toast('Merged '+(l.name||'the duplicate')+' into '+(keep.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));}}))};});
+    return{groups,hasGroups:groups.length>0,noGroups:!groups.length};}
+  gtmNowVals(){const s=this.state;const A=this.gtmAll().filter(x=>!x.c.closed&&(s.gx||!['excluded','disqualified'].includes(x.c.score.band)));
+    const ranked=A.filter(x=>x.c.radar.score>0).sort((a,b)=>b.c.radar.score-a.c.radar.score||b.c.score.score-a.c.score.score);const lim=s.gmore?ranked.length:24;
+    const me=((CFG.accounts||[])[0]||{}).name||'';
+    const items=ranked.slice(0,lim).map(x=>{const {l,c}=x;const m=GTM.messages(l,c,me);const k='gnow'+l.id;const cb=this.copyBtn(k,'Copy opener');
+      return{...this.gtmId(x),level:this.gtmLevelP(c.radar),icp:this.gtmScoreP(c.score),rel:this.gtmRelP(c),action:this.gtmRec(x),angle:c.radar.angle.label,
+        why:c.radar.why.map(w=>({label:w.label,text:w.text,when:w.when?(w.derived?'detected ':'happened ')+w.when:'date UNKNOWN',seen:w.seen?'detected '+w.seen:'',kindP:w.kind==='fact'?pill('Verified','ok'):pill('Inference','warn'),hasSrc:!!w.src,openSrc:()=>open(w.src),pts:'+'+w.pts})),
+        copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:stop(()=>this.copy(m.list[1].text,k,'Opener copied. Send it yourself on LinkedIn.')),start:stop(()=>this.openLead(l.id,'out'))};});
+    const lvl=L=>A.filter(x=>x.c.radar.level===L).length;
+    return{items,hasItems:items.length>0,noItems:!items.length,loading:!AK.leadsState().loaded,kpis:[{label:'High',v:String(lvl('HIGH')),d:'Act this week'},{label:'Medium',v:String(lvl('MEDIUM')),d:'Worth a touch'},{label:'Low',v:String(lvl('LOW')),d:'No fresh signal'}],
+      hasMore:ranked.length>lim,more:()=>this.setState({gmore:true}),count:'Showing '+items.length+' of '+ranked.length+' with a buying signal'};}
+  // What to do next with someone, from where the relationship stands.
+  gtmRec(x){const {l,c}=x;const a=c.radar.angle.label;
+    if(c.status==='Meeting booked')return 'Prep the call around “'+a+'”.';
+    if(c.rel==='midbound'||c.rel==='inbound'){if(c.lastAny&&c.lastAny.dir==='in')return 'Reply today, then propose a 15-minute call.';return c.engaged?'Book the call: suggest two times.':'Qualify them: ask what they’re working on.';}
+    if(!c.contacted)return c.conn==='connected'?'Send the opener today.':c.conn==='pending'?'Invite pending: send the opener once they accept.':'Send a connection request (no note), then the opener.';
+    return c.fuN>=2?'Two follow-ups sent: park in Nurture until a new signal.':'Send follow-up '+(c.fuN+1)+', tied to: '+(c.radar.why[0]?c.radar.why[0].text:a)+'.';}
+  gtmDashVals(){const A=this.gtmAll();const E=this.state.entered;const pct=(a,b)=>b?Math.round(a/b*100)+'%':'–';
+    const ob=A.filter(x=>x.c.rel==='outbound'||x.c.rel==='midbound'||x.c.rel==='new');const sent=ob.filter(x=>x.c.contacted);const resp=sent.filter(x=>x.c.engaged);const pos=sent.filter(x=>x.c.positive);
+    const meet=A.filter(x=>['Meeting booked','Qualified','Proposal','Won'].includes(x.c.status)),qual=A.filter(x=>['Qualified','Proposal','Won'].includes(x.c.status)),open=A.filter(x=>!x.c.closed);
+    const kpis=[{label:'New ICP connections',v:String(A.filter(x=>x.c.rel==='new'&&x.c.score.icp).length),d:A.filter(x=>x.c.rel==='new').length+' new connections in all'},
+      {label:'Outbound sent',v:String(sent.length),d:ob.length+' outbound prospects'},{label:'Midbound',v:String(A.filter(x=>x.c.rel==='midbound'&&!x.c.closed).length),d:'Replied after we reached out'},
+      {label:'Inbound',v:String(A.filter(x=>x.c.rel==='inbound'&&!x.c.closed).length),d:'Came to us'},{label:'Response rate',v:pct(resp.length,sent.length),d:resp.length+' of '+sent.length+' contacted replied'},
+      {label:'Positive rate',v:pct(pos.length,sent.length),d:pos.length+' interested or booked'},{label:'Meetings',v:String(meet.length),d:'Booked or further'},
+      {label:'Qualified opportunities',v:String(qual.length),d:'Qualified, proposal or won'},{label:'Pipeline value',v:this.moneySum(open.map(x=>x.l)),d:open.length+' open leads'}].map(k=>({...k,tone:'var(--ink-3)'}));
+    const inS=(L,st)=>L.filter(x=>st.includes(x.c.status)).length;// outbound only, so each step is a subset of the one before
+    const steps=[['Prospects',ob.length],['Contacted',sent.length],['Responded',resp.length],['Meetings',inS(resp,['Meeting booked','Qualified','Proposal','Won'])],['Qualified',inS(resp,['Qualified','Proposal','Won'])],['Won',inS(resp,['Won'])]];const mx=Math.max(1,...steps.map(z=>z[1]));
+    const funnel=steps.map(([name,n],i)=>({name,n:String(n),w:E?Math.max(n?2:0,n/mx*100)+'%':'0%',conv:i?pct(n,steps[i-1][1])+' of previous':''}));
+    const tbl=(title,help,rows,first)=>({title,help,first,rows:rows.map(r=>({name:r.name,cells:[r.n,r.sent,r.respRate,r.posRate,r.meet,r.won].map(v=>({v:String(v)}))})),has:rows.length>0,none:!rows.length});
+    const bl=x=>GTM.BAND[x.c.score.band].label;
+    const conv=[tbl('By source','Acquisition source, separate from status.',GTM.groupBy(A,x=>x.c.acq,GTM.ACQ),'Source'),
+      tbl('By ICP band','Does a higher ICP score convert better?',GTM.groupBy(A,bl,Object.values(GTM.BAND).map(b=>b.label)),'ICP band'),
+      tbl('By status','Where leads sit now.',GTM.groupBy(A,x=>x.c.status,GTM.STATUSES),'Status')];
+    const C=sent;
+    const perf=[tbl('By template','Drafts copied and marked sent here are logged by template. Earlier outreach is grouped by what was sent.',GTM.groupBy(C,x=>GTM.templateOf(x.l,x.c)),'Template'),
+      tbl('By angle','The angle logged with each message.',GTM.groupBy(C,x=>GTM.angleOf(x.c)),'Angle'),tbl('By industry','From the intelligence card.',GTM.groupBy(C,x=>x.industry||'UNKNOWN'),'Industry'),
+      tbl('Founder vs C-suite','From their title.',GTM.groupBy(C,x=>x.persona),'Who'),tbl('By funding stage','Latest round on the card (or read off the CRM notes).',GTM.groupBy(C,x=>x.ev.round?String(x.ev.round.v):'UNKNOWN',['Pre-seed','Seed','Series A','Series B','Series C','Series D+']),'Stage')];
+    const unv=A.filter(x=>x.c.score.band==='unverified').length;const dup=AK.gtm.dupes().length;
+    const notes=[unv?unv+' leads need research before they can be scored (open one and fill its Intel tab).':'',dup?dup+' possible duplicates: see LinkedIn views → Possible duplicates.':'',
+      'Response and positive rates count outbound leads we contacted. A reply counts when it’s logged on the lead, or when the outreach job moved them to In talks or later.'].filter(Boolean).map(t=>({t}));
+    return{kpis,funnel,conv,perf,heads:['Leads','Contacted','Response','Positive','Meetings','Won'].map(label=>({label})),notes,loading:!AK.leadsState().loaded};}
+  // The ICP, edited on Setup. One definition: scoring, views and drafts all read it.
+  gtmSetupVals(){const s=this.state;const cfg=AK.gtm.cfg();const ed=s.icpEd||null;const v=ed||cfg;const set=(k,val)=>this.setState(z=>({icpEd:{...(z.icpEd||JSON.parse(JSON.stringify(cfg))),[k]:val}}));
+    const list=x=>Array.isArray(x)?x.join(', '):String(x||'');
+    const txt=[['summary','Who we sell to, in one paragraph',true],['models','Business models that fit (comma separated)'],['industries','Industry keywords that fit'],['stages','Funding stages that fit'],['accelerators','Accelerators that are a strong plus'],
+      ['titles','Decision-maker titles'],['references','Reference profiles (lookalikes)']].map(([k,label,area])=>({k,label,isArea:!!area,notArea:!area,val:list(v[k]),set:e=>set(k,e.target.value)}));
+    const nums=[['empMin','Min employees'],['empMax','Max employees'],['recencyMonths','Raised within (months)'],['budgetMonth','Budget they must afford ($ / month)'],['minRaise','Raised at least ($) to afford it']].map(([k,label])=>({k,label,val:String(v[k]??''),set:e=>set(k,e.target.value)}));
+    const W=v.weights||{};const wsum=GTM.DIMS.reduce((a,[k])=>a+(Number(W[k])||0),0);
+    const weights=GTM.DIMS.map(([k,label])=>({k,label,val:String(W[k]??''),set:e=>{const val=e.target.value;this.setState(z=>{const b=z.icpEd||JSON.parse(JSON.stringify(cfg));return{icpEd:{...b,weights:{...b.weights,[k]:val}}};});}}));
+    const B=v.bands||{};const bands=[['high','High priority from'],['strong','Strong fit from'],['research','Research from']].map(([k,label])=>({k,label,val:String(B[k]??''),set:e=>{const val=e.target.value;this.setState(z=>{const b=z.icpEd||JSON.parse(JSON.stringify(cfg));return{icpEd:{...b,bands:{...b.bands,[k]:val}}};});}}));
+    const save=async()=>{const e=this.state.icpEd;if(!e)return;const arr=x=>Array.isArray(x)?x:String(x||'').split(/[,\n]/).map(y=>y.trim()).filter(Boolean);const n=x=>Number(x);
+      const out={summary:String(e.summary||'').trim(),models:arr(e.models),industries:arr(e.industries).map(x=>x.toLowerCase()),stages:arr(e.stages),accelerators:arr(e.accelerators),titles:arr(e.titles).map(x=>x.toLowerCase()),references:arr(e.references),
+        empMin:n(e.empMin),empMax:n(e.empMax),recencyMonths:n(e.recencyMonths),budgetMonth:n(e.budgetMonth),minRaise:n(e.minRaise),
+        weights:Object.fromEntries(GTM.DIMS.map(([k])=>[k,n((e.weights||{})[k])])),bands:{high:n((e.bands||{}).high),strong:n((e.bands||{}).strong),research:n((e.bands||{}).research)}};
+      const bad=[];['empMin','empMax','recencyMonths','budgetMonth','minRaise'].forEach(k=>{if(!(isFinite(out[k])&&out[k]>=0))bad.push(k);});
+      if(out.empMin>out.empMax)bad.push('min employees above max');const ws=Object.values(out.weights).reduce((a,b)=>a+b,0);
+      if(Object.values(out.weights).some(w=>!(isFinite(w)&&w>=0)))bad.push('weights must be numbers');else if(ws!==100)bad.push('weights add up to '+ws+', not 100');
+      if(!(out.bands.high>out.bands.strong&&out.bands.strong>out.bands.research&&out.bands.research>0&&out.bands.high<=100))bad.push('bands must go high > strong > research > 0');
+      if(!out.models.length||!out.stages.length)bad.push('list at least one business model and one funding stage');
+      if(bad.length){this.toast('Not saved: '+bad.join('; ')+'.',null,true);return;}
+      if(await AK.leadSettingSave('icp',out)){this.setState({icpEd:null});this.toast('ICP saved. Every score is updated.');}};
+    const missing=['Qualified','Nurture'].filter(st=>!AK.gtm.stageFor(st));
+    const addStages=async()=>{const ST=this.leadSet('stages').slice();for(const m of missing){const after=m==='Qualified'?ST.findIndex(x=>GTM.statusOf(x.name,x.kind)==='Meeting booked'):ST.findIndex(x=>x.kind==='lost')-1;
+      ST.splice(after>=0?after+1:ST.length,0,{name:m,color:m==='Qualified'?'var(--ok)':'oklch(0.62 0.11 245)',kind:'open'});}
+      if(await AK.leadSettingSave('stages',ST))this.toast('Added '+missing.join(' and ')+' to your stages.');};
+    return{txt,nums,weights,bands,wsum:String(wsum),wOk:wsum===100,wBad:wsum!==100,dirty:!!ed,clean:!ed,save,cancel:()=>this.setState({icpEd:null}),
+      reset:async()=>{if(await AK.leadSettingSave('icp',{}))this.setState({icpEd:null});this.toast('ICP back to the default from the spec.');},
+      dims:GTM.DIMS.map(([k,label])=>({label,w:String(cfg.weights[k])})),hasMissing:missing.length>0,missing:missing.join(' and '),addStages,
+      status:'Stages map to statuses: '+this.leadSet('stages').map(x=>x.name+' → '+GTM.statusOf(x.name,x.kind)).join(', ')+'.'};}
+  // The panel's Intel and Outreach tabs for one lead.
+  setLed(k,v){this.setState(z=>({led:{...z.led,[k]:v}}));}
+  dropLed(keys){this.setState(z=>{const m={...z.led};keys.forEach(k=>delete m[k]);return{led:m};});}
+  async gtmSaveIntel(l,k,force){const s=this.state.led;const cur=(GTM.gtmOf(l).intel||{})[k]||{};const vK='__gi:'+k+':v',sK='__gi:'+k+':s';
+    const v=force&&'v' in force?force.v:(s[vK]!=null?s[vK]:(cur.v??''));const src=s[sK]!=null?s[sK]:(cur.src||'');
+    if(String(v)===String(cur.v??'')&&String(src)===String(cur.src||''))return this.dropLed([vK,sK]);
+    const err=GTM.validateIntel(k,v,src);if(err){this.toast(err,null,true);return;}
+    if(await AK.gtm.intel(l.id,k,{v,src}))this.dropLed([vK,sK]);}
+  gtmPanel(l){const x=this.gtmOne(l.id);if(!x)return{ok:false};const s=this.state;const {c}=x;const G=GTM.gtmOf(l);const I=G.intel||{};const E=x.ev;const B=k=>s.led[k];
+    const groups=GTM.INTEL.map(g=>({label:g.label,rows:g.fields.map(([k,label,type,opts])=>{const cur=I[k]||{};const ev=E[k];const vK='__gi:'+k+':v',sK='__gi:'+k+':s';
+      const v=B(vK)!=null?B(vK):(cur.v??'');const src=B(sK)!=null?B(sK):(cur.src||'');const der=!String(cur.v??'').trim()&&ev?(ev.why||'CRM')+': '+(k==='amount'||k==='total'?GTM.fmtMoney(GTM.parseMoney(ev.v)):ev.v):'';
+      const kind=String(cur.v??'').trim()?(GTM.isUrl(cur.src)?'fact':'manual'):ev?ev.kind:'';
+      return{label,isSel:type==='select',isArea:type==='area',isText:type!=='select'&&type!=='area',opts:[{v:'',l:'UNKNOWN'},...(opts||[]).map(o=>({v:o,l:o}))],val:String(v),
+        ph:type==='money'?'UNKNOWN (e.g. $4M)':type==='date'?'UNKNOWN (e.g. 2026-09)':'UNKNOWN',src,kindP:this.gtmKindP(kind),hasDer:!!der,der,at:cur.at?'checked '+cur.at:'',hasSrcLink:GTM.isUrl(cur.src),openSrc:()=>open(cur.src),
+        set:e=>this.setLed(vK,e.target.value),setSrc:e=>this.setLed(sK,e.target.value),save:()=>this.gtmSaveIntel(l,k),
+        pick:e=>{const val=e.target.value;this.setLed(vK,val);this.gtmSaveIntel(l,k,{v:val});}};})}));
+    const ov=(G.icp&&G.icp.ov)||{};
+    const dims=c.score.dims.map(d=>{const oK='__go:'+d.key;const cur=ov[d.key]&&ov[d.key].pts!=null?String(ov[d.key].pts):'';
+      return{label:d.label,w:String(d.w),pts:d.pts==null?'UNKNOWN':d.pts+' / '+d.w,ptsFg:d.pts==null?'var(--ink-4)':d.pts>=d.w*.5?'var(--ok-ink)':d.pts>0?'var(--warn-ink)':'var(--bad-ink)',why:d.why,kindP:this.gtmKindP(d.state==='unknown'?'':d.kind),
+        ov:B(oK)!=null?B(oK):cur,setOv:e=>this.setLed(oK,e.target.value),
+        saveOv:async()=>{const val=this.state.led[oK];if(val==null)return;if(String(val)===cur){this.dropLed([oK]);return;}
+          if(await AK.gtm.set(l.id,'icp.ov.'+d.key,String(val).trim()===''?null:{pts:Number(val),why:'on '+new Date().toISOString().slice(0,10)}))this.dropLed([oK]);}};});
+    const dq=c.score.dq;const dqK='__gdq';
+    const sg=B('__gs')||{type:'raise',text:'',at:'',src:''};const setSg=k=>e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__gs:{...(z.led.__gs||sg),[k]:v}}}));};
+    const sigs=(G.signals||[]).slice().sort((a,b)=>String(b.at||b.seen).localeCompare(String(a.at||a.seen))).map(z=>({label:GTM.SIGNALS[z.type]||z.type,text:z.text,when:z.at?'happened '+z.at:'date UNKNOWN',seen:'detected '+(z.seen||''),
+      kindP:z.src&&z.kind!=='inference'?pill('Verified','ok'):pill('Inference','warn'),hasSrc:!!z.src,openSrc:()=>open(z.src),del:()=>AK.gtm.signalDel(l.id,z.id)}));
+    const opp=G.opp||{};const me=((CFG.accounts||[])[0]||{}).name||'';const M=GTM.messages(l,c,me);
+    const oppRows=[['why','Why they need us',M.why],['angle','Angle / question to ask',c.radar.angle.q],['hook','Hook (first line)',M.hook],['msg','First message (overrides the drafted opener)','']].map(([k,label,ph])=>{const K='__gp:'+k;
+      return{label,val:B(K)!=null?B(K):(opp[k]||''),ph:ph?'Suggested: '+ph:'Leave empty to use the drafted opener',set:e=>this.setLed(K,e.target.value),
+        save:async()=>{const v=this.state.led[K];if(v==null)return;if(String(v)===String(opp[k]||'')){this.dropLed([K]);return;}if(await AK.gtm.set(l.id,'opp.'+k,String(v).trim()))this.dropLed([K]);}};});
+    const q=encodeURIComponent((l.company||l.name||'').replace(/\s*\(.*?\)\s*/g,' ').trim());
+    const research=q?[['Funding news','https://www.google.com/search?q='+q+'+raises+OR+funding+OR+seed+OR+series'],['Crunchbase','https://www.crunchbase.com/textsearch?q='+q],['Jobs / hiring','https://www.google.com/search?q='+q+'+careers+OR+jobs+growth+OR+marketing+OR+sales'],
+      ['Company site','https://www.google.com/search?q='+q+'+official+site'],['YC directory','https://www.ycombinator.com/companies?query='+q]].map(([label,u])=>({label,go:()=>open(u)})):[];
+    // Outreach tab
+    const T=c.touches.slice().reverse().map(t=>({arrow:t.dir==='out'?'→':'←',who:t.dir==='out'?'We sent':'They',type:GTM.TOUCH_TYPES[t.type]||t.type,ch:t.ch||'',when:this.since(t.at),date:String(t.at).slice(0,10),text:t.text||'',hasText:!!t.text,
+      tpl:t.tpl?'Template '+t.tpl+(t.angle?' · '+((GTM.ANGLES[t.angle]||{}).label||t.angle):''):'',hasTpl:!!t.tpl,bg:t.dir==='out'?'var(--out-soft)':'var(--mid-soft)',fg:t.dir==='out'?'var(--out-ink)':'var(--mid-ink)'}));
+    const drafts=M.list.map(m=>{const k='gm'+l.id+m.id;const cb=this.copyBtn(k,'Copy');const type=m.id==='rf-connect-v1'?'connection':m.id==='rf-open-v1'?'dm':'followup';
+      return{label:m.label,hint:m.hint,text:m.text,n:m.text.length+' chars',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(m.text,k,m.label+' copied. Send it yourself on LinkedIn.'),
+        sent:async()=>{if(await AK.gtm.touch(l.id,{dir:'out',type,ch:'LinkedIn',text:m.text,tpl:m.id,angle:M.angle.id},{followUpDays:type==='connection'||m.id==='rf-fu2-v1'?0:4}))this.toast('Logged: '+m.label+' sent'+(type!=='connection'&&m.id!=='rf-fu2-v1'?'. Follow-up set for 4 days from now.':'.'));}};});
+    const tf=B('__gt')||{dir:'in',type:'reply',ch:'LinkedIn',text:'',at:new Date().toISOString().slice(0,10),fu:''};const setT=k=>e=>{const v=e.target.value;this.setState(z=>{const cur={...(z.led.__gt||tf),[k]:v};
+      if(k==='dir')cur.type=v==='in'?'reply':'dm';return{led:{...z.led,__gt:cur}};});};
+    const types=(tf.dir==='in'?['reply','question','interest','meeting','accepted','not_interested','other']:['dm','followup','connection','email','other']).map(t=>({v:t,l:GTM.TOUCH_TYPES[t]}));
+    const logT=async()=>{const t=this.state.led.__gt||tf;const ok=await AK.gtm.touch(l.id,{dir:t.dir,type:t.type,ch:t.ch,text:t.text,at:t.at},{followUpDays:Number(t.fu)||0});
+      if(ok){const mid=t.dir==='in'&&GTM.QUALIFYING.includes(t.type)&&l.direction!=='Inbound';this.dropLed(['__gt']);this.toast(mid?'Logged. They engaged after our outreach, so they’re now in Midbound.':'Logged.');}};
+    const fuAt=days=>async()=>{const d=new Date();d.setDate(d.getDate()+days);const iso=d.toISOString().slice(0,10);const first=GTM.firstName(l.name);
+      if(await AK.leadSave(l.id,{next_step:'Follow up with '+first+(c.fuN?' (follow-up '+(c.fuN+1)+')':''),next_date:iso}))this.toast('Follow-up set for '+iso+'.');};
+    const pickFu=async e=>{const iso=e.target.value;if(!iso)return;if(await AK.leadSave(l.id,{next_step:'Follow up with '+GTM.firstName(l.name),next_date:iso}))this.toast('Follow-up set for '+iso+'.');};
+    const nx=this.leadNext(l);
+    return{ok:true,relP:this.gtmRelP(c),statusP:pill(c.status,'neutral'),scoreP:this.gtmScoreP(c.score),levelP:this.gtmLevelP(c.radar),score:String(c.score.score),conf:c.score.confLabel+' confidence ('+c.score.conf+'%)',explain:c.score.explain,
+      tags:c.tags.map(t=>this.tagPill(t,TAG_C[t]||'var(--ink-3)')),hasTags:c.tags.length>0,
+      acq:c.acq,acqOpts:GTM.ACQ.map(a=>({v:a,l:a})),pickAcq:e=>AK.gtm.set(l.id,'rel.acq',e.target.value),acqAuto:!(G.rel&&G.rel.acq),
+      conn:c.conn||'',connOpts:[{v:'',l:'UNKNOWN'},{v:'connected',l:'Connected'},{v:'pending',l:'Invite pending'},{v:'none',l:'Not connected'}],pickConn:e=>AK.gtm.set(l.id,'rel.conn',e.target.value),
+      dims,isDq:!!dq,notDq:!dq,dq,dqVal:B(dqK)||'',setDq:e=>this.setLed(dqK,e.target.value),
+      doDq:async()=>{const r=String(this.state.led[dqK]||'').trim();if(!r){this.toast('Say why they’re disqualified, e.g. “B2C”, “Competitor”, “Budget under $5k”.',null,true);return;}if(await AK.gtm.set(l.id,'icp.dq',r))this.dropLed([dqK]);},
+      undoDq:()=>AK.gtm.set(l.id,'icp.dq',''),groups,research,hasResearch:research.length>0,
+      sigs,hasSigs:sigs.length>0,noSigs:!sigs.length,sg,sgTypes:Object.keys(GTM.SIGNALS).map(k=>({v:k,l:GTM.SIGNALS[k]})),setSgType:setSg('type'),setSgText:setSg('text'),setSgAt:setSg('at'),setSgSrc:setSg('src'),
+      addSig:async()=>{const z=this.state.led.__gs||sg;if(await AK.gtm.signal(l.id,z))this.dropLed(['__gs']);},
+      radar:{level:c.radar.level,score:String(c.radar.score),why:c.radar.why.map(w=>({label:w.label,text:w.text,when:w.when?(w.derived?'detected ':'happened ')+w.when:'date UNKNOWN',kindP:w.kind==='fact'?pill('Verified','ok'):pill('Inference','warn'),pts:'+'+w.pts,hasSrc:!!w.src,openSrc:()=>open(w.src)})),
+        hasWhy:c.radar.why.length>0,noWhy:!c.radar.why.length,action:this.gtmRec(x),angle:c.radar.angle.label},oppRows,
+      drafts,touches:T,hasTouches:T.length>0,noTouches:!T.length,histSum:[c.contacted?'First outreach '+String(c.contacted.at).slice(0,10):'Not contacted yet',c.fuN?c.fuN+(c.fuN===1?' follow-up':' follow-ups'):'',c.lastIn?'last reply '+String(c.lastIn.at).slice(0,10):''].filter(Boolean).join(' · '),
+      tf,setTDir:setT('dir'),setTType:setT('type'),setTCh:setT('ch'),setTText:setT('text'),setTAt:setT('at'),setTFu:setT('fu'),types,logT,isOut:tf.dir==='out',
+      chOpts:['LinkedIn','Email','X','Call','In person','Other'].map(v=>({v,l:v})),fuOpts:[{v:'',l:'No follow-up'},{v:'3',l:'Follow up in 3 days'},{v:'4',l:'Follow up in 4 days'},{v:'7',l:'Follow up in a week'}],
+      fu3:fuAt(3),fu7:fuAt(7),pickFu,nextTxt:nx?nx.label:'No follow-up scheduled',nextFg:nx&&nx.late?'var(--bad-ink)':'var(--ink-2)',
+      midNote:l.direction==='Inbound'?'They came to us (Inbound).':c.rel==='midbound'?'Midbound: they engaged after our outreach'+(c.engaged&&c.engaged.src!=='touch'?' ('+c.engaged.src+')':'')+'.':'Logging a reply, question, interest or meeting from them moves this lead to Midbound. An accepted connection alone doesn’t.'};}
 
   /* ---------- Who engaged (7 Nov) ----------
      Everyone who liked or commented on our LinkedIn posts (AK.SOC, filled twice a day by the social-sync job), with what we
@@ -2086,6 +2775,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <sc-if value="{{ k.hasNext }}"><span style="display:inline-flex; align-self:flex-start; align-items:center; max-width:100%; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:{{ k.next.bg }}; color:{{ k.next.fg }}; box-shadow:{{ k.next.bd }};">{{ k.next.label }}</span></sc-if>
 </div>
 <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+<sc-if value="{{ k.hasIcp }}"><span title="ICP score from evidence (UNKNOWN counts as 0)" style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ k.icpP.bg }}; color:{{ k.icpP.fg }}; box-shadow:{{ k.icpP.bd }};">{{ k.icpP.label }}</span></sc-if>
 <sc-if value="{{ k.hasHeat }}"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:700; background:{{ k.heat.bg }}; color:{{ k.heat.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ k.heat.dot }};"></span>{{ k.heat.label }}</span></sc-if>
 <sc-if value="{{ k.hasGroup }}"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:6px; font-size:var(--fs-3xs); font-weight:600; background:{{ k.group.bg }}; color:{{ k.group.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ k.group.dot }};"></span>{{ k.group.label }}</span></sc-if>
 <sc-for list="{{ k.cats }}" as="c"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; background:{{ c.bg }}; color:{{ c.fg }};">{{ c.label }}</span></sc-for>
@@ -2101,12 +2791,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </div>
 </div>
 <sc-if value="{{ ld.tip.on }}">
-<div style="position:fixed; left:{{ ld.tip.left }}; top:{{ ld.tip.top }}; transform:{{ ld.tip.tf }}; width:300px; z-index:60; display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-lg), inset 0 0 0 1px var(--hairline); pointer-events:none;">
+<div style="position:fixed; left:{{ ld.tip.left }}; top:{{ ld.tip.top }}; transform:{{ ld.tip.tf }}; width:340px; max-width:calc(100vw - 16px); z-index:60; display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-lg), inset 0 0 0 1px var(--hairline); pointer-events:none;">
 <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ ld.tip.name }}</span><sc-if value="{{ ld.tip.hasAcct }}"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">via {{ ld.tip.acct }}</span></sc-if><span style="margin-left:auto; font-size:var(--fs-3xs); font-weight:600; color:var(--in-ink);">{{ ld.tip.label }}</span></div>
-<sc-if value="{{ ld.tip.hasSummary }}"><span style="font-size:var(--fs-xs); line-height:1.5; color:var(--ink);">{{ ld.tip.summary }}</span></sc-if>
+<sc-if value="{{ ld.tip.hasChips }}"><div style="display:flex; flex-wrap:wrap; gap:4px;"><sc-for list="{{ ld.tip.chips }}" as="c"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ c.bg }}; color:{{ c.fg }}; box-shadow:{{ c.bd }};">{{ c.label }}</span></sc-for></div></sc-if>
+<sc-if value="{{ ld.tip.hasSummary }}"><span style="font-size:var(--fs-xs); line-height:1.5; color:var(--ink); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">{{ ld.tip.summary }}</span></sc-if>
 <div style="display:flex; flex-direction:column; gap:3px; padding-top:8px; border-top:1px solid var(--hairline);">
-<sc-for list="{{ ld.tip.lines }}" as="t"><span style="display:flex; gap:8px; font-size:var(--fs-2xs); line-height:1.4;"><span style="flex:0 0 82px; color:var(--ink-3);">{{ t.k }}</span><span style="flex:1; min-width:0; color:var(--ink-2);">{{ t.v }}</span></span></sc-for>
+<sc-for list="{{ ld.tip.lines }}" as="t"><span style="display:flex; gap:8px; font-size:var(--fs-2xs); line-height:1.4;"><span style="flex:0 0 70px; color:var(--ink-3);">{{ t.k }}</span><span style="flex:1; min-width:0; color:{{ t.fg }};">{{ t.v }}</span></span></sc-for>
 </div>
+<span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ ld.tip.more }}</span>
 </div>
 </sc-if>
 </sc-if>
@@ -2135,6 +2827,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <tr onClick="{{ r.open }}" style="cursor:pointer; transition:background var(--dur);" style-hover="background:rgba(255,255,255,.85);">
 <td style="padding:10px 14px; border-top:{{ r.bt }}; max-width:280px;"><span style="display:flex; align-items:center; gap:10px; min-width:0;"><span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span><span style="display:flex; flex-direction:column; min-width:0; line-height:1.3;"><span style="display:flex; align-items:center; gap:6px; min-width:0;"><span style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</span><sc-if value="{{ r.hasHeat }}"><span style="flex:0 0 auto; display:inline-flex; align-items:center; height:18px; padding:0 6px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:700; background:{{ r.heat.bg }}; color:{{ r.heat.fg }};">{{ r.heat.label }}</span></sc-if></span><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.company }}</span></span></span></td>
 <td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap;"><span style="display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:500; background:{{ r.stageP.bg }}; color:{{ r.stageP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ r.stageP.dot }};"></span>{{ r.stageP.label }}</span></td>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap;"><sc-if value="{{ r.hasIcp }}"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ r.icpP.bg }}; color:{{ r.icpP.fg }}; box-shadow:{{ r.icpP.bd }};">{{ r.icpP.label }}</span></sc-if></td>
 <td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; color:var(--ink-2);">{{ r.source }}<span style="display:block; font-size:var(--fs-3xs); color:var(--ink-4);">{{ r.dir }}</span></td>
 <td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap;"><sc-if value="{{ r.hasGroup }}"><span style="display:inline-flex; align-items:center; gap:5px; height:22px; padding:0 8px; border-radius:6px; font-size:var(--fs-2xs); font-weight:600; background:{{ r.groupP.bg }}; color:{{ r.groupP.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ r.groupP.dot }};"></span>{{ r.groupP.label }}</span></sc-if></td>
 <td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; font-variant-numeric:tabular-nums;">{{ r.value }}</td>
@@ -2319,6 +3012,195 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-for>
 </div>
 <span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ lip.count }}</span>
+</sc-if>
+
+<!-- GTM intelligence (8 Nov): LinkedIn views, Right now (Buying Window Radar), Dashboard, and the ICP on Setup. Spliced into the
+     page after leads.html by build_app.py; values come from gtmViewsVals / gtmNowVals / gtmDashVals / gtmSetupVals in logic.js. -->
+<sc-if value="{{ is.gtmViews }}">
+<div style="display:flex; flex-wrap:{{ ld.gv.wrap }}; overflow-x:auto; padding-bottom:2px; gap:6px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<sc-for list="{{ ld.gv.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:7px; height:30px; padding:0 12px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap;">{{ t.label }} <span style="font-weight:700; opacity:.75;">{{ t.count }}</span></button></sc-for>
+</div>
+
+<sc-if value="{{ ld.gv.notDupes }}">
+<div style="display:flex; flex-direction:column; gap:2px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);"><span style="font-size:var(--fs-md); font-weight:600;">{{ ld.gv.title }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.gv.hint }}</span></div>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<input value="{{ ld.gv.f.q }}" onChange="{{ ld.gv.f.onQ }}" placeholder="Search name, company, notes" aria-label="Search" style="flex:0 1 220px; min-width:150px; height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<sc-for list="{{ ld.gv.f.main }}" as="x"><select value="{{ x.val }}" onChange="{{ x.on }}" aria-label="{{ x.label }}" style="height:34px; max-width:200px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ x.opts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-for>
+<sc-if value="{{ ld.gv.f.moreOn }}"><sc-for list="{{ ld.gv.f.rest }}" as="x"><select value="{{ x.val }}" onChange="{{ x.on }}" aria-label="{{ x.label }}" style="height:34px; max-width:200px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ x.opts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-for></sc-if>
+<button onClick="{{ ld.gv.f.toggleMore }}" style="height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-sm); font-weight:500; cursor:pointer;">{{ ld.gv.f.moreLabel }}</button>
+<sc-if value="{{ ld.gv.canExcl }}"><button onClick="{{ ld.gv.toggleExcl }}" title="{{ ld.gv.exclTitle }}" style="height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ ld.gv.exclBg }}; color:{{ ld.gv.exclFg }}; box-shadow:{{ ld.gv.exclSh }}; font-size:var(--fs-sm); font-weight:500; cursor:pointer;">{{ ld.gv.exclLabel }}</button></sc-if>
+<sc-if value="{{ ld.gv.f.active }}"><button onClick="{{ ld.gv.f.clear }}" style="height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-2); font-size:var(--fs-sm); cursor:pointer; text-decoration:underline; text-underline-offset:3px;">Clear filters</button></sc-if>
+</div>
+<sc-if value="{{ ld.gv.hasHidden }}"><div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 14px; border-radius:var(--r-md); background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); color:var(--ink-2);"><span style="flex:1 1 260px;">{{ ld.gv.hiddenTxt }}</span><button onClick="{{ ld.gv.toggleExcl }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:#fff; box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Show them</button></div></sc-if>
+
+<div style="border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden; opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<div style="overflow-x:auto;">
+<table style="width:100%; min-width:980px; border-collapse:separate; border-spacing:0; font-size:var(--fs-sm);">
+<thead><tr>
+<th style="text-align:left; padding:11px 14px; border-bottom:1px solid var(--hairline); background:rgba(255,255,255,.5); font-weight:500; font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap;">Prospect</th>
+<sc-for list="{{ ld.gv.heads }}" as="h"><th style="text-align:left; padding:11px 14px; border-bottom:1px solid var(--hairline); background:rgba(255,255,255,.5); font-weight:500; font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap;">{{ h.label }}</th></sc-for>
+<th style="padding:11px 14px; border-bottom:1px solid var(--hairline); background:rgba(255,255,255,.5);"></th>
+</tr></thead>
+<tbody>
+<sc-for list="{{ ld.gv.rows }}" as="r">
+<tr onClick="{{ r.open }}" style="cursor:pointer; transition:background var(--dur);" style-hover="background:rgba(255,255,255,.85);">
+<td style="padding:10px 14px; border-top:{{ r.bt }}; max-width:300px; vertical-align:top;"><span style="display:flex; align-items:flex-start; gap:10px; min-width:0;"><span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span><span style="display:flex; flex-direction:column; gap:2px; min-width:0; line-height:1.3;">
+<span style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ r.role }} · {{ r.company }}</span>
+<sc-if value="{{ r.hasLi }}"><button onClick="{{ r.openLi }}" title="Open their LinkedIn profile" style="align-self:flex-start; border:0; background:transparent; padding:0; font-family:inherit; font-size:var(--fs-3xs); color:#0a66c2; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px;">{{ r.liLabel }} ↗</button></sc-if>
+<span style="display:flex; flex-wrap:wrap; gap:4px;"><sc-for list="{{ r.tags }}" as="t"><span style="display:inline-flex; align-items:center; height:18px; padding:0 6px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ t.bg }}; color:{{ t.fg }};">{{ t.label }}</span></sc-for></span>
+</span></span></td>
+<sc-for list="{{ r.cells }}" as="c"><td style="padding:10px 14px; border-top:{{ r.bt }}; max-width:230px; vertical-align:top;">
+<sc-if value="{{ c.isPill }}"><span style="display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ c.p.bg }}; color:{{ c.p.fg }}; box-shadow:{{ c.p.bd }};">{{ c.p.label }}</span></sc-if>
+<sc-if value="{{ c.notPill }}"><span style="display:block; font-size:var(--fs-xs); color:{{ c.fg }}; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ c.txt }}</span></sc-if>
+<span style="display:block; margin-top:2px; font-size:var(--fs-3xs); color:var(--ink-4); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ c.sub }}</span>
+</td></sc-for>
+<td style="padding:10px 14px; border-top:{{ r.bt }}; white-space:nowrap; vertical-align:top; text-align:right;"><button onClick="{{ r.go }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:{{ r.aBg }}; color:{{ r.aFg }}; box-shadow:{{ r.aSh }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.act }}</button></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<sc-if value="{{ ld.gv.loading }}"><div style="padding:var(--s-6); text-align:center; font-size:var(--fs-sm); color:var(--ink-3);">Loading leads…</div></sc-if>
+<sc-if value="{{ ld.gv.noRows }}"><div style="padding:var(--s-6); text-align:center; font-size:var(--fs-sm); color:var(--ink-3); max-width:560px; margin:0 auto; line-height:1.5;">{{ ld.gv.empty }}</div></sc-if>
+<div style="display:flex; align-items:center; gap:var(--s-3); padding:10px 14px; font-size:var(--fs-xs); color:var(--ink-3);">
+<span>{{ ld.gv.count }}</span>
+<sc-if value="{{ ld.gv.hasMore }}"><button onClick="{{ ld.gv.more }}" style="margin-left:auto; height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.8); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Show all</button></sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ ld.gv.isDupes }}">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">Possible duplicates</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">Matched by LinkedIn profile first, then email, then the same name at the same company. Merging keeps the outreach job’s own lead, fills in what it’s missing, joins the history, and archives the other (Undo brings it back).</span></div>
+<sc-if value="{{ ld.gv.noGroups }}"><div style="padding:var(--s-6); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); text-align:center; font-size:var(--fs-sm); color:var(--ink-3);">No duplicates found.</div></sc-if>
+<sc-for list="{{ ld.gv.groups }}" as="g">
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi); overflow:hidden;">
+<span style="padding:10px 14px 4px; font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">{{ g.why }}</span>
+<sc-for list="{{ g.items }}" as="it"><div style="display:flex; align-items:center; gap:10px; padding:10px 14px; border-top:1px solid var(--hairline);">
+<span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:600; background:{{ it.avBg }}; color:{{ it.avFg }};">{{ it.ini }}</span>
+<button onClick="{{ it.open }}" style="flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; border:0; background:transparent; padding:0; font-family:inherit; text-align:left; cursor:pointer;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ it.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ it.sub }}</span></button>
+<sc-if value="{{ it.isKeep }}"><span style="font-size:var(--fs-2xs); font-weight:600; color:var(--ok-ink);">Keep</span></sc-if>
+<sc-if value="{{ it.notKeep }}"><button onClick="{{ it.merge }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Merge into the kept one</button></sc-if>
+</div></sc-for>
+</div>
+</sc-for>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ is.gtmNow }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease);">
+<sc-for list="{{ ld.now.kpis }}" as="k"><div style="display:flex; flex-direction:column; gap:6px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Buying window {{ k.label }}</span><span style="font-size:var(--fs-2xl); font-weight:500; letter-spacing:-0.035em; line-height:1.05;">{{ k.v }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ k.d }}</span></div></sc-for>
+</div>
+<sc-if value="{{ ld.now.loading }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Loading leads…</span></sc-if>
+<sc-if value="{{ ld.now.noItems }}"><div style="display:flex; flex-direction:column; align-items:center; gap:8px; padding:var(--s-8) var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); text-align:center;"><span style="font-size:var(--fs-lg); font-weight:600;">No buying signals yet</span><span style="font-size:var(--fs-sm); color:var(--ink-3); max-width:460px;">Leads rank here once they have a dated raise, GTM hiring, a launch, an expansion, a founder post about acquisition, or a known team gap. Add them on a lead’s Intel tab.</span></div></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<sc-for list="{{ ld.now.items }}" as="c">
+<div onClick="{{ c.open }}" style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi); cursor:pointer;" style-hover="box-shadow:var(--shadow-md), var(--hi);">
+<div style="display:flex; align-items:center; gap:10px;">
+<span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3;"><span style="font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.role }} · {{ c.company }}</span></div>
+</div>
+<div style="display:flex; flex-wrap:wrap; gap:5px;">
+<span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:700; background:{{ c.level.bg }}; color:{{ c.level.fg }}; box-shadow:{{ c.level.bd }};">{{ c.level.label }}</span>
+<span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ c.icp.bg }}; color:{{ c.icp.fg }}; box-shadow:{{ c.icp.bd }};">{{ c.icp.label }}</span>
+<span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ c.rel.bg }}; color:{{ c.rel.fg }}; box-shadow:{{ c.rel.bd }};">{{ c.rel.label }}</span>
+</div>
+<div style="display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--hairline);">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Why now</span>
+<sc-for list="{{ c.why }}" as="w"><div style="display:flex; align-items:flex-start; gap:8px; font-size:var(--fs-xs);">
+<span style="flex:0 0 auto; display:inline-flex; align-items:center; height:18px; padding:0 6px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ w.kindP.bg }}; color:{{ w.kindP.fg }}; box-shadow:{{ w.kindP.bd }};">{{ w.kindP.label }}</span>
+<span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; line-height:1.35;"><span><b>{{ w.label }}</b> · {{ w.text }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ w.when }}<sc-if value="{{ w.hasSrc }}"> · <button onClick="{{ w.openSrc }}" style="border:0; background:transparent; padding:0; font-size:var(--fs-3xs); color:var(--ink-3); text-decoration:underline; cursor:pointer;">source ↗</button></sc-if></span></span>
+<span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-3);">{{ w.pts }}</span>
+</div></sc-for>
+</div>
+<div style="display:flex; flex-direction:column; gap:3px; padding-top:8px; border-top:1px solid var(--hairline);">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink);">{{ c.action }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">Angle: {{ c.angle }}</span>
+</div>
+<div style="display:flex; gap:6px; flex-wrap:wrap;">
+<button onClick="{{ c.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:{{ c.cbg }}; color:{{ c.cfg }}; box-shadow:{{ c.csh }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ c.copyLabel }}</button>
+<button onClick="{{ c.start }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:var(--out); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Outreach</button>
+<sc-if value="{{ c.hasLi }}"><button onClick="{{ c.openLi }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:transparent; color:#0a66c2; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">LinkedIn ↗</button></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+<div style="display:flex; align-items:center; gap:var(--s-3); font-size:var(--fs-xs); color:var(--ink-3);"><span>{{ ld.now.count }}</span><sc-if value="{{ ld.now.hasMore }}"><button onClick="{{ ld.now.more }}" style="margin-left:auto; height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.8); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Show all</button></sc-if></div>
+</sc-if>
+
+<sc-if value="{{ is.gtmDash }}">
+<sc-if value="{{ ld.dash.loading }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Loading leads…</span></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<sc-for list="{{ ld.dash.kpis }}" as="k"><div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ k.label }}</span><span style="font-size:var(--fs-2xl); font-weight:500; letter-spacing:-0.035em; line-height:1.05; font-variant-numeric:tabular-nums;">{{ k.v }}</span><span style="font-size:var(--fs-2xs); color:{{ k.tone }};">{{ k.d }}</span></div></sc-for>
+</div>
+<section style="display:flex; flex-direction:column; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 80ms;">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Outbound funnel</h2>
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
+<sc-for list="{{ ld.dash.funnel }}" as="b"><div style="display:flex; flex-direction:column; gap:6px;">
+<span style="display:flex; align-items:center; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:500;">{{ b.name }}</span><span style="margin-left:auto; font-size:var(--fs-2xs); color:var(--ink-3);">{{ b.conv }}</span><span style="font-family:var(--font-mono); font-size:var(--fs-2xs); min-width:28px; text-align:right;">{{ b.n }}</span></span>
+<span style="display:block; width:100%; height:6px; border-radius:3px; background:var(--n-soft-2);"><span style="display:block; height:100%; width:{{ b.w }}; border-radius:3px; background:var(--out); transition:width 900ms var(--ease) 200ms;"></span></span>
+</div></sc-for>
+</div>
+</section>
+<section style="display:flex; flex-direction:column; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 120ms;">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Conversion</h2>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ ld.dash.conv }}" as="t"><div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<div style="display:flex; flex-direction:column; gap:2px; padding:12px 14px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ t.title }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.help }}</span></div>
+<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:var(--fs-xs); font-variant-numeric:tabular-nums;">
+<thead><tr><th style="text-align:left; padding:6px 14px; font-weight:500; color:var(--ink-3); border-top:1px solid var(--hairline);">{{ t.first }}</th><sc-for list="{{ ld.dash.heads }}" as="h"><th style="text-align:right; padding:6px 10px; font-weight:500; color:var(--ink-3); border-top:1px solid var(--hairline); white-space:nowrap;">{{ h.label }}</th></sc-for></tr></thead>
+<tbody><sc-for list="{{ t.rows }}" as="r"><tr><td style="padding:6px 14px; border-top:1px solid var(--hairline); white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</td><sc-for list="{{ r.cells }}" as="c"><td style="padding:6px 10px; border-top:1px solid var(--hairline); text-align:right;">{{ c.v }}</td></sc-for></tr></sc-for></tbody>
+</table></div>
+<sc-if value="{{ t.none }}"><span style="padding:10px 14px; font-size:var(--fs-xs); color:var(--ink-4);">Nothing yet.</span></sc-if>
+</div></sc-for>
+</div>
+</section>
+<section style="display:flex; flex-direction:column; gap:var(--s-3); opacity:{{ E.op }}; transition:opacity 500ms var(--ease) 160ms;">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Outreach performance</h2>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ ld.dash.perf }}" as="t"><div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<div style="display:flex; flex-direction:column; gap:2px; padding:12px 14px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ t.title }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.help }}</span></div>
+<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:var(--fs-xs); font-variant-numeric:tabular-nums;">
+<thead><tr><th style="text-align:left; padding:6px 14px; font-weight:500; color:var(--ink-3); border-top:1px solid var(--hairline);">{{ t.first }}</th><sc-for list="{{ ld.dash.heads }}" as="h"><th style="text-align:right; padding:6px 10px; font-weight:500; color:var(--ink-3); border-top:1px solid var(--hairline); white-space:nowrap;">{{ h.label }}</th></sc-for></tr></thead>
+<tbody><sc-for list="{{ t.rows }}" as="r"><tr><td style="padding:6px 14px; border-top:1px solid var(--hairline); white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;">{{ r.name }}</td><sc-for list="{{ r.cells }}" as="c"><td style="padding:6px 10px; border-top:1px solid var(--hairline); text-align:right;">{{ c.v }}</td></sc-for></tr></sc-for></tbody>
+</table></div>
+<sc-if value="{{ t.none }}"><span style="padding:10px 14px; font-size:var(--fs-xs); color:var(--ink-4);">No outreach logged yet.</span></sc-if>
+</div></sc-for>
+</div>
+</section>
+<div style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); color:var(--ink-3);"><sc-for list="{{ ld.dash.notes }}" as="n"><span>{{ n.t }}</span></sc-for></div>
+</sc-if>
+
+<sc-if value="{{ is.leadSetup }}">
+<section style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transition:opacity 500ms var(--ease);">
+<div style="display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+<div style="flex:1; min-width:240px; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">ICP: who we sell to</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">One definition for the whole CRM: ICP scores, the LinkedIn views, the Buying Window Radar and the drafts all read it. Scores count evidence only; anything UNKNOWN scores 0.</span></div>
+<sc-if value="{{ ld.icp.dirty }}"><button onClick="{{ ld.icp.cancel }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-2); font-size:var(--fs-xs); cursor:pointer;">Cancel</button><button onClick="{{ ld.icp.save }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Save ICP</button></sc-if>
+<sc-if value="{{ ld.icp.clean }}"><button onClick="{{ ld.icp.reset }}" title="Back to the definition from the spec" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-3); font-size:var(--fs-xs); cursor:pointer; text-decoration:underline; text-underline-offset:3px;">Reset to default</button></sc-if>
+</div>
+<sc-if value="{{ ld.icp.hasMissing }}"><div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 12px; border-radius:var(--r-md); background:var(--warn-soft); box-shadow:inset 0 0 0 1px var(--warn-line); font-size:var(--fs-xs); color:var(--warn-ink);"><span style="flex:1 1 240px;">Your stages have nothing for the “{{ ld.icp.missing }}” status yet, so those views stay empty.</span><button onClick="{{ ld.icp.addStages }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Add {{ ld.icp.missing }}</button></div></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap:10px;">
+<sc-for list="{{ ld.icp.txt }}" as="t"><label style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ t.label }}</span>
+<sc-if value="{{ t.isArea }}"><textarea value="{{ t.val }}" onChange="{{ t.set }}" rows="4" style="padding:8px 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; resize:vertical; outline:none;"></textarea></sc-if>
+<sc-if value="{{ t.notArea }}"><textarea value="{{ t.val }}" onChange="{{ t.set }}" rows="2" style="padding:6px 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none;"></textarea></sc-if>
+</label></sc-for>
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap:10px;">
+<sc-for list="{{ ld.icp.nums }}" as="t"><label style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ t.label }}</span><input type="number" min="0" value="{{ t.val }}" onChange="{{ t.set }}" style="height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;"></label></sc-for>
+</div>
+<div style="display:flex; flex-direction:column; gap:6px; padding-top:8px; border-top:1px solid var(--hairline);">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Score weights (must add up to 100) · now {{ ld.icp.wsum }}</span>
+<sc-if value="{{ ld.icp.wBad }}"><span style="font-size:var(--fs-xs); color:var(--bad-ink);">The weights add up to {{ ld.icp.wsum }}. Make them 100 to save.</span></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap:6px 12px;">
+<sc-for list="{{ ld.icp.weights }}" as="w"><label style="display:flex; align-items:center; gap:8px;"><span style="flex:1; font-size:var(--fs-xs); color:var(--ink-2);">{{ w.label }}</span><input type="number" min="0" max="100" value="{{ w.val }}" onChange="{{ w.set }}" style="width:64px; height:30px; padding:0 8px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;"></label></sc-for>
+</div>
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3); margin-top:6px;">Bands (score from)</span>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap:6px 12px;">
+<sc-for list="{{ ld.icp.bands }}" as="w"><label style="display:flex; align-items:center; gap:8px;"><span style="flex:1; font-size:var(--fs-xs); color:var(--ink-2);">{{ w.label }}</span><input type="number" min="1" max="100" value="{{ w.val }}" onChange="{{ w.set }}" style="width:64px; height:30px; padding:0 8px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;"></label></sc-for>
+</div>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Under the research band a lead leaves the ICP views: “Needs research” if it could still reach it once its UNKNOWNs are known, “Excluded” if it can’t. {{ ld.icp.status }}</span>
+</div>
+</section>
 </sc-if>
 
 <sc-if value="{{ is.calendar }}">
@@ -3083,6 +3965,145 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-if>
 </div>
 
+<sc-if value="{{ lp.hasDup }}"><div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 12px; border-radius:var(--r-md); background:var(--warn-soft); box-shadow:inset 0 0 0 1px var(--warn-line); font-size:var(--fs-xs); color:var(--warn-ink);"><span style="flex:1 1 200px;">{{ lp.dupTxt }}</span><button onClick="{{ lp.openDup }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff;">Open it</button><button onClick="{{ lp.saveAnyway }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">Save anyway</button></div></sc-if>
+<sc-if value="{{ lp.hasTabs }}"><div role="tablist" aria-label="Lead sections" style="display:flex; gap:2px; padding:3px; border-radius:var(--r-btn); background:var(--n-soft); align-self:flex-start;"><sc-for list="{{ lp.tabs }}" as="t"><button role="tab" onClick="{{ t.go }}" style="height:28px; padding:0 14px; border:0; border-radius:8px; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ t.label }}</button></sc-for></div></sc-if>
+
+<sc-if value="{{ lp.tabIntel }}">
+<section style="display:flex; flex-direction:column; gap:8px;">
+<div style="display:flex; flex-wrap:wrap; gap:5px;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.scoreP.bg }}; color:{{ lp.g.scoreP.fg }}; box-shadow:{{ lp.g.scoreP.bd }};">{{ lp.g.scoreP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.levelP.bg }}; color:{{ lp.g.levelP.fg }}; box-shadow:{{ lp.g.levelP.bd }};">{{ lp.g.levelP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.relP.bg }}; color:{{ lp.g.relP.fg }}; box-shadow:{{ lp.g.relP.bd }};">{{ lp.g.relP.label }}</span><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ lp.g.statusP.bg }}; color:{{ lp.g.statusP.fg }}; box-shadow:{{ lp.g.statusP.bd }};">{{ lp.g.statusP.label }}</span></div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.45;">{{ lp.g.explain }}</span>
+<sc-if value="{{ lp.g.hasTags }}"><div style="display:flex; flex-wrap:wrap; gap:5px;"><sc-for list="{{ lp.g.tags }}" as="t"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; background:{{ t.bg }}; color:{{ t.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ t.dot }};"></span>{{ t.label }}</span></sc-for></div></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:8px;">
+<label style="display:flex; flex-direction:column; gap:3px;"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">Acquisition source</span><select value="{{ lp.g.acq }}" onChange="{{ lp.g.pickAcq }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.acqOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+<label style="display:flex; flex-direction:column; gap:3px;"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">LinkedIn connection</span><select value="{{ lp.g.conn }}" onChange="{{ lp.g.pickConn }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.connOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></label>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Buying window</span>
+<div style="display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline);">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink);">{{ lp.g.radar.action }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">Angle: {{ lp.g.radar.angle }}</span>
+<sc-if value="{{ lp.g.radar.noWhy }}"><span style="font-size:var(--fs-xs); color:var(--ink-4);">No buying signals yet. Add one below, or fill the funding and GTM facts.</span></sc-if>
+<sc-for list="{{ lp.g.radar.why }}" as="w"><div style="display:flex; align-items:flex-start; gap:8px; font-size:var(--fs-xs); padding-top:6px; border-top:1px solid var(--hairline);"><span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ w.kindP.bg }}; color:{{ w.kindP.fg }}; box-shadow:{{ w.kindP.bd }};">{{ w.kindP.label }}</span></span><span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;"><span style="font-weight:600; color:var(--ink);">{{ w.label }} <span style="font-weight:500; color:var(--ink-2);">{{ w.text }}</span></span><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ w.when }}</span></span><sc-if value="{{ w.hasSrc }}"><button onClick="{{ w.openSrc }}" style="border:0; background:transparent; padding:0; font-size:var(--fs-3xs); color:var(--ink-3); text-decoration:underline; cursor:pointer;">Source ↗</button></sc-if><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-3);">{{ w.pts }}</span></div></sc-for>
+</div>
+<sc-if value="{{ lp.g.hasSigs }}"><div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;"><sc-for list="{{ lp.g.sigs }}" as="z"><div style="display:flex; align-items:flex-start; gap:8px; padding:8px 12px; border-bottom:1px solid var(--hairline); font-size:var(--fs-xs);"><span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ z.kindP.bg }}; color:{{ z.kindP.fg }}; box-shadow:{{ z.kindP.bd }};">{{ z.kindP.label }}</span></span><span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;"><span><b>{{ z.label }}</b> · {{ z.text }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ z.when }} · {{ z.seen }}</span></span><sc-if value="{{ z.hasSrc }}"><button onClick="{{ z.openSrc }}" style="border:0; background:transparent; padding:0; font-size:var(--fs-3xs); color:var(--ink-3); text-decoration:underline; cursor:pointer;">Source ↗</button></sc-if><button onClick="{{ z.del }}" title="Remove" aria-label="Remove signal" style="width:20px; height:20px; border:0; border-radius:6px; background:transparent; color:var(--ink-4); cursor:pointer;" style-hover="color:var(--bad-ink); background:var(--bad-soft);">×</button></div></sc-for></div></sc-if>
+<div style="display:flex; flex-wrap:wrap; gap:6px; padding:10px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong);">
+<select value="{{ lp.g.sg.type }}" onChange="{{ lp.g.setSgType }}" aria-label="Signal type" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 150px;"><sc-for list="{{ lp.g.sgTypes }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<input type="date" value="{{ lp.g.sg.at }}" onChange="{{ lp.g.setSgAt }}" aria-label="When it happened" title="When it happened" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:0 1 140px; font-family:inherit;">
+<input value="{{ lp.g.sg.text }}" onChange="{{ lp.g.setSgText }}" placeholder="What happened, e.g. Raised a $4M seed led by Accel" aria-label="What happened" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1 1 100%;">
+<input value="{{ lp.g.sg.src }}" onChange="{{ lp.g.setSgSrc }}" placeholder="Source link (without one it is kept as an inference)" aria-label="Source link" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1 1 200px;">
+<button onClick="{{ lp.g.addSig }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff; height:30px;">Add signal</button>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">ICP score</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ lp.g.dims }}" as="d"><div style="display:flex; align-items:center; gap:8px; padding:7px 12px; border-bottom:1px solid var(--hairline);">
+<span style="flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; line-height:1.3;"><span style="font-size:var(--fs-xs); font-weight:600; color:var(--ink);">{{ d.label }} <span style="font-weight:400; color:var(--ink-4);">/ {{ d.w }}</span></span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ d.why }}</span></span>
+<span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ d.kindP.bg }}; color:{{ d.kindP.fg }}; box-shadow:{{ d.kindP.bd }};">{{ d.kindP.label }}</span></span>
+<span style="flex:0 0 64px; text-align:right; font-family:var(--font-mono); font-size:var(--fs-2xs); color:{{ d.ptsFg }};">{{ d.pts }}</span>
+<input type="number" min="0" max="{{ d.w }}" value="{{ d.ov }}" onChange="{{ d.setOv }}" onBlur="{{ d.saveOv }}" placeholder="auto" title="Override the points by hand (empty = from evidence)" aria-label="Override points" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; width:54px; flex:0 0 54px; height:26px; font-size:var(--fs-2xs);">
+</div></sc-for>
+</div>
+<sc-if value="{{ lp.g.notDq }}"><div style="display:flex; gap:6px;"><input value="{{ lp.g.dqVal }}" onChange="{{ lp.g.setDq }}" placeholder="Disqualify: why (e.g. B2C, competitor, no budget)" aria-label="Why disqualified" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1;"><button onClick="{{ lp.g.doDq }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; height:30px; background:transparent; color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line);">Disqualify</button></div></sc-if>
+<sc-if value="{{ lp.g.isDq }}"><div style="display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r-md); background:var(--bad-soft); color:var(--bad-ink); font-size:var(--fs-xs);"><span style="flex:1;">Disqualified: {{ lp.g.dq }}</span><button onClick="{{ lp.g.undoDq }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">Requalify</button></div></sc-if>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Intelligence card</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Fill from public sources (company site, press, Crunchbase, job boards) and paste the link. Nothing is scraped from LinkedIn. Values without a link count as weaker evidence; empty means UNKNOWN.</span>
+<sc-if value="{{ lp.g.hasResearch }}"><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ lp.g.research }}" as="r"><button onClick="{{ r.go }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">{{ r.label }} ↗</button></sc-for></div></sc-if>
+<sc-for list="{{ lp.g.groups }}" as="g">
+<span style="font-size:var(--fs-xs); font-weight:600; color:var(--ink-2); margin-top:4px;">{{ g.label }}</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ g.rows }}" as="f"><div style="display:flex; flex-direction:column; gap:4px; padding:7px 12px; border-bottom:1px solid var(--hairline);">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="flex:0 0 112px; font-size:var(--fs-xs); color:var(--ink-3);">{{ f.label }}</span>
+<sc-if value="{{ f.isText }}"><input value="{{ f.val }}" onChange="{{ f.set }}" onBlur="{{ f.save }}" placeholder="{{ f.ph }}" aria-label="{{ f.label }}" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1;"></sc-if>
+<sc-if value="{{ f.isSel }}"><select value="{{ f.val }}" onChange="{{ f.pick }}" aria-label="{{ f.label }}" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1;"><sc-for list="{{ f.opts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<sc-if value="{{ f.isArea }}"><textarea value="{{ f.val }}" onChange="{{ f.set }}" onBlur="{{ f.save }}" placeholder="{{ f.ph }}" rows="2" aria-label="{{ f.label }}" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none; flex:1;"></textarea></sc-if>
+<span style="flex:0 0 auto;"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ f.kindP.bg }}; color:{{ f.kindP.fg }}; box-shadow:{{ f.kindP.bd }};">{{ f.kindP.label }}</span></span>
+</div>
+<div style="display:flex; align-items:center; gap:8px; padding-left:120px;">
+<input value="{{ f.src }}" onChange="{{ f.setSrc }}" onBlur="{{ f.save }}" placeholder="Source link (https://…)" aria-label="Source link" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:1; height:24px; font-size:var(--fs-2xs);">
+<span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4); white-space:nowrap;">{{ f.at }}</span>
+<sc-if value="{{ f.hasSrcLink }}"><button onClick="{{ f.openSrc }}" title="Open the source" aria-label="Open the source" style="border:0; background:transparent; padding:0; font-size:var(--fs-2xs); color:var(--ink-3); cursor:pointer;">↗</button></sc-if>
+</div>
+<sc-if value="{{ f.hasDer }}"><span style="padding-left:120px; font-size:var(--fs-3xs); color:var(--ink-4);">Read from {{ f.der }} (no source link yet)</span></sc-if>
+</div></sc-for>
+</div>
+</sc-for>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">SOVE7GN opportunity</span>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden;">
+<sc-for list="{{ lp.g.oppRows }}" as="o"><label style="display:flex; flex-direction:column; gap:4px; padding:8px 12px; border-bottom:1px solid var(--hairline);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ o.label }}</span><textarea value="{{ o.val }}" onChange="{{ o.set }}" onBlur="{{ o.save }}" placeholder="{{ o.ph }}" rows="2" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none;"></textarea></label></sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ lp.tabOut }}">
+<div style="display:flex; flex-direction:column; gap:4px; padding:10px 12px; border-radius:var(--r-md); background:var(--warn-soft); box-shadow:inset 0 0 0 1px var(--warn-line); font-size:var(--fs-xs); color:var(--warn-ink); line-height:1.45;">
+<span><b>Nothing is sent from the CRM.</b> Copy a draft, send it yourself on LinkedIn, then press Mark sent.</span>
+<span style="color:var(--ink-2);">{{ lp.g.midNote }}</span>
+</div>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Next follow-up</span>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+<span style="flex:1 1 180px; font-size:var(--fs-sm); color:{{ lp.g.nextFg }};">{{ lp.g.nextTxt }}</span>
+<button onClick="{{ lp.g.fu3 }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">In 3 days</button><button onClick="{{ lp.g.fu7 }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">In a week</button>
+<input type="date" onChange="{{ lp.g.pickFu }}" aria-label="Pick a follow-up date" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; height:28px; font-family:inherit;">
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Drafts, founder to founder</span>
+<sc-for list="{{ lp.g.drafts }}" as="m">
+<div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.7); box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.label }}</span><span style="margin-left:auto; font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4);">{{ m.n }}</span></div>
+<span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ m.hint }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; color:var(--ink); white-space:pre-wrap; user-select:text;">{{ m.text }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ m.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:{{ m.cbg }}; color:{{ m.cfg }}; box-shadow:{{ m.csh }};">{{ m.copyLabel }}</button><button onClick="{{ m.sent }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:transparent; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline-strong);">Mark sent</button></div>
+</div>
+</sc-for>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Log an interaction</span>
+<div style="display:flex; flex-direction:column; gap:8px; padding:10px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong);">
+<div style="display:flex; flex-wrap:wrap; gap:6px;">
+<select value="{{ lp.g.tf.dir }}" onChange="{{ lp.g.setTDir }}" aria-label="Who" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 120px;"><option value="in">They → us</option><option value="out">We → them</option></select>
+<select value="{{ lp.g.tf.type }}" onChange="{{ lp.g.setTType }}" aria-label="What happened" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 150px;"><sc-for list="{{ lp.g.types }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<select value="{{ lp.g.tf.ch }}" onChange="{{ lp.g.setTCh }}" aria-label="Channel" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer; flex:1 1 110px;"><sc-for list="{{ lp.g.chOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<input type="date" value="{{ lp.g.tf.at }}" onChange="{{ lp.g.setTAt }}" aria-label="When" style="min-width:0; height:30px; padding:0 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); outline:none; flex:0 1 140px; font-family:inherit;">
+</div>
+<textarea value="{{ lp.g.tf.text }}" onChange="{{ lp.g.setTText }}" rows="3" placeholder="What they said, or what we sent (paste it)" style="width:100%; box-sizing:border-box; padding:6px 8px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.45; font-family:inherit; resize:vertical; outline:none;"></textarea>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px;">
+<sc-if value="{{ lp.g.isOut }}"><select value="{{ lp.g.tf.fu }}" onChange="{{ lp.g.setTFu }}" aria-label="Follow-up" style="min-width:0; height:30px; padding:0 6px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ lp.g.fuOpts }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select></sc-if>
+<button onClick="{{ lp.g.logT }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--ink); color:#fff; margin-left:auto; height:30px;">Log it</button>
+</div>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:8px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Conversation history</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ lp.g.histSum }}</span>
+<sc-if value="{{ lp.g.noTouches }}"><span style="font-size:var(--fs-xs); color:var(--ink-4);">Nothing logged here yet. Earlier activity is in the history on the Details tab.</span></sc-if>
+<sc-for list="{{ lp.g.touches }}" as="t"><div style="display:flex; gap:10px; padding:8px 2px; border-bottom:1px solid var(--hairline);">
+<span style="width:22px; height:22px; flex:0 0 22px; border-radius:50%; display:grid; place-items:center; font-size:12px; background:{{ t.bg }}; color:{{ t.fg }};">{{ t.arrow }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+<span style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap;"><span style="font-size:var(--fs-2xs); font-weight:600;">{{ t.who }} · {{ t.type }}</span><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-4);">{{ t.ch }} · {{ t.date }}</span></span>
+<sc-if value="{{ t.hasText }}"><span style="font-size:var(--fs-sm); color:var(--ink); line-height:1.45; white-space:pre-wrap;">{{ t.text }}</span></sc-if>
+<sc-if value="{{ t.hasTpl }}"><span style="font-size:var(--fs-3xs); color:var(--ink-4);">{{ t.tpl }}</span></sc-if>
+</div></div></sc-for>
+</section>
+</sc-if>
+
+<sc-if value="{{ lp.tabDetails }}">
 <sc-if value="{{ lp.notNew }}">
 <section style="display:flex; flex-direction:column; gap:8px;">
 <span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Log what happened</span>
@@ -3170,6 +4191,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="font-size:var(--fs-2xs); color:var(--ink-4);">{{ lp.added }}</span>
 <button onClick="{{ lp.archive }}" style="margin-left:auto; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line); font-size:var(--fs-xs); font-weight:500; cursor:pointer;" style-hover="background:var(--bad-soft);">Archive lead</button>
 </div>
+</sc-if>
 </sc-if>
 </div>
 </sc-if>

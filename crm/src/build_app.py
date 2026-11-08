@@ -33,6 +33,9 @@ CONFIG_JS = "window.CRM_CONFIG=" + json.dumps(CFG, ensure_ascii=False).replace("
 SUPABASE_JS = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"
 logic = open(os.path.join(HERE, "logic.js"), encoding="utf-8").read()
 assert "</script" not in logic
+# GTM intelligence (8 Nov): the pure rules (window.GTM), inlined before data.js so data.js and the page logic both use them.
+gtm_js = open(os.path.join(HERE, "gtm.js"), encoding="utf-8").read()
+assert "</script" not in gtm_js
 
 # Cache-buster (7 Nov): the page logic is inlined, so it must never run against a cached older data.js.
 import hashlib
@@ -52,7 +55,7 @@ rep('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewpo
     '<style>.ak-board::-webkit-scrollbar{height:10px}.ak-board::-webkit-scrollbar-thumb{background:rgba(19,20,24,.22);border-radius:6px}'
     '.ak-board::-webkit-scrollbar-track{background:rgba(19,20,24,.05);border-radius:6px}.ak-board{scrollbar-color:rgba(19,20,24,.25) rgba(19,20,24,.05)}</style>\n'
     '<script src="' + SUPABASE_JS + '"></script>\n<script>' + CONFIG_JS + '</script>\n'
-    '<script src="./data.js?v=' + DATA_V + '"></script>\n<script>\n' + logic + '\n</script>\n<script src="./support.js"></script>\n'
+    '<script>\n' + gtm_js + '\n</script>\n<script src="./data.js?v=' + DATA_V + '"></script>\n<script>\n' + logic + '\n</script>\n<script src="./support.js"></script>\n'
     '<script>\n'
     '// If this host blocks the runtime\'s compile step (no eval), hand it the logic class directly.\n'
     '(function(){var n=0,t=setInterval(function(){n++;if(n>200){clearInterval(t);return;}\n'
@@ -318,7 +321,7 @@ src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" ar
 
 # ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
 k0 = src.index('<sc-if value="{{ is.calendar }}">')
-src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
 a0 = src.index('<aside aria-label="Contact"')
 a1 = src.index('</aside>', a0) + len('</aside>')
 src = src[:a1] + "\n\n" + open(os.path.join(HERE, "leads_panel.html"), encoding="utf-8").read().strip() + src[a1:]

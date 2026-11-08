@@ -6,3 +6,4 @@ node_modules/
 _kit/
 *.log
 .DS_Store
+crm/_mock*

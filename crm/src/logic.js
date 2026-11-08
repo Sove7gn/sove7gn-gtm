@@ -18,10 +18,10 @@ const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=dat
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},liPeople:{sec:'mid',label:'Who engaged'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'LinkedIn views'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Who engaged'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
-const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBoard','leadList','leadAdd','leadSetup']};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','gtmNow','gtmViews','leadBoard','leadList','gtmDash','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
@@ -85,6 +85,31 @@ const TRK_LI={chart:'Reactions per post, oldest to newest',noChart:'The chart fi
 const HEAT_C={Hot:'oklch(0.66 0.17 40)',Warm:'var(--warn)',Cold:'oklch(0.62 0.11 245)'};
 const HEAT_L={Hot:'Hot lead',Warm:'Warm lead',Cold:'Cold lead'};
 const FIT={hot:{label:'Hot lead',c:'oklch(0.66 0.17 40)'},warm:{label:'Warm',c:'var(--warn)'},'not a fit':{label:'Not a fit',c:'var(--ink-4)'},'':{label:'Checking…',c:'var(--ink-4)'}};
+// GTM intelligence (8 Nov): views, their columns, tag colours. Rules in window.GTM (crm/src/gtm.js).
+const GTM=window.GTM;
+const TAG_C={YC:'oklch(0.68 0.16 45)',AI:'var(--in)','Deep Tech':'var(--mid)','Recently Funded':'var(--ok)','Founder-led GTM':'var(--out)','Hiring Growth':'oklch(0.62 0.11 245)','High Intent':'var(--bad)','Weak Organic Presence':'var(--warn)'};
+const GF0={q:'',band:'',min:'',stage:'',status:'',rec:'',emp:'',ind:'',des:'',acq:'',rel:'',last:'',next:'',owner:'',tag:'',sort:''};
+const GV=[
+  {id:'newconn',label:'New connections',icp:true,hint:'Connected on LinkedIn, not contacted yet. ICP only unless you show the rest.',empty:'Nobody is connected-but-not-contacted right now. When someone accepts an invite and hasn’t had a message yet, they show here (mark them “Connected” on the Outreach tab, or the outreach job logs it).',f:x=>x.c.rel==='new'&&!x.c.closed},
+  {id:'icp',label:'ICP qualified',icp:true,hint:'Every open lead scoring 50+ on evidence, best first.',empty:'No lead scores 50+ yet. Scores only count what’s known: fill the Intel tab (funding, team, GTM) for the leads under Needs research.',f:x=>!x.c.closed},
+  {id:'outbound',label:'Outbound',icp:true,hint:'Cold ICP prospects we’re reaching out to: when, how, follow-ups and whether they answered.',empty:'No outbound prospects.',f:x=>x.c.rel==='outbound'&&!x.c.closed&&x.c.status!=='Nurture'},
+  {id:'midbound',label:'Midbound',hint:'We reached out first, then they engaged: a reply, a question, interest or a meeting. Accepting an invite alone doesn’t count.',empty:'Nobody has engaged after our outreach yet. Log a reply on a lead’s Outreach tab and it moves here.',f:x=>x.c.rel==='midbound'&&!x.c.closed},
+  {id:'inbound',label:'Inbound',hint:'They came to us: a DM, an enquiry, a reply to our content, the website or a referral.',empty:'No inbound leads.',f:x=>x.c.rel==='inbound'&&!x.c.closed},
+  {id:'meetings',label:'Meetings booked',hint:'A call is booked.',empty:'No meetings booked.',f:x=>x.c.status==='Meeting booked'},
+  {id:'qualified',label:'Qualified opportunities',hint:'Qualified after the call.',empty:'No qualified opportunities. Add a Qualified stage on Setup → ICP if it’s missing.',f:x=>x.c.status==='Qualified'},
+  {id:'proposal',label:'Proposal sent',hint:'Waiting on a decision.',empty:'No proposals out.',f:x=>x.c.status==='Proposal'},
+  {id:'won',label:'Won',hint:'Customers.',empty:'Nothing won yet.',f:x=>x.c.status==='Won'},
+  {id:'lost',label:'Lost',hint:'Said no, or went away.',empty:'Nothing lost.',f:x=>x.c.status==='Lost'},
+  {id:'nurture',label:'Nurture',hint:'Not now: keep warm until a new buying signal.',empty:'Nobody in Nurture.',f:x=>x.c.status==='Nurture'},
+  {id:'dq',label:'Disqualified',hint:'Disqualified by hand, or can’t reach 50 even if every UNKNOWN turned out positive.',empty:'Nobody is disqualified.',f:x=>['excluded','disqualified'].includes(x.c.score.band)},
+];
+const GCOLS={newconn:[['size','Size'],['fund','Last funding'],['icp','ICP score'],['why','Why they qualify'],['angle','Recommended angle']],
+  icp:[['size','Size'],['fund','Last funding'],['icp','ICP score'],['window','Buying window'],['why','Why they qualify'],['rel','Relationship']],
+  outbound:[['sent','Contacted'],['msg','Message'],['fu','Next follow-up'],['resp','Response'],['icp','ICP score']],
+  midbound:[['orig','Original outreach'],['lastint','Last interaction'],['response','Their response'],['etype','Engagement'],['next','Next action'],['meet','Meeting']],
+  inbound:[['src','Source'],['ctx','Context'],['lastint','Last interaction'],['next','Next action'],['icp','ICP score']],
+  status:[['rel','Relationship'],['src','Source'],['icp','ICP score'],['value','Value'],['next','Next step'],['touch','Last touch']],
+  dq:[['icp','ICP score'],['dq','Why excluded'],['rel','Relationship'],['src','Source']]};
 const liMarkKey=t=>String(t||'').replace(/\s+/g,' ').trim().slice(0,80).toLowerCase();
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
 
@@ -129,7 +154,7 @@ class Component extends DCLogic {
   state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
-    return {page,plat,lid:null,led:{},lnew:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
+    return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
@@ -697,11 +722,17 @@ class Component extends DCLogic {
     for(const [k,v] of Object.entries(s.led)){if(k.startsWith('__'))continue;
       if(k.startsWith('f:')){const fk=k.slice(2);if(String(v)!==String((l.fields||{})[fk]??'')){fields=fields||{...(l.fields||{})};fields[fk]=v;}}
       else if(String(v)!==String(l[k]??''))patch[k]=v;}
-    if(fields)patch.fields=fields;if(Object.keys(patch).length)AK.leadSave(id,patch);}
+    if(fields)patch.fields=fields;if(Object.keys(patch).length)AK.leadSave(id,patch);
+    // Intel edits still in the buffer (closing the panel skips their blur): save each one that changed.
+    const ik=[...new Set(Object.keys(s.led).filter(k=>k.startsWith('__gi:')).map(k=>k.split(':')[1]))];for(const k of ik)this.gtmSaveIntel(l,k);}
   closeLead(extra){this.flushLead();this.setState({lid:null,led:{},lnew:null,...(extra||{})});}
-  openLead(id){this.flushLead();this.setState({lid:id,led:{},lnew:null,lnote:'',lkind:'note'});}
-  newLead(seed){this.flushLead();this.setState({lid:'new',led:{},lnew:{name:'',company:'',direction:'Inbound',source:'',stage:(this.leadSet('stages')[0]||{}).name||'New',currency:AK.leadSetting('currency')||'USD',owner:this.state.owner!=='Everyone'?this.state.owner:(Object.keys(AK.HANDLES)[0]||''),...(seed||{})}});}
+  openLead(id,tab){this.flushLead();const l=AK.LD.rows.find(r=>r.id===id);const t=tab||(l&&(l.source==='Instagram'||String(l.origin_key||'').startsWith('ig:'))?'details':'intel');
+    this.setState({lid:id,led:{},lnew:null,lnote:'',lkind:'note',ltab:t});}
+  newLead(seed){this.flushLead();this.setState({lid:'new',led:{},ltab:'details',lnewForce:false,lnew:{name:'',company:'',direction:'Inbound',source:'',stage:(this.leadSet('stages')[0]||{}).name||'New',currency:AK.leadSetting('currency')||'USD',owner:this.state.owner!=='Everyone'?this.state.owner:(Object.keys(AK.HANDLES)[0]||''),...(seed||{})}});}
   async createLead(){const d=this.state.lnew;if(!d||this._creating)return;if(!String(d.name||d.company||'').trim()){this.toast('Give the lead a name or a company first.',null,true);return;}
+    if(d.linkedin&&!GTM.normLi(d.linkedin)&&/linkedin/i.test(d.linkedin)){this.toast('That LinkedIn link doesn’t look like a profile (linkedin.com/in/…).',null,true);return;}
+    if(d.email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(d.email).trim())){this.toast('That email doesn’t look right.',null,true);return;}
+    const dup=AK.gtm.find(d);if(dup&&!this._force){this.toast('Already in Leads: '+(dup.name||dup.company)+'. Open it from the note at the top, or press Save anyway.',null,true);return;}
     this._creating=true;try{const row=await AK.leadCreate(d);if(row&&this.state.lid==='new')this.setState({lid:row.id,lnew:null,led:{}});}finally{this._creating=false;}}
   // Pretty money: "$4,000"; falls back to "4000 XYZ" for a currency code Intl doesn't know.
   money(v,cur){if(v==null||v==='')return '';const n=Number(v);if(!isFinite(n))return '';try{return new Intl.NumberFormat('en-US',{style:'currency',currency:cur||'USD',maximumFractionDigits:0}).format(n);}catch(e){return n.toLocaleString()+' '+(cur||'');}}
@@ -726,7 +757,18 @@ class Component extends DCLogic {
     if(f.ig_ai_next)lines.push(['AI suggests',f.ig_ai_next]);
     if(last)lines.push(['Last message',lastWho+', '+this.since(last.at)+': “'+clip(String(last.text).replace(/^@[\w.]+:\s*/,''),70)+'”']);
     if(f.ig_followers!=null)lines.push(['Followers',Number(f.ig_followers).toLocaleString('en-US')]);
-    return{summary,ai:!!f.ig_summary,lines:lines.map(([k,v])=>({k,v})),has:!!(summary||lines.length)};}
+    // GTM intelligence (8 Nov): the bubble is a compact intelligence card. UNKNOWN where nothing is known; sources are on the Intel tab.
+    const x=this.gtmOne(l.id);const isIg=l.source==='Instagram'||String(l.origin_key||'').startsWith('ig:');let chips=[],intel=[],sum2='';
+    if(x){const {c}=x;const E=x.ev;const U='UNKNOWN';const v=k=>E[k]?(k==='amount'||k==='total'?GTM.fmtMoney(GTM.parseMoney(E[k].v)):String(E[k].v))+(E[k].kind==='inference'?' (inferred)':''):'';
+      chips=[this.gtmScoreP(c.score),this.gtmLevelP(c.radar),this.gtmRelP(c)];
+      const row=(k2,val)=>({k:k2,v:val||U,fg:val?'var(--ink-2)':'var(--ink-4)'});
+      intel=[row('Funding',[v('round'),v('amount'),E.date?'('+String(E.date.v).slice(0,7)+')':''].filter(Boolean).join(' ')),row('Company',[x.emp!=null?x.emp+' people':'',v('industry'),v('hq'),v('accelerator')].filter(Boolean).join(' · ')),
+        row('Person',[v('title'),E.founder&&E.founder.v==='Yes'?'founder':''].filter(Boolean).join(', ')),row('GTM',[E.hom?'Head of Marketing: '+E.hom.v:'',E.sdr?'SDRs: '+E.sdr.v:'',E.hiring?'hiring: '+clip(E.hiring.v,30):'',E.li_freq?E.li_freq.v+' posts/mo':''].filter(Boolean).join(' · ')),
+        row('Status',c.status+' · '+c.acq),row('Why now',c.radar.why.slice(0,2).map(w=>w.text+(w.kind==='fact'?'':' (inference)')).join('; ')),row('Angle',c.radar.angle.label)];
+      if(!isIg)sum2=E.description?String(E.description.v)+(E.description.kind==='inference'?' (inferred)':''):'';}
+    const all=isIg?[...lines.map(([k,v])=>({k,v,fg:'var(--ink-2)'})),...intel.slice(4,5)]:[...intel,...lines.filter(z=>z[0]==='Next').map(([k,v])=>({k,v,fg:'var(--ink-2)'}))];
+    const sm=isIg?summary:(sum2||clip(String(l.notes||'').replace(/\s+/g,' '),200));
+    return{summary:sm,ai:!!f.ig_summary,label:isIg?(f.ig_summary?'✦ AI summary':'From the chat'):'✦ Intelligence',chips,lines:all,has:true};}
   srcIcon(src){return {X:'𝕏',LinkedIn:'in',Instagram:'◎',Email:'✉',Referral:'↪',Website:'⌂'}[src]||'•';}
   tagPill(label,color){return{label,dot:color,bg:'color-mix(in oklch, '+color+' 12%, white)',fg:'color-mix(in oklch, '+color+' 70%, black)'};}
   leadCard(l){const st=this.stageOf(l.stage);const nx=this.leadNext(l);const a=avatar(l.name||l.company||'?');
@@ -735,12 +777,13 @@ class Component extends DCLogic {
       isIg:l.source==='Instagram',notIg:l.source!=='Instagram',igLine:this.igAcct(l)?'via '+this.igAcct(l):'Instagram',stage:this.tagPill(l.stage,st.color),
       group:l.group_name?this.tagPill(l.group_name,this.tagOf('groups',l.group_name)):null,hasGroup:!!l.group_name,
       heat:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),
+      ...(()=>{const x=this.gtmOne(l.id);return x?{icpP:this.gtmScoreP(x.c.score),hasIcp:true,relP:this.gtmRelP(x.c),hasRel:x.c.rel!=='inbound'||l.source!=='Instagram'}:{hasIcp:false,hasRel:false};})(),
       cats:(l.categories||[]).slice(0,3).map(c=>this.tagPill(c,this.tagOf('categories',c))),when:l.last_touch?'Touched '+this.since(l.last_touch):'Added '+this.since(l.created_at),
       open:()=>this.openLead(l.id),...this.leadCardActs(l)};}
   // The bin moves a lead to Lost (in Lost, it archives it), with undo; the ✦ shows what's going on with them.
   leadCardActs(l){const ST=this.leadSet('stages');const lostSt=ST.find(x=>x.kind==='lost');const inLost=this.stageOf(l.stage).kind==='lost';const who=l.name||l.company||'the lead';
     const tip=this.leadTip(l);
-    const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=300;const below=r.bottom+230<window.innerHeight;
+    const place=(e)=>{const r=e.currentTarget.getBoundingClientRect();const w=340;const below=r.bottom+330<window.innerHeight;
       this.setState({ldTip:{id:l.id,x:Math.max(8,Math.min(r.right-w,window.innerWidth-w-8)),y:below?r.bottom+6:r.top-6,up:!below}});};
     // Instagram: straight to the DM thread (ig.me opens it in whichever account you're signed in to in that browser).
     const igH=String(l.instagram||'').trim().replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,'').replace(/[/?#].*$/,'');
@@ -775,7 +818,7 @@ class Component extends DCLogic {
   // The hover card for the ✦, drawn once over the whole board.
   leadTipBox(){const t=this.state.ldTip;const l=t&&AK.LD.rows.find(r=>r.id===t.id);if(!l)return{on:false};const tip=this.leadTip(l);
     return{on:true,left:t.x+'px',top:t.y+'px',tf:t.up?'translateY(-100%)':'none',name:l.name||l.instagram||'(no name)',acct:this.igAcct(l),hasAcct:!!this.igAcct(l),
-      summary:tip.summary,hasSummary:!!tip.summary,label:tip.ai?'✦ AI summary':'From the chat',lines:tip.lines};}
+      summary:tip.summary,hasSummary:!!tip.summary,label:tip.label,chips:tip.chips,hasChips:tip.chips.length>0,lines:tip.lines,more:'Open the lead for sources and the full card'};}
   leadHdr(page,h){const L=this.leadsAll();const open=L.filter(l=>this.stageOf(l.stage).kind==='open');const due=open.filter(l=>{const n=this.leadNext(l);return n&&(n.late||n.today);});
     h={...h,eyebrow:'Leads · '+PAGES[page].label,title:PAGES[page].label==='Overview'?'Leads':PAGES[page].label,cta:'New lead',go:()=>this.newLead()};
     const st=AK.leadsState();
@@ -786,7 +829,10 @@ class Component extends DCLogic {
     else if(page==='leadBoard')h.next='Drag a card to another stage, drag the background to scroll. Hover ✦ for a quick read. '+open.length+' open, worth '+this.moneySum(open)+'.';
     else if(page==='leadList')h.next=L.length+(L.length===1?' lead':' leads')+'. Click a column to sort, and a row to open it.';
     else if(page==='leadAdd'){const n=this.candidates().filter(c=>!c.added).length;h.next=n?n+' people from X and LinkedIn you haven’t added yet.':'Everyone from X and LinkedIn is already in.';}
-    else if(page==='leadSetup')h.next='Your stages, sources, groups, categories and extra fields. Changes apply to every lead.';
+    else if(page==='leadSetup')h.next='Your ICP, stages, sources, groups, categories and extra fields. Changes apply to every lead.';
+    else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a HIGH buying window. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
+    else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
+    else if(page==='gtmDash')h.next='Outreach, replies and conversion, by source, ICP band, template, angle and stage.';
     return h;}
   moneySum(list){const cur=AK.leadSetting('currency')||'USD';const same=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)===cur);const other=list.filter(l=>l.price!=null&&l.price!==''&&(l.currency||cur)!==cur).length;
     return this.money(same.reduce((a,l)=>a+Number(l.price||0),0),cur)+(other?' + '+other+' in other currencies':'');}
@@ -816,7 +862,10 @@ class Component extends DCLogic {
     if(page==='leadBoard')return{...base,...this.leadBoard()};
     if(page==='leadList')return{...base,...this.leadList()};
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
-    if(page==='leadSetup')return{...base,...this.leadSetupVals()};
+    if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
+    if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
+    if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
+    if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
     return base;}
   leadOverview(){const s=this.state;const E=s.entered;const L=this.leadsAll();const ST=this.leadSet('stages');const kindOf=l=>this.stageOf(l.stage).kind;
     const open=L.filter(l=>kindOf(l)==='open'),won=L.filter(l=>kindOf(l)==='won'),lost=L.filter(l=>kindOf(l)==='lost');
@@ -854,9 +903,9 @@ class Component extends DCLogic {
       edge:e=>{const b=e.currentTarget;const r=b.getBoundingClientRect();const x=e.clientX;if(x<r.left+90)b.scrollLeft-=Math.ceil((r.left+90-x)/5);else if(x>r.right-90)b.scrollLeft+=Math.ceil((x-r.right+90)/5);},
       count:L.length+(L.length===1?' lead':' leads')+(s.lf.q||s.lf.source||s.lf.group||s.lf.cat||s.lf.dir?' match the filters':''),none:!this.leadsAll().length};}
   leadList(){const s=this.state;const L=this.leadFiltered();const key=s.lsort,dir=s.ldir;
-    const SORT={name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
+    const SORT={icp:l=>{const x=this.gtmOne(l.id);return x?-x.c.score.score:0;},name:l=>(l.name||l.company||'').toLowerCase(),stage:l=>this.leadSet('stages').findIndex(x=>x.name===l.stage),source:l=>l.source||'',group:l=>l.group_name||'',value:l=>Number(l.price||0),next:l=>l.next_date||'9999',touch:l=>-new Date(l.last_touch||l.created_at).getTime()};
     const by=SORT[key]||SORT.touch;const sorted=L.slice().sort((a,b)=>{const x=by(a),y=by(b);return(x<y?-1:x>y?1:0)*dir;});const lim=s.lmore?sorted.length:50;
-    const heads=[['name','Lead'],['stage','Stage'],['source','Source'],['group','Group'],['value','Value'],['next','Next step'],['touch','Last touch']].map(([k,label])=>({label,arrow:key===k?(dir>0?'↑':'↓'):'',fg:key===k?'var(--ink)':'var(--ink-3)',
+    const heads=[['name','Lead'],['stage','Stage'],['icp','ICP'],['source','Source'],['group','Group'],['value','Value'],['next','Next step'],['touch','Last touch']].map(([k,label])=>({label,arrow:key===k?(dir>0?'↑':'↓'):'',fg:key===k?'var(--ink)':'var(--ink-3)',
       sort:()=>this.setState(z=>({lsort:k,ldir:z.lsort===k?-z.ldir:1})),right:k==='value'}));
     const rows=sorted.slice(0,lim).map((l,i)=>{const c=this.leadCard(l);return{...c,stageP:c.stage,source:l.source?this.srcIcon(l.source)+' '+l.source:'–',dir:l.direction||'',groupP:c.group,hasGroup:c.hasGroup,
       value:c.value||'–',nextL:c.next?c.next.label:'–',nextFg:c.next?c.next.fg:'var(--ink-4)',touch:l.last_touch?this.since(l.last_touch):'–',bt:i===0?'none':'1px solid var(--hairline)'};});
@@ -978,12 +1027,261 @@ class Component extends DCLogic {
       l.instagram&&{label:'Instagram',go:()=>open('https://instagram.com/'+String(l.instagram).replace(/^@/,''))},l.website&&{label:'Website',go:()=>open(/^https?:/.test(l.website)?l.website:'https://'+l.website)}].filter(Boolean);
     const st=this.stageOf(l.stage);const a=avatar(l.name||l.company||'?');
     const archive=()=>{this.closeLead();AK.leadArchive(l.id,true);this.toast('Archived '+(l.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));};
-    return{open:true,isNew,notNew:!isNew,...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
+    const tab=isNew?'details':s.ltab;const g=isNew?{ok:false}:this.gtmPanel(l);const dup=isNew?AK.gtm.find(l):null;
+    const tabs=isNew?[]:[['intel','Intel'],['out','Outreach'],['details','Details']].map(([k,label])=>{const on=tab===k;return{label,go:()=>this.setState({ltab:k}),bg:on?'var(--ink)':'transparent',fg:on?'#fff':'var(--ink-2)'};});
+    return{open:true,isNew,notNew:!isNew,tabs,hasTabs:!isNew,tabIntel:tab==='intel'&&g.ok,tabOut:tab==='out'&&g.ok,tabDetails:tab==='details'||!g.ok,g,
+      hasDup:!!dup,dupTxt:dup?'Looks like '+(dup.name||dup.company)+(dup.company&&dup.name?' ('+dup.company+')':'')+' is already in Leads ('+dup.stage+').':'',openDup:()=>dup&&this.openLead(dup.id),
+      saveAnyway:()=>{this._force=true;Promise.resolve(this.createLead()).finally(()=>{this._force=false;});},
+      ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
       noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
+
+  /* ---------- GTM intelligence (8 Nov) ----------
+     LinkedIn views (New connections, ICP qualified, Outbound, Midbound, Inbound and the status views), Right now (the Buying
+     Window Radar), the GTM dashboard, the ICP on Setup, and the lead panel's Intel and Outreach tabs. The rules are in
+     window.GTM (crm/src/gtm.js); every lead is classified once per data change. Nothing here sends a message. */
+  gtmAll(){const v=AK.version()+'|'+this.state.owner+'|'+JSON.stringify(AK.leadSetting('icp')||{});if(this._gC&&this._gV===v)return this._gC;
+    const cfg=AK.gtm.cfg();const ST=this.leadSet('stages');const ev=new Map();for(const e of AK.LD.events)(ev.get(e.lead_id)||ev.set(e.lead_id,[]).get(e.lead_id)).push(e);
+    const now=new Date();const list=this.leadsAll().map(l=>{const E=GTM.evidence(l);const c=GTM.classify(l,ev.get(l.id)||[],ST,cfg,now);const fd=E.date&&GTM.parseDay(E.date.v);
+      const lastOut=[...c.touches].reverse().find(t=>t.dir==='out');const lc=lastOut?lastOut.at:c.contacted&&c.contacted.at||'';
+      return{l,c,ev:E,persona:GTM.personaOf(l),industry:E.industry?String(E.industry.v):'',emp:E.employees?Number(E.employees.v):null,fmo:fd?(now-fd)/(30.44*AK.DAY):null,lastContact:lc};});
+    this._gV=v;this._gC=list;this._gM=new Map(list.map(x=>[x.l.id,x]));return list;}
+  gtmOne(id){this.gtmAll();return this._gM.get(id)||null;}
+  gtmBandP(sc){return pill(sc.label,GTM.BAND[sc.band].tone);}
+  gtmScoreP(sc){return pill(sc.band==='unverified'||sc.band==='excluded'||sc.band==='disqualified'?sc.label+(sc.score?' · '+sc.score:''):'ICP '+sc.score+' · '+sc.label,GTM.BAND[sc.band].tone);}
+  gtmLevelP(rd){return pill('Window '+rd.level+(rd.score?' · '+rd.score:''),{HIGH:'out',MEDIUM:'warn',LOW:'ghost'}[rd.level]);}
+  gtmRelP(c){return pill(c.relLabel,{new:'warn',outbound:'out',midbound:'mid',inbound:'in'}[c.rel]);}
+  gtmKindP(k){return{fact:pill('Source','ok'),manual:pill('No source','warn'),derived:pill('From CRM','neutral'),inference:pill('Inference','warn'),override:pill('Override','mid')}[k]||pill('UNKNOWN','ghost');}
+  gtmId(x){const l=x.l;const a=avatar(l.name||l.company||'?');const li=GTM.normLi(l.linkedin)?(/^https?:/.test(l.linkedin)?l.linkedin:'https://'+String(l.linkedin).replace(/^\/+/,'')):'';
+    const tg=[...x.c.tags,...(l.categories||[])].filter((v,i,A)=>A.indexOf(v)===i);
+    return{...a,id:l.id,name:l.name||'(no name)',role:l.role||(x.ev.title?String(x.ev.title.v):'')||'Role UNKNOWN',company:l.company||'Company UNKNOWN',hasLi:!!li,openLi:stop(()=>open(li)),liLabel:li?li.replace(/^https?:\/\/(www\.)?/,'').slice(0,40):'',
+      tags:tg.slice(0,4).map(t=>this.tagPill(t,TAG_C[t]||this.tagOf('categories',t))),open:()=>this.openLead(l.id,'intel')};}
+  // One-click "move into outreach": the next step becomes sending the opener today, and the panel opens on Outreach.
+  async gtmStart(l){const first=GTM.firstName(l.name);const patch={next_step:'Send the opener to '+first,next_date:new Date().toISOString().slice(0,10)};if(l.direction!=='Outbound'&&l.direction!=='Inbound')patch.direction='Outbound';
+    const ok=await AK.leadSave(l.id,patch);if(ok){this.toast('Queued '+(l.name||'them')+' for outreach. Copy the opener and send it yourself.');this.openLead(l.id,'out');}}
+  gtmAction(view,x){const l=x.l;
+    if(view==='newconn'||(view==='icp'&&!x.c.contacted)||(view==='outbound'&&!x.c.contacted))return{label:'Start outreach',go:stop(()=>this.gtmStart(l)),primary:true};
+    if(view==='outbound')return{label:x.c.fuN>=2?'Log reply':'Follow up',go:stop(()=>this.openLead(l.id,'out')),primary:false};
+    if(view==='midbound'||view==='inbound')return{label:'Log / reply',go:stop(()=>this.openLead(l.id,'out')),primary:false};
+    return{label:'Open',go:stop(()=>this.openLead(l.id,'intel')),primary:false};}
+  gtmFilterVals(){const s=this.state;const f=s.gf;const A=this.gtmAll();const set=(k,v)=>this.setState(z=>({gf:{...z.gf,[k]:v},gmore:false}));const o=(all,list)=>[{v:'',l:all},...list.map(x=>Array.isArray(x)?{v:x[0],l:x[1]}:{v:x,l:x})];
+    const inds=[...new Set(A.map(x=>x.industry).filter(Boolean))].sort();const owners=[...new Set(A.map(x=>x.l.owner).filter(Boolean))].sort();
+    const sel=(k,label,opts)=>({k,label,val:f[k]||'',on:e=>set(k,e.target.value),opts,act:!!f[k]});
+    const sels=[sel('band','ICP band',o('Any ICP band',Object.keys(GTM.BAND).map(b=>[b,GTM.BAND[b].label]))),sel('min','ICP score',o('Any score',[['85','85+'],['70','70+'],['50','50+']])),
+      sel('stage','Stage',o('Any stage',this.leadSet('stages').map(x=>x.name))),sel('status','Status',o('Any status',GTM.STATUSES)),
+      sel('rec','Funding recency',o('Any funding date',[['3','Last 3 months'],['6','Last 6 months'],['12','Last 12 months'],['old','Over a year'],['u','UNKNOWN']])),
+      sel('emp','Employees',o('Any size',[['s','1–4'],['icp','5–50'],['m','51–200'],['l','200+'],['u','UNKNOWN']])),sel('ind','Industry',o('Any industry',[...inds,['u','UNKNOWN']])),
+      sel('des','Designation',o('Any designation',['Founder / CEO','Other C-suite','Other role','UNKNOWN'])),sel('acq','Source',o('Any source',GTM.ACQ)),
+      sel('rel','Relationship',o('Any relationship',Object.keys(GTM.REL).map(k=>[k,GTM.REL[k]]))),
+      sel('last','Last contacted',o('Last contacted: any',[['7','Last 7 days'],['30','Last 30 days'],['old','Over 30 days'],['never','Never']])),
+      sel('next','Next follow-up',o('Next follow-up: any',[['late','Overdue'],['today','Today'],['week','This week'],['none','None set']])),
+      sel('owner','Assignee',o('Any assignee',owners)),sel('tag','Tag',o('Any tag',[...GTM.TAGS,...this.leadSet('categories').map(c=>c.name||c)].filter((v,i,a)=>a.indexOf(v)===i))),
+      sel('sort','Sort',[{v:'',l:'Sort: ICP score'},{v:'radar',l:'Sort: buying window'},{v:'recent',l:'Sort: last touch'},{v:'name',l:'Sort: name'}])];
+    const active=Object.keys(f).some(k=>k!=='sort'&&f[k]);
+    return{q:f.q,onQ:e=>set('q',e.target.value),sels,active,clear:()=>this.setState({gf:{...GF0},gmore:false}),moreOn:!!s.gfMore,moreLabel:s.gfMore?'Fewer filters':'More filters',toggleMore:()=>this.setState(z=>({gfMore:!z.gfMore})),
+      main:sels.filter(x=>['band','status','acq','sort'].includes(x.k)),rest:sels.filter(x=>!['band','status','acq','sort'].includes(x.k))};}
+  gtmFiltered(list){const f=this.state.gf;const q=String(f.q||'').trim().toLowerCase();const now=Date.now();const t0=new Date();t0.setHours(0,0,0,0);
+    return list.filter(x=>{const {l,c}=x;
+      if(q&&![l.name,l.company,l.role,l.linkedin,l.notes,l.source_detail,x.industry].join(' ').toLowerCase().includes(q))return false;
+      if(f.band&&c.score.band!==f.band)return false;if(f.min&&c.score.score<Number(f.min))return false;if(f.stage&&l.stage!==f.stage)return false;if(f.status&&c.status!==f.status)return false;
+      if(f.rec){const m=x.fmo;if(f.rec==='u'?m!=null:m==null||!(f.rec==='old'?m>12:m<=Number(f.rec)))return false;}
+      if(f.emp){const n=x.emp;if(f.emp==='u'?n!=null:n==null||!(f.emp==='s'?n<5:f.emp==='icp'?n>=5&&n<=50:f.emp==='m'?n>50&&n<=200:n>200))return false;}
+      if(f.ind&&(f.ind==='u'?!!x.industry:x.industry!==f.ind))return false;if(f.des&&x.persona!==f.des)return false;if(f.acq&&c.acq!==f.acq)return false;if(f.rel&&c.rel!==f.rel)return false;
+      if(f.last){const d=x.lastContact?(now-new Date(x.lastContact))/AK.DAY:null;if(f.last==='never'?d!=null:d==null||!(f.last==='old'?d>30:d<=Number(f.last)))return false;}
+      if(f.next){const n=this.leadNext(l);const d=l.next_date?new Date(l.next_date+'T00:00:00'):null;if(f.next==='none'?!!n:!n||!(f.next==='late'?n.late:f.next==='today'?n.today:d&&d>=t0&&d-t0<=7*AK.DAY))return false;}
+      if(f.owner&&l.owner!==f.owner)return false;if(f.tag&&!c.tags.includes(f.tag)&&!(l.categories||[]).includes(f.tag))return false;
+      return true;});}
+  gtmSorted(list){const k=this.state.gf.sort;const by=k==='radar'?(x=>-(x.c.radar.score*1000+x.c.score.score)):k==='recent'?(x=>-new Date(x.l.last_touch||x.l.created_at).getTime()):k==='name'?(x=>(x.l.name||'').toLowerCase()):(x=>-(x.c.score.score*1000+x.c.score.max));
+    return list.slice().sort((a,b)=>{const x=by(a),y=by(b);return x<y?-1:x>y?1:0;});}
+  gtmViewsVals(){const s=this.state;const A=this.gtmAll();const vid=GV.some(v=>v.id===s.gv)?s.gv:'newconn';const V=GV.find(v=>v.id===vid);const excl=!!s.gx;
+    const inView=v=>A.filter(x=>v.f(x));const icpOnly=v=>v.icp&&!(excl&&v.id!=='icp');
+    const dup=AK.gtm.dupes();
+    const tabs=[...GV.map(v=>{const all=inView(v);const n=icpOnly(v)?all.filter(x=>x.c.score.icp).length:all.length;const on=v.id===vid&&s.gv!=='dupes';
+      return{label:v.label,count:String(n),go:()=>this.setState({gv:v.id,gmore:false}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};}),
+      ...(dup.length?[{label:'Possible duplicates',count:String(dup.length),go:()=>this.setState({gv:'dupes'}),bg:s.gv==='dupes'?'var(--bad)':'var(--bad-soft)',fg:s.gv==='dupes'?'#fff':'var(--bad-ink)',bd:'var(--bad-line)'}]:[])];
+    const base={tabs,wrap:s.narrow?'nowrap':'wrap',f:this.gtmFilterVals(),isDupes:s.gv==='dupes',notDupes:s.gv!=='dupes',hint:V.hint,title:V.label,
+      exclOn:excl,exclLabel:excl?'Showing excluded and unresearched':'ICP only',exclTitle:'Leads under 50, or not researched enough to score, are hidden from the ICP views. Show them too.',
+      canExcl:!!V.icp&&V.id!=='icp',toggleExcl:()=>{const v=!this.state.gx;store.set('gtm-excl',v);this.setState({gx:v});},
+      exclBg:excl?'var(--warn-soft)':'rgba(255,255,255,.85)',exclFg:excl?'var(--warn-ink)':'var(--ink)',exclSh:excl?'inset 0 0 0 1.5px var(--warn-line)':'inset 0 0 0 1px var(--hairline-strong)'};
+    if(s.gv==='dupes'&&dup.length)return{...base,...this.gtmDupesVals(dup)};
+    if(s.gv==='dupes')return{...base,isDupes:true,notDupes:false,groups:[],hasGroups:false,noGroups:true};
+    const all=inView(V);const pool=icpOnly(V)?all.filter(x=>x.c.score.icp):all;const hidden=all.length-pool.length;const unv=all.filter(x=>x.c.score.band==='unverified').length;
+    const list=this.gtmSorted(this.gtmFiltered(pool));const lim=s.gmore?list.length:60;
+    const heads=(GCOLS[vid]||GCOLS.status).map(c=>({label:c[1]}));
+    const rows=list.slice(0,lim).map((x,i)=>{const act=this.gtmAction(vid,x);return{...this.gtmId(x),cells:(GCOLS[vid]||GCOLS.status).map(c=>this.gtmCell(c[0],x)),
+      act:act.label,go:act.go,aBg:act.primary?'var(--out)':'var(--glass-strong)',aFg:act.primary?'#fff':'var(--ink)',aSh:act.primary?'none':'var(--shadow-sm), var(--hi)',bt:i===0?'none':'1px solid var(--hairline)'};});
+    const ld=AK.leadsState();
+    return{...base,heads,rows,hasRows:rows.length>0,noRows:!rows.length&&ld.loaded,loading:!ld.loaded,
+      empty:all.length?'No leads match these filters.':V.empty,hasHidden:hidden>0&&!excl&&!!V.icp&&vid!=='icp',
+      hiddenTxt:hidden+(hidden===1?' lead is':' leads are')+' hidden: '+(unv?unv+' need research before they can be scored'+(hidden>unv?', ':''):'')+(hidden>unv?(hidden-unv)+' score under 50 or are disqualified':'')+'.',
+      count:'Showing '+rows.length+' of '+list.length+(pool.length!==list.length?' (filtered from '+pool.length+')':''),hasMore:list.length>lim,more:()=>this.setState({gmore:true})};}
+  gtmCell(k,x){const {l,c}=x;const E=x.ev;const U='UNKNOWN';const T=(txt,sub,fg)=>({txt:txt==null||txt===''?U:String(txt),sub:sub||'',fg:fg||(txt==null||txt===''?'var(--ink-4)':'var(--ink-2)'),isPill:false,notPill:true});
+    const P=(p,sub)=>({isPill:true,notPill:false,p,sub:sub||'',txt:'',fg:''});const d=v=>v?String(v).slice(0,10):'';const ex=k2=>E[k2]?String(k2==='amount'||k2==='total'?GTM.fmtMoney(GTM.parseMoney(E[k2].v)):E[k2].v):'';
+    const lastOut=[...c.touches].reverse().find(t=>t.dir==='out');const n=this.leadNext(l);
+    switch(k){
+      case 'size':return T(x.emp!=null?x.emp+' people':'',ex('industry'));
+      case 'fund':return T([ex('round'),ex('amount')].filter(Boolean).join(' · '),E.date?(E.date.kind==='inference'?'≈ ':'')+d(E.date.v)+(E.date.kind==='inference'?' (inferred)':''):'Date UNKNOWN');
+      case 'icp':return P(this.gtmScoreP(c.score),'Confidence '+c.score.conf+'%');
+      case 'why':return T(c.score.reasons.slice(0,2).join('; '),c.score.gaps.length?'UNKNOWN: '+c.score.gaps.slice(0,3).join(', '):'');
+      case 'angle':return T(c.radar.angle.label,c.radar.why[0]?c.radar.why[0].text:'No signals yet');
+      case 'window':return P(this.gtmLevelP(c.radar),c.radar.why[0]?c.radar.why[0].label:'');
+      case 'sent':return T(c.contacted?d(c.contacted.at):'',lastOut?lastOut.ch:c.contacted?'LinkedIn':'');
+      case 'msg':return T(lastOut?clip(lastOut.text||GTM.TOUCH_TYPES[lastOut.type],60):c.contacted?GTM.templateOf(l,c):'',lastOut&&lastOut.tpl?lastOut.tpl:'');
+      case 'fu':return T(n?n.when:'',c.fuN+(c.fuN===1?' follow-up sent':' follow-ups sent'));
+      case 'resp':return T(c.engaged?(c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:'Replied'):c.contacted?'No reply yet':'Not contacted',c.lastIn?d(c.lastIn.at):'',c.engaged?'var(--mid-ink)':'var(--ink-3)');
+      case 'orig':return T(c.contacted?d(c.contacted.at):'',c.contacted?GTM.templateOf(l,c):'');
+      case 'lastint':return T(c.lastAny?d(c.lastAny.at):d(l.last_touch),c.lastAny?(c.lastAny.dir==='in'?'From them':'From us'):'');
+      case 'response':return T(c.lastIn?clip(c.lastIn.text,70):c.engaged?'See history ('+String(c.engaged.src||'').slice(0,40)+')':'',c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:'');
+      case 'etype':return T(c.engaged?(c.lastIn?GTM.TOUCH_TYPES[c.lastIn.type]:c.engaged.how==='stage'?'Reached '+l.stage:c.engaged.how):'');
+      case 'next':return T(n?n.label:'',n&&n.late?'Overdue':'',n&&n.late?'var(--bad-ink)':undefined);
+      case 'meet':return T(['Meeting booked','Qualified','Proposal','Won'].includes(c.status)?c.status:'No meeting yet','',['Meeting booked','Qualified','Proposal','Won'].includes(c.status)?'var(--ok-ink)':'var(--ink-3)');
+      case 'src':return T(c.acq,[l.source,l.direction].filter(Boolean).join(' · '));
+      case 'ctx':return T(clip(l.source_detail||firstLine(l.notes),70),clip(firstLine(l.notes),60));
+      case 'rel':return P(this.gtmRelP(c),c.status);
+      case 'value':return T(this.money(l.price,l.currency)||'–','','var(--ink-2)');
+      case 'touch':return T(l.last_touch?this.since(l.last_touch):'Never','','var(--ink-3)');
+      case 'dq':return T(c.score.dq||(c.score.band==='excluded'?'Max '+c.score.max+' of 100 even if every UNKNOWN were positive':''),c.score.dims.filter(z=>z.state==='no').map(z=>z.label).slice(0,3).join(', '));
+      default:return T('');}}
+  gtmDupesVals(dup){const rows=AK.LD.rows;const by=id=>rows.find(r=>r.id===id);
+    const groups=dup.map(g=>{const L=g.ids.map(by).filter(Boolean);const keep=L.find(l=>String(l.origin_key||'').startsWith('li-outreach:'))||L.slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at))[0];
+      return{why:g.why,items:L.map(l=>({...avatar(l.name||l.company),name:l.name||'(no name)',sub:[l.role,l.company,l.stage,l.origin_key?String(l.origin_key).split(':')[0]:''].filter(Boolean).join(' · '),isKeep:l.id===keep.id,notKeep:l.id!==keep.id,
+        open:()=>this.openLead(l.id,'details'),merge:async()=>{if(await AK.gtm.merge(keep.id,l.id))this.toast('Merged '+(l.name||'the duplicate')+' into '+(keep.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));}}))};});
+    return{groups,hasGroups:groups.length>0,noGroups:!groups.length};}
+  gtmNowVals(){const s=this.state;const A=this.gtmAll().filter(x=>!x.c.closed&&(s.gx||!['excluded','disqualified'].includes(x.c.score.band)));
+    const ranked=A.filter(x=>x.c.radar.score>0).sort((a,b)=>b.c.radar.score-a.c.radar.score||b.c.score.score-a.c.score.score);const lim=s.gmore?ranked.length:24;
+    const me=((CFG.accounts||[])[0]||{}).name||'';
+    const items=ranked.slice(0,lim).map(x=>{const {l,c}=x;const m=GTM.messages(l,c,me);const k='gnow'+l.id;const cb=this.copyBtn(k,'Copy opener');
+      return{...this.gtmId(x),level:this.gtmLevelP(c.radar),icp:this.gtmScoreP(c.score),rel:this.gtmRelP(c),action:this.gtmRec(x),angle:c.radar.angle.label,
+        why:c.radar.why.map(w=>({label:w.label,text:w.text,when:w.when?(w.derived?'detected ':'happened ')+w.when:'date UNKNOWN',seen:w.seen?'detected '+w.seen:'',kindP:w.kind==='fact'?pill('Verified','ok'):pill('Inference','warn'),hasSrc:!!w.src,openSrc:()=>open(w.src),pts:'+'+w.pts})),
+        copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:stop(()=>this.copy(m.list[1].text,k,'Opener copied. Send it yourself on LinkedIn.')),start:stop(()=>this.openLead(l.id,'out'))};});
+    const lvl=L=>A.filter(x=>x.c.radar.level===L).length;
+    return{items,hasItems:items.length>0,noItems:!items.length,loading:!AK.leadsState().loaded,kpis:[{label:'High',v:String(lvl('HIGH')),d:'Act this week'},{label:'Medium',v:String(lvl('MEDIUM')),d:'Worth a touch'},{label:'Low',v:String(lvl('LOW')),d:'No fresh signal'}],
+      hasMore:ranked.length>lim,more:()=>this.setState({gmore:true}),count:'Showing '+items.length+' of '+ranked.length+' with a buying signal'};}
+  // What to do next with someone, from where the relationship stands.
+  gtmRec(x){const {l,c}=x;const a=c.radar.angle.label;
+    if(c.status==='Meeting booked')return 'Prep the call around “'+a+'”.';
+    if(c.rel==='midbound'||c.rel==='inbound'){if(c.lastAny&&c.lastAny.dir==='in')return 'Reply today, then propose a 15-minute call.';return c.engaged?'Book the call: suggest two times.':'Qualify them: ask what they’re working on.';}
+    if(!c.contacted)return c.conn==='connected'?'Send the opener today.':c.conn==='pending'?'Invite pending: send the opener once they accept.':'Send a connection request (no note), then the opener.';
+    return c.fuN>=2?'Two follow-ups sent: park in Nurture until a new signal.':'Send follow-up '+(c.fuN+1)+', tied to: '+(c.radar.why[0]?c.radar.why[0].text:a)+'.';}
+  gtmDashVals(){const A=this.gtmAll();const E=this.state.entered;const pct=(a,b)=>b?Math.round(a/b*100)+'%':'–';
+    const ob=A.filter(x=>x.c.rel==='outbound'||x.c.rel==='midbound'||x.c.rel==='new');const sent=ob.filter(x=>x.c.contacted);const resp=sent.filter(x=>x.c.engaged);const pos=sent.filter(x=>x.c.positive);
+    const meet=A.filter(x=>['Meeting booked','Qualified','Proposal','Won'].includes(x.c.status)),qual=A.filter(x=>['Qualified','Proposal','Won'].includes(x.c.status)),open=A.filter(x=>!x.c.closed);
+    const kpis=[{label:'New ICP connections',v:String(A.filter(x=>x.c.rel==='new'&&x.c.score.icp).length),d:A.filter(x=>x.c.rel==='new').length+' new connections in all'},
+      {label:'Outbound sent',v:String(sent.length),d:ob.length+' outbound prospects'},{label:'Midbound',v:String(A.filter(x=>x.c.rel==='midbound'&&!x.c.closed).length),d:'Replied after we reached out'},
+      {label:'Inbound',v:String(A.filter(x=>x.c.rel==='inbound'&&!x.c.closed).length),d:'Came to us'},{label:'Response rate',v:pct(resp.length,sent.length),d:resp.length+' of '+sent.length+' contacted replied'},
+      {label:'Positive rate',v:pct(pos.length,sent.length),d:pos.length+' interested or booked'},{label:'Meetings',v:String(meet.length),d:'Booked or further'},
+      {label:'Qualified opportunities',v:String(qual.length),d:'Qualified, proposal or won'},{label:'Pipeline value',v:this.moneySum(open.map(x=>x.l)),d:open.length+' open leads'}].map(k=>({...k,tone:'var(--ink-3)'}));
+    const inS=(L,st)=>L.filter(x=>st.includes(x.c.status)).length;// outbound only, so each step is a subset of the one before
+    const steps=[['Prospects',ob.length],['Contacted',sent.length],['Responded',resp.length],['Meetings',inS(resp,['Meeting booked','Qualified','Proposal','Won'])],['Qualified',inS(resp,['Qualified','Proposal','Won'])],['Won',inS(resp,['Won'])]];const mx=Math.max(1,...steps.map(z=>z[1]));
+    const funnel=steps.map(([name,n],i)=>({name,n:String(n),w:E?Math.max(n?2:0,n/mx*100)+'%':'0%',conv:i?pct(n,steps[i-1][1])+' of previous':''}));
+    const tbl=(title,help,rows,first)=>({title,help,first,rows:rows.map(r=>({name:r.name,cells:[r.n,r.sent,r.respRate,r.posRate,r.meet,r.won].map(v=>({v:String(v)}))})),has:rows.length>0,none:!rows.length});
+    const bl=x=>GTM.BAND[x.c.score.band].label;
+    const conv=[tbl('By source','Acquisition source, separate from status.',GTM.groupBy(A,x=>x.c.acq,GTM.ACQ),'Source'),
+      tbl('By ICP band','Does a higher ICP score convert better?',GTM.groupBy(A,bl,Object.values(GTM.BAND).map(b=>b.label)),'ICP band'),
+      tbl('By status','Where leads sit now.',GTM.groupBy(A,x=>x.c.status,GTM.STATUSES),'Status')];
+    const C=sent;
+    const perf=[tbl('By template','Drafts copied and marked sent here are logged by template. Earlier outreach is grouped by what was sent.',GTM.groupBy(C,x=>GTM.templateOf(x.l,x.c)),'Template'),
+      tbl('By angle','The angle logged with each message.',GTM.groupBy(C,x=>GTM.angleOf(x.c)),'Angle'),tbl('By industry','From the intelligence card.',GTM.groupBy(C,x=>x.industry||'UNKNOWN'),'Industry'),
+      tbl('Founder vs C-suite','From their title.',GTM.groupBy(C,x=>x.persona),'Who'),tbl('By funding stage','Latest round on the card (or read off the CRM notes).',GTM.groupBy(C,x=>x.ev.round?String(x.ev.round.v):'UNKNOWN',['Pre-seed','Seed','Series A','Series B','Series C','Series D+']),'Stage')];
+    const unv=A.filter(x=>x.c.score.band==='unverified').length;const dup=AK.gtm.dupes().length;
+    const notes=[unv?unv+' leads need research before they can be scored (open one and fill its Intel tab).':'',dup?dup+' possible duplicates: see LinkedIn views → Possible duplicates.':'',
+      'Response and positive rates count outbound leads we contacted. A reply counts when it’s logged on the lead, or when the outreach job moved them to In talks or later.'].filter(Boolean).map(t=>({t}));
+    return{kpis,funnel,conv,perf,heads:['Leads','Contacted','Response','Positive','Meetings','Won'].map(label=>({label})),notes,loading:!AK.leadsState().loaded};}
+  // The ICP, edited on Setup. One definition: scoring, views and drafts all read it.
+  gtmSetupVals(){const s=this.state;const cfg=AK.gtm.cfg();const ed=s.icpEd||null;const v=ed||cfg;const set=(k,val)=>this.setState(z=>({icpEd:{...(z.icpEd||JSON.parse(JSON.stringify(cfg))),[k]:val}}));
+    const list=x=>Array.isArray(x)?x.join(', '):String(x||'');
+    const txt=[['summary','Who we sell to, in one paragraph',true],['models','Business models that fit (comma separated)'],['industries','Industry keywords that fit'],['stages','Funding stages that fit'],['accelerators','Accelerators that are a strong plus'],
+      ['titles','Decision-maker titles'],['references','Reference profiles (lookalikes)']].map(([k,label,area])=>({k,label,isArea:!!area,notArea:!area,val:list(v[k]),set:e=>set(k,e.target.value)}));
+    const nums=[['empMin','Min employees'],['empMax','Max employees'],['recencyMonths','Raised within (months)'],['budgetMonth','Budget they must afford ($ / month)'],['minRaise','Raised at least ($) to afford it']].map(([k,label])=>({k,label,val:String(v[k]??''),set:e=>set(k,e.target.value)}));
+    const W=v.weights||{};const wsum=GTM.DIMS.reduce((a,[k])=>a+(Number(W[k])||0),0);
+    const weights=GTM.DIMS.map(([k,label])=>({k,label,val:String(W[k]??''),set:e=>{const val=e.target.value;this.setState(z=>{const b=z.icpEd||JSON.parse(JSON.stringify(cfg));return{icpEd:{...b,weights:{...b.weights,[k]:val}}};});}}));
+    const B=v.bands||{};const bands=[['high','High priority from'],['strong','Strong fit from'],['research','Research from']].map(([k,label])=>({k,label,val:String(B[k]??''),set:e=>{const val=e.target.value;this.setState(z=>{const b=z.icpEd||JSON.parse(JSON.stringify(cfg));return{icpEd:{...b,bands:{...b.bands,[k]:val}}};});}}));
+    const save=async()=>{const e=this.state.icpEd;if(!e)return;const arr=x=>Array.isArray(x)?x:String(x||'').split(/[,\n]/).map(y=>y.trim()).filter(Boolean);const n=x=>Number(x);
+      const out={summary:String(e.summary||'').trim(),models:arr(e.models),industries:arr(e.industries).map(x=>x.toLowerCase()),stages:arr(e.stages),accelerators:arr(e.accelerators),titles:arr(e.titles).map(x=>x.toLowerCase()),references:arr(e.references),
+        empMin:n(e.empMin),empMax:n(e.empMax),recencyMonths:n(e.recencyMonths),budgetMonth:n(e.budgetMonth),minRaise:n(e.minRaise),
+        weights:Object.fromEntries(GTM.DIMS.map(([k])=>[k,n((e.weights||{})[k])])),bands:{high:n((e.bands||{}).high),strong:n((e.bands||{}).strong),research:n((e.bands||{}).research)}};
+      const bad=[];['empMin','empMax','recencyMonths','budgetMonth','minRaise'].forEach(k=>{if(!(isFinite(out[k])&&out[k]>=0))bad.push(k);});
+      if(out.empMin>out.empMax)bad.push('min employees above max');const ws=Object.values(out.weights).reduce((a,b)=>a+b,0);
+      if(Object.values(out.weights).some(w=>!(isFinite(w)&&w>=0)))bad.push('weights must be numbers');else if(ws!==100)bad.push('weights add up to '+ws+', not 100');
+      if(!(out.bands.high>out.bands.strong&&out.bands.strong>out.bands.research&&out.bands.research>0&&out.bands.high<=100))bad.push('bands must go high > strong > research > 0');
+      if(!out.models.length||!out.stages.length)bad.push('list at least one business model and one funding stage');
+      if(bad.length){this.toast('Not saved: '+bad.join('; ')+'.',null,true);return;}
+      if(await AK.leadSettingSave('icp',out)){this.setState({icpEd:null});this.toast('ICP saved. Every score is updated.');}};
+    const missing=['Qualified','Nurture'].filter(st=>!AK.gtm.stageFor(st));
+    const addStages=async()=>{const ST=this.leadSet('stages').slice();for(const m of missing){const after=m==='Qualified'?ST.findIndex(x=>GTM.statusOf(x.name,x.kind)==='Meeting booked'):ST.findIndex(x=>x.kind==='lost')-1;
+      ST.splice(after>=0?after+1:ST.length,0,{name:m,color:m==='Qualified'?'var(--ok)':'oklch(0.62 0.11 245)',kind:'open'});}
+      if(await AK.leadSettingSave('stages',ST))this.toast('Added '+missing.join(' and ')+' to your stages.');};
+    return{txt,nums,weights,bands,wsum:String(wsum),wOk:wsum===100,wBad:wsum!==100,dirty:!!ed,clean:!ed,save,cancel:()=>this.setState({icpEd:null}),
+      reset:async()=>{if(await AK.leadSettingSave('icp',{}))this.setState({icpEd:null});this.toast('ICP back to the default from the spec.');},
+      dims:GTM.DIMS.map(([k,label])=>({label,w:String(cfg.weights[k])})),hasMissing:missing.length>0,missing:missing.join(' and '),addStages,
+      status:'Stages map to statuses: '+this.leadSet('stages').map(x=>x.name+' → '+GTM.statusOf(x.name,x.kind)).join(', ')+'.'};}
+  // The panel's Intel and Outreach tabs for one lead.
+  setLed(k,v){this.setState(z=>({led:{...z.led,[k]:v}}));}
+  dropLed(keys){this.setState(z=>{const m={...z.led};keys.forEach(k=>delete m[k]);return{led:m};});}
+  async gtmSaveIntel(l,k,force){const s=this.state.led;const cur=(GTM.gtmOf(l).intel||{})[k]||{};const vK='__gi:'+k+':v',sK='__gi:'+k+':s';
+    const v=force&&'v' in force?force.v:(s[vK]!=null?s[vK]:(cur.v??''));const src=s[sK]!=null?s[sK]:(cur.src||'');
+    if(String(v)===String(cur.v??'')&&String(src)===String(cur.src||''))return this.dropLed([vK,sK]);
+    const err=GTM.validateIntel(k,v,src);if(err){this.toast(err,null,true);return;}
+    if(await AK.gtm.intel(l.id,k,{v,src}))this.dropLed([vK,sK]);}
+  gtmPanel(l){const x=this.gtmOne(l.id);if(!x)return{ok:false};const s=this.state;const {c}=x;const G=GTM.gtmOf(l);const I=G.intel||{};const E=x.ev;const B=k=>s.led[k];
+    const groups=GTM.INTEL.map(g=>({label:g.label,rows:g.fields.map(([k,label,type,opts])=>{const cur=I[k]||{};const ev=E[k];const vK='__gi:'+k+':v',sK='__gi:'+k+':s';
+      const v=B(vK)!=null?B(vK):(cur.v??'');const src=B(sK)!=null?B(sK):(cur.src||'');const der=!String(cur.v??'').trim()&&ev?(ev.why||'CRM')+': '+(k==='amount'||k==='total'?GTM.fmtMoney(GTM.parseMoney(ev.v)):ev.v):'';
+      const kind=String(cur.v??'').trim()?(GTM.isUrl(cur.src)?'fact':'manual'):ev?ev.kind:'';
+      return{label,isSel:type==='select',isArea:type==='area',isText:type!=='select'&&type!=='area',opts:[{v:'',l:'UNKNOWN'},...(opts||[]).map(o=>({v:o,l:o}))],val:String(v),
+        ph:type==='money'?'UNKNOWN (e.g. $4M)':type==='date'?'UNKNOWN (e.g. 2026-09)':'UNKNOWN',src,kindP:this.gtmKindP(kind),hasDer:!!der,der,at:cur.at?'checked '+cur.at:'',hasSrcLink:GTM.isUrl(cur.src),openSrc:()=>open(cur.src),
+        set:e=>this.setLed(vK,e.target.value),setSrc:e=>this.setLed(sK,e.target.value),save:()=>this.gtmSaveIntel(l,k),
+        pick:e=>{const val=e.target.value;this.setLed(vK,val);this.gtmSaveIntel(l,k,{v:val});}};})}));
+    const ov=(G.icp&&G.icp.ov)||{};
+    const dims=c.score.dims.map(d=>{const oK='__go:'+d.key;const cur=ov[d.key]&&ov[d.key].pts!=null?String(ov[d.key].pts):'';
+      return{label:d.label,w:String(d.w),pts:d.pts==null?'UNKNOWN':d.pts+' / '+d.w,ptsFg:d.pts==null?'var(--ink-4)':d.pts>=d.w*.5?'var(--ok-ink)':d.pts>0?'var(--warn-ink)':'var(--bad-ink)',why:d.why,kindP:this.gtmKindP(d.state==='unknown'?'':d.kind),
+        ov:B(oK)!=null?B(oK):cur,setOv:e=>this.setLed(oK,e.target.value),
+        saveOv:async()=>{const val=this.state.led[oK];if(val==null)return;if(String(val)===cur){this.dropLed([oK]);return;}
+          if(await AK.gtm.set(l.id,'icp.ov.'+d.key,String(val).trim()===''?null:{pts:Number(val),why:'on '+new Date().toISOString().slice(0,10)}))this.dropLed([oK]);}};});
+    const dq=c.score.dq;const dqK='__gdq';
+    const sg=B('__gs')||{type:'raise',text:'',at:'',src:''};const setSg=k=>e=>{const v=e.target.value;this.setState(z=>({led:{...z.led,__gs:{...(z.led.__gs||sg),[k]:v}}}));};
+    const sigs=(G.signals||[]).slice().sort((a,b)=>String(b.at||b.seen).localeCompare(String(a.at||a.seen))).map(z=>({label:GTM.SIGNALS[z.type]||z.type,text:z.text,when:z.at?'happened '+z.at:'date UNKNOWN',seen:'detected '+(z.seen||''),
+      kindP:z.src&&z.kind!=='inference'?pill('Verified','ok'):pill('Inference','warn'),hasSrc:!!z.src,openSrc:()=>open(z.src),del:()=>AK.gtm.signalDel(l.id,z.id)}));
+    const opp=G.opp||{};const me=((CFG.accounts||[])[0]||{}).name||'';const M=GTM.messages(l,c,me);
+    const oppRows=[['why','Why they need us',M.why],['angle','Angle / question to ask',c.radar.angle.q],['hook','Hook (first line)',M.hook],['msg','First message (overrides the drafted opener)','']].map(([k,label,ph])=>{const K='__gp:'+k;
+      return{label,val:B(K)!=null?B(K):(opp[k]||''),ph:ph?'Suggested: '+ph:'Leave empty to use the drafted opener',set:e=>this.setLed(K,e.target.value),
+        save:async()=>{const v=this.state.led[K];if(v==null)return;if(String(v)===String(opp[k]||'')){this.dropLed([K]);return;}if(await AK.gtm.set(l.id,'opp.'+k,String(v).trim()))this.dropLed([K]);}};});
+    const q=encodeURIComponent((l.company||l.name||'').replace(/\s*\(.*?\)\s*/g,' ').trim());
+    const research=q?[['Funding news','https://www.google.com/search?q='+q+'+raises+OR+funding+OR+seed+OR+series'],['Crunchbase','https://www.crunchbase.com/textsearch?q='+q],['Jobs / hiring','https://www.google.com/search?q='+q+'+careers+OR+jobs+growth+OR+marketing+OR+sales'],
+      ['Company site','https://www.google.com/search?q='+q+'+official+site'],['YC directory','https://www.ycombinator.com/companies?query='+q]].map(([label,u])=>({label,go:()=>open(u)})):[];
+    // Outreach tab
+    const T=c.touches.slice().reverse().map(t=>({arrow:t.dir==='out'?'→':'←',who:t.dir==='out'?'We sent':'They',type:GTM.TOUCH_TYPES[t.type]||t.type,ch:t.ch||'',when:this.since(t.at),date:String(t.at).slice(0,10),text:t.text||'',hasText:!!t.text,
+      tpl:t.tpl?'Template '+t.tpl+(t.angle?' · '+((GTM.ANGLES[t.angle]||{}).label||t.angle):''):'',hasTpl:!!t.tpl,bg:t.dir==='out'?'var(--out-soft)':'var(--mid-soft)',fg:t.dir==='out'?'var(--out-ink)':'var(--mid-ink)'}));
+    const drafts=M.list.map(m=>{const k='gm'+l.id+m.id;const cb=this.copyBtn(k,'Copy');const type=m.id==='rf-connect-v1'?'connection':m.id==='rf-open-v1'?'dm':'followup';
+      return{label:m.label,hint:m.hint,text:m.text,n:m.text.length+' chars',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(m.text,k,m.label+' copied. Send it yourself on LinkedIn.'),
+        sent:async()=>{if(await AK.gtm.touch(l.id,{dir:'out',type,ch:'LinkedIn',text:m.text,tpl:m.id,angle:M.angle.id},{followUpDays:type==='connection'||m.id==='rf-fu2-v1'?0:4}))this.toast('Logged: '+m.label+' sent'+(type!=='connection'&&m.id!=='rf-fu2-v1'?'. Follow-up set for 4 days from now.':'.'));}};});
+    const tf=B('__gt')||{dir:'in',type:'reply',ch:'LinkedIn',text:'',at:new Date().toISOString().slice(0,10),fu:''};const setT=k=>e=>{const v=e.target.value;this.setState(z=>{const cur={...(z.led.__gt||tf),[k]:v};
+      if(k==='dir')cur.type=v==='in'?'reply':'dm';return{led:{...z.led,__gt:cur}};});};
+    const types=(tf.dir==='in'?['reply','question','interest','meeting','accepted','not_interested','other']:['dm','followup','connection','email','other']).map(t=>({v:t,l:GTM.TOUCH_TYPES[t]}));
+    const logT=async()=>{const t=this.state.led.__gt||tf;const ok=await AK.gtm.touch(l.id,{dir:t.dir,type:t.type,ch:t.ch,text:t.text,at:t.at},{followUpDays:Number(t.fu)||0});
+      if(ok){const mid=t.dir==='in'&&GTM.QUALIFYING.includes(t.type)&&l.direction!=='Inbound';this.dropLed(['__gt']);this.toast(mid?'Logged. They engaged after our outreach, so they’re now in Midbound.':'Logged.');}};
+    const fuAt=days=>async()=>{const d=new Date();d.setDate(d.getDate()+days);const iso=d.toISOString().slice(0,10);const first=GTM.firstName(l.name);
+      if(await AK.leadSave(l.id,{next_step:'Follow up with '+first+(c.fuN?' (follow-up '+(c.fuN+1)+')':''),next_date:iso}))this.toast('Follow-up set for '+iso+'.');};
+    const pickFu=async e=>{const iso=e.target.value;if(!iso)return;if(await AK.leadSave(l.id,{next_step:'Follow up with '+GTM.firstName(l.name),next_date:iso}))this.toast('Follow-up set for '+iso+'.');};
+    const nx=this.leadNext(l);
+    return{ok:true,relP:this.gtmRelP(c),statusP:pill(c.status,'neutral'),scoreP:this.gtmScoreP(c.score),levelP:this.gtmLevelP(c.radar),score:String(c.score.score),conf:c.score.confLabel+' confidence ('+c.score.conf+'%)',explain:c.score.explain,
+      tags:c.tags.map(t=>this.tagPill(t,TAG_C[t]||'var(--ink-3)')),hasTags:c.tags.length>0,
+      acq:c.acq,acqOpts:GTM.ACQ.map(a=>({v:a,l:a})),pickAcq:e=>AK.gtm.set(l.id,'rel.acq',e.target.value),acqAuto:!(G.rel&&G.rel.acq),
+      conn:c.conn||'',connOpts:[{v:'',l:'UNKNOWN'},{v:'connected',l:'Connected'},{v:'pending',l:'Invite pending'},{v:'none',l:'Not connected'}],pickConn:e=>AK.gtm.set(l.id,'rel.conn',e.target.value),
+      dims,isDq:!!dq,notDq:!dq,dq,dqVal:B(dqK)||'',setDq:e=>this.setLed(dqK,e.target.value),
+      doDq:async()=>{const r=String(this.state.led[dqK]||'').trim();if(!r){this.toast('Say why they’re disqualified, e.g. “B2C”, “Competitor”, “Budget under $5k”.',null,true);return;}if(await AK.gtm.set(l.id,'icp.dq',r))this.dropLed([dqK]);},
+      undoDq:()=>AK.gtm.set(l.id,'icp.dq',''),groups,research,hasResearch:research.length>0,
+      sigs,hasSigs:sigs.length>0,noSigs:!sigs.length,sg,sgTypes:Object.keys(GTM.SIGNALS).map(k=>({v:k,l:GTM.SIGNALS[k]})),setSgType:setSg('type'),setSgText:setSg('text'),setSgAt:setSg('at'),setSgSrc:setSg('src'),
+      addSig:async()=>{const z=this.state.led.__gs||sg;if(await AK.gtm.signal(l.id,z))this.dropLed(['__gs']);},
+      radar:{level:c.radar.level,score:String(c.radar.score),why:c.radar.why.map(w=>({label:w.label,text:w.text,when:w.when?(w.derived?'detected ':'happened ')+w.when:'date UNKNOWN',kindP:w.kind==='fact'?pill('Verified','ok'):pill('Inference','warn'),pts:'+'+w.pts,hasSrc:!!w.src,openSrc:()=>open(w.src)})),
+        hasWhy:c.radar.why.length>0,noWhy:!c.radar.why.length,action:this.gtmRec(x),angle:c.radar.angle.label},oppRows,
+      drafts,touches:T,hasTouches:T.length>0,noTouches:!T.length,histSum:[c.contacted?'First outreach '+String(c.contacted.at).slice(0,10):'Not contacted yet',c.fuN?c.fuN+(c.fuN===1?' follow-up':' follow-ups'):'',c.lastIn?'last reply '+String(c.lastIn.at).slice(0,10):''].filter(Boolean).join(' · '),
+      tf,setTDir:setT('dir'),setTType:setT('type'),setTCh:setT('ch'),setTText:setT('text'),setTAt:setT('at'),setTFu:setT('fu'),types,logT,isOut:tf.dir==='out',
+      chOpts:['LinkedIn','Email','X','Call','In person','Other'].map(v=>({v,l:v})),fuOpts:[{v:'',l:'No follow-up'},{v:'3',l:'Follow up in 3 days'},{v:'4',l:'Follow up in 4 days'},{v:'7',l:'Follow up in a week'}],
+      fu3:fuAt(3),fu7:fuAt(7),pickFu,nextTxt:nx?nx.label:'No follow-up scheduled',nextFg:nx&&nx.late?'var(--bad-ink)':'var(--ink-2)',
+      midNote:l.direction==='Inbound'?'They came to us (Inbound).':c.rel==='midbound'?'Midbound: they engaged after our outreach'+(c.engaged&&c.engaged.src!=='touch'?' ('+c.engaged.src+')':'')+'.':'Logging a reply, question, interest or meeting from them moves this lead to Midbound. An accepted connection alone doesn’t.'};}
 
   /* ---------- Who engaged (7 Nov) ----------
      Everyone who liked or commented on our LinkedIn posts (AK.SOC, filled twice a day by the social-sync job), with what we
