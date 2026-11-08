@@ -1,0 +1,73 @@
+<!-- Engaged (9 Nov): DM replies, calls coming up, and everyone who replied to, quoted or mentioned our X posts, with the reply
+     and the DM ready to copy. Spliced in by build_app.py; values come from engagedVals() in logic.js (eng). -->
+<sc-if value="{{ is.engaged }}">
+<div style="display:flex; flex-wrap:wrap; gap:6px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<sc-for list="{{ eng.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 14px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">{{ t.label }} <span style="font-weight:700; opacity:.75;">{{ t.count }}</span></button></sc-for>
+</div>
+
+<sc-if value="{{ eng.hasReplies }}">
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Replied to your DMs</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ eng.replies }}" as="r">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="width:var(--av-md); height:var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
+<div style="flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:500;">{{ r.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }} · {{ r.note }}</span></div>
+<button onClick="{{ r.openX }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open X</button>
+<button onClick="{{ r.open }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.cta }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ eng.hasCalls }}">
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Calls coming up</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ eng.calls }}" as="r">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="width:var(--av-md); height:var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
+<div style="flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:500;">{{ r.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }} · {{ r.note }}</span></div>
+<button onClick="{{ r.open }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.cta }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ eng.hasCards }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<sc-for list="{{ eng.cards }}" as="c">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:flex-start; gap:10px;">
+<span style="width:var(--av-md); height:var(--av-md); flex:0 0 var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+<a href="#" onClick="{{ c.openProfile }}" style="font-size:var(--fs-md); font-weight:600; color:var(--ink); text-decoration:none;">{{ c.name }}</a>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ c.sub }}</span>
+</div>
+<span style="height:22px; display:inline-flex; align-items:center; padding:0 9px; border-radius:var(--r-pill); background:{{ c.fit.bg }}; color:{{ c.fit.fg }}; box-shadow:{{ c.fit.bd }}; font-size:var(--fs-3xs); font-weight:600; white-space:nowrap;">{{ c.fit.label }}</span>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.45;">{{ c.why }}</span>
+<sc-if value="{{ c.hasSaid }}"><div style="display:flex; flex-direction:column; gap:3px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-3xs); color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">They {{ c.how }}</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.said }}</span></div></sc-if>
+<sc-if value="{{ c.hasReply }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--mid-soft); box-shadow:inset 0 0 0 1px var(--mid-line);">
+<span style="font-size:var(--fs-3xs); color:var(--mid-ink); text-transform:uppercase; letter-spacing:.04em;">Your reply</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.reply }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ c.copyReply }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.rbg }}; color:{{ c.rfg }}; box-shadow:{{ c.rsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.rLabel }}</button><button onClick="{{ c.openPost }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open their post ↗</button></div>
+</div></sc-if>
+<sc-if value="{{ c.hasDm }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line);">
+<span style="font-size:var(--fs-3xs); color:var(--out-ink); text-transform:uppercase; letter-spacing:.04em;">Your DM</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.dm }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ c.copyDm }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.dbg }}; color:{{ c.dfg }}; box-shadow:{{ c.dsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.dLabel }}</button><button onClick="{{ c.openProfile }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open their X ↗</button></div>
+</div></sc-if>
+<sc-if value="{{ c.todo }}"><div style="display:flex; gap:8px; align-items:center;">
+<button onClick="{{ c.done }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ c.doneLabel }}</button>
+<button onClick="{{ c.skip }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-3); font-size:var(--fs-xs); cursor:pointer;">Skip</button>
+</div></sc-if>
+<sc-if value="{{ c.view }}"><span style="font-size:var(--fs-xs); color:var(--ok-ink);">{{ c.doneNote }}</span></sc-if>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ eng.hasMore }}"><button onClick="{{ eng.more }}" style="align-self:center; height:var(--btn-h-sm); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">Show {{ eng.moreN }} more</button></sc-if>
+</sc-if>
+
+<sc-if value="{{ eng.none }}"><div style="padding:var(--s-6); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ eng.noneText }}</div></sc-if>
+</sc-if>

@@ -399,18 +399,18 @@ root.GTM={ICP_DEFAULT,DIMS,INTEL,FIELD,SIGNALS,TOUCH_TYPES,OUT_TYPES,QUALIFYING,
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=314c103522"></script>
+<script src="./data.js?v=e8b505eeca"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
 window.AK_LOGIC=function(DCLogic,React){
 const AK=window.AK;
-const STAGES=['To send','Sent','Follow-up 1 sent','Follow-up 2 sent','Replied','Call booked','Customer','Closed'];
-const SHORT={'To send':'To send','Sent':'Sent','Follow-up 1 sent':'Follow-up 1','Follow-up 2 sent':'Follow-up 2','Replied':'Replied','Call booked':'Call','Customer':'Customer','Closed':'Closed'};
+const STAGES=['To send','Contacted','Follow-up 1 sent','Follow-up 2 sent','Replied','Call booked','Customer','Closed'];
+const SHORT={'To send':'To send','Contacted':'Contacted','Follow-up 1 sent':'Follow-up 1','Follow-up 2 sent':'Follow-up 2','Replied':'Replied','Call booked':'Call','Customer':'Customer','Closed':'Closed'};
 const TONE={neutral:['var(--n-soft)','var(--ink-2)','var(--hairline)'],out:['var(--out-soft)','var(--out-ink)','var(--out-line)'],mid:['var(--mid-soft)','var(--mid-ink)','var(--mid-line)'],in:['var(--in-soft)','var(--in-ink)','var(--in-line)'],ok:['var(--ok-soft)','var(--ok-ink)','var(--ok-line)'],warn:['var(--warn-soft)','var(--warn-ink)','var(--warn-line)'],bad:['var(--bad-soft)','var(--bad-ink)','var(--bad-line)'],solid:['var(--ink)','#fff','var(--ink)'],ghost:['transparent','var(--ink-3)','var(--hairline-strong)']};
 const pill=(label,t)=>{const x=TONE[t]||TONE.neutral;return{label,bg:x[0],fg:x[1],bd:'inset 0 0 0 1px '+x[2]};};
-const STAGE_T={'To send':'neutral','Sent':'out','Follow-up 1 sent':'out','Follow-up 2 sent':'out','Replied':'mid','Call booked':'mid','Customer':'ok','Closed':'ghost'};
-const STAGE_DOT={'To send':'var(--ink-4)','Sent':'var(--out)','Follow-up 1 sent':'var(--out)','Follow-up 2 sent':'var(--out)','Replied':'var(--mid)','Call booked':'var(--mid)','Customer':'var(--ok)','Closed':'var(--ink-4)'};
+const STAGE_T={'To send':'neutral','Contacted':'out','Follow-up 1 sent':'out','Follow-up 2 sent':'out','Replied':'mid','Call booked':'mid','Customer':'ok','Closed':'ghost'};
+const STAGE_DOT={'To send':'var(--ink-4)','Contacted':'var(--out)','Follow-up 1 sent':'var(--out)','Follow-up 2 sent':'var(--out)','Replied':'var(--mid)','Call booked':'var(--mid)','Customer':'var(--ok)','Closed':'var(--ink-4)'};
 const NEXT_T={'Find their handle':'warn','Find their full name':'warn','Needs research':'warn','Skip for now':'ghost','Send first message':'out','Send follow-up 1':'out','Send follow-up 2':'out','Wait for reply':'ghost','Reply now':'mid','Prep the call':'mid','Check in monthly':'ok','Nothing to do':'ghost','Mark as no reply':'warn','Queued for later':'ghost','Updating…':'ghost'};
 const AVP=[['oklch(0.93 0.04 258)','oklch(0.42 0.12 258)'],['oklch(0.93 0.045 158)','oklch(0.4 0.1 158)'],['oklch(0.93 0.04 300)','oklch(0.42 0.13 300)'],['oklch(0.94 0.05 75)','oklch(0.45 0.1 60)'],['oklch(0.93 0.03 210)','oklch(0.42 0.08 210)'],['oklch(0.93 0.035 25)','oklch(0.46 0.12 25)']];
 const avatar=s=>{s=String(s||'?').replace(/^@/,'');let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))>>>0;const p=AVP[h%AVP.length];return{avBg:p[0],avFg:p[1],ini:s.split(/\s+/).filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase()};};
@@ -420,9 +420,11 @@ const stop=fn=>e=>{if(e&&e.stopPropagation)e.stopPropagation();fn(e);};
 const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=data.length>1?W/(data.length-1):0;const pts=data.map((v,i)=>[+(i*st).toFixed(1),+(H-(v/max)*(H-pad)).toFixed(1)]);return{line:pts.map(p=>p.join(',')).join(' '),area:'M0,'+H+' L'+pts.map(p=>p.join(',')).join(' L')+' L'+W+','+H+' Z',dots:pts.map((p,i)=>({cx:String(p[0]),cy:String(p[1]),v:data[i]})),max};};
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
-const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Inspiration'},
+const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
   leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'LinkedIn views'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Who engaged'}};
-const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','scripts']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['pdm','inbox']}];
+const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
+// 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
+const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
 const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','gtmNow','gtmViews','leadBoard','leadList','gtmDash','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
@@ -430,7 +432,7 @@ const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',page
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liPeople'];const LI_ONLY=['liPeople'];
 const LI_SECS=[{id:'in',label:'Posts',hint:'What goes out and how it does',pages:['calendar','tracker']},{id:'mid',label:'People',hint:'Everyone who liked or commented',pages:['liPeople']}];
-const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:plat==='Leads'?LEAD_SEC.pages:Object.keys(PAGES).filter(k=>PAGES[k].sec!=='leads'&&!LI_ONLY.includes(k));
+const pagesFor=plat=>plat==='LinkedIn'?LI_PAGES:plat==='Leads'?LEAD_SEC.pages:Object.keys(PAGES).filter(k=>PAGES[k].sec!=='leads'&&!LI_ONLY.includes(k)&&!MOVED[k]);
 const secsFor=plat=>plat==='LinkedIn'?LI_SECS:plat==='Leads'?[LEAD_SEC]:SECS;
 const ACC={leads:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},home:{c:'var(--ink)',ink:'var(--ink-2)',soft:'var(--n-soft)',btn:'primary'},out:{c:'var(--out)',ink:'var(--out-ink)',soft:'var(--out-soft)',btn:'out'},mid:{c:'var(--mid)',ink:'var(--mid-ink)',soft:'var(--mid-soft)',btn:'mid'},in:{c:'var(--in)',ink:'var(--in-ink)',soft:'var(--in-soft)',btn:'in'}};
 const CFG=window.CRM_CONFIG||{};const BRAND=CFG.brand||'CRM';
@@ -517,8 +519,8 @@ const liMarkKey=t=>String(t||'').replace(/\s+/g,' ').trim().slice(0,80).toLowerC
 const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show.',off:'Copy the message, send it on X, then press Mark sent. Can’t DM = their DMs are closed or need a passcode.'};
 
 /* sheet <-> design */
-const SHEET2STAGE={'To send':'To send','Sent':'Sent','FU1 sent':'Follow-up 1 sent','FU2 sent':'Follow-up 2 sent','Replied':'Replied','Call booked':'Call booked','Customer':'Customer','Not now':'Closed','No reply':'Closed','Do not contact':'Closed'};
-const STAGE2SHEET={'To send':'To send','Sent':'Sent','Follow-up 1 sent':'FU1 sent','Follow-up 2 sent':'FU2 sent','Replied':'Replied','Call booked':'Call booked','Customer':'Customer'};
+const SHEET2STAGE={'To send':'To send','Sent':'Contacted','FU1 sent':'Follow-up 1 sent','FU2 sent':'Follow-up 2 sent','Replied':'Replied','Call booked':'Call booked','Customer':'Customer','Not now':'Closed','No reply':'Closed','Do not contact':'Closed'};
+const STAGE2SHEET={'To send':'To send','Contacted':'Sent','Follow-up 1 sent':'FU1 sent','Follow-up 2 sent':'FU2 sent','Replied':'Replied','Call booked':'Call booked','Customer':'Customer'};
 const accOf=o=>o;          // design owner -> sheet Account/Owner
 const ownerName=a=>a||'–'; // sheet -> design
 const avName=n=>n;
@@ -554,12 +556,12 @@ function person(c){
 }
 
 class Component extends DCLogic {
-  state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(!PAGES[page])page='home';
+  state=(()=>{let page='home';try{page=localStorage.getItem('ak-crm-page')||'home';}catch(e){} if(MOVED[page])page=MOVED[page][0];if(!PAGES[page])page='home';
     const plat=PLATS.includes(store.get('plat','X'))?store.get('plat','X'):'X';if(!pagesFor(plat).includes(page))page=pagesFor(plat)[0];
     const dow=(new Date().getDay()+6)%7;
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
-    pipeTab:'Board',tplEd:{},tplNew:null,sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
+    pipeTab:'Board',tplEd:{},tplNew:null,inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
@@ -578,7 +580,7 @@ class Component extends DCLogic {
     else this.setState({v:AK.version()});
   }
   load(ms){clearTimeout(this.lt);this.setState({loading:true,entered:false});this.lt=setTimeout(()=>{this.setState({loading:false});requestAnimationFrame(()=>requestAnimationFrame(()=>this.setState({entered:true})));},ms);}
-  go(page,extra){if(!pagesFor(this.state.plat).includes(page))page=pagesFor(this.state.plat)[0];try{localStorage.setItem('ak-crm-page',page);}catch(e){} this.setState({page,cid:null,pal:false,cmpOn:false,...(extra||{})}); if(this.mainRef.current)this.mainRef.current.scrollTop=0; if(this.ready)this.load(380);}
+  go(page,extra){if(MOVED[page]&&this.state.plat==='X'){extra={...MOVED[page][1],...(extra||{})};page=MOVED[page][0];}if(!pagesFor(this.state.plat).includes(page))page=pagesFor(this.state.plat)[0];try{localStorage.setItem('ak-crm-page',page);}catch(e){} this.setState({page,cid:null,pal:false,cmpOn:false,...(extra||{})}); if(this.mainRef.current)this.mainRef.current.scrollTop=0; if(this.ready)this.load(380);}
   toast(msg,undo,err){clearTimeout(this.tt);this.setState({toastMsg:msg,toastUndo:undo||null,toastErr:!!err,toastOn:true});this.tt=setTimeout(()=>this.setState({toastOn:false}),err?7000:undo?5000:3400);}
   copy(text,key,msg){
     if(!text){this.toast('There’s nothing to copy here yet.',null,true);return;}
@@ -618,10 +620,10 @@ class Component extends DCLogic {
     if(p.stage==='Closed'||a==='Closed')return 'Nothing to do';
     if(a==='Queued')return 'Queued for later';
     if(p.status==='Needs research')return 'Needs research';
-    if(/^(Sent|Follow-up)/.test(p.stage))return 'Wait for reply';
+    if(/^(Contacted|Follow-up)/.test(p.stage))return 'Wait for reply';
     return a||'Nothing to do';}
   nextMsg(p){if(p.due)return p.fuN===2?{title:'Follow-up 2',text:p.f2}:{title:'Follow-up 1',text:p.f1};
-    if(p.stage==='Sent')return{title:'Follow-up 1',text:p.f1};if(p.stage==='Follow-up 1 sent')return{title:'Follow-up 2',text:p.f2};return{title:'First message',text:p.opener};}
+    if(p.stage==='Contacted')return{title:'Follow-up 1',text:p.f1};if(p.stage==='Follow-up 1 sent')return{title:'Follow-up 2',text:p.f2};return{title:'First message',text:p.opener};}
 
   /* ---------- saves ---------- */
   sheetStatus(p,stage){if(stage==='Closed')return ['Sent','FU1 sent','FU2 sent'].includes(p.status)?'No reply':'Not now';return STAGE2SHEET[stage]||'To send';}
@@ -646,7 +648,7 @@ class Component extends DCLogic {
     this.setState(s=>{const x={...s.pend};delete x[id];return{pend:x};});
   }
   markSent(id){const p=this.findP(id);if(!p)return;
-    const nx=p.due?(p.fuN===2?'Follow-up 2 sent':'Follow-up 1 sent'):({'To send':'Sent','Sent':'Follow-up 1 sent','Follow-up 1 sent':'Follow-up 2 sent'}[p.stage]||p.stage);
+    const nx=p.due?(p.fuN===2?'Follow-up 2 sent':'Follow-up 1 sent'):({'To send':'Contacted','Contacted':'Follow-up 1 sent','Follow-up 1 sent':'Follow-up 2 sent'}[p.stage]||p.stage);
     this.setState(s=>({leaving:{...s.leaving,[id]:true}}));
     setTimeout(()=>{this.setState(s=>{const l={...s.leaving};delete l[id];return{leaving:l};});this.setStage(id,nx,'Marked as sent to '+p.first);},300);}
   // Their DMs are closed or need a passcode: off today's list (Status "Not now"), and the next person moves up.
@@ -724,8 +726,10 @@ class Component extends DCLogic {
           :{...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' of 3 planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
-    if(page==='scripts'){h.next='Each new lead gets the next version in turn. Edit any version here; unsent messages pick up the change straight away.';}
-    if(page==='pipeline'){const sent=P.filter(p=>['Sent','Follow-up 1 sent','Follow-up 2 sent'].includes(p.stage)).length;
+    if(page==='pipeline'&&s.pipeTab==='Scripts'){h.next='Each new lead gets the next script in turn. Edit one here and every unsent message uses the new text.';}
+    if(page==='engaged'){const E=this.engagers().filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip');
+      h.next=rep.length?rep.length+(rep.length===1?' person replied':' people replied')+' to your DMs. Answer them first.':E.length?E.length+(E.length===1?' person':' people')+' engaged with your posts. Copy the reply or DM, send it, then press Done.':'Nothing waiting. New replies, quotes and mentions show up here every 6 hours.';}
+    if(page==='pipeline'&&s.pipeTab!=='Scripts'){const sent=P.filter(p=>['Contacted','Follow-up 1 sent','Follow-up 2 sent'].includes(p.stage)).length;
       h.next=rep.length?rep.length+' people replied and are waiting on us. Calls come next: '+calls.length+' booked.':P.length+' people in the pipeline. '+sent+' have a message out and nobody is waiting on a reply from us.';h.cta=rep.length?'Open replies':'';h.go=rep.length?()=>this.go('inbox'):null;}
     if(page==='inbox'){h.title='Replies and calls';h.next=rep[0]?'Reply to '+rep[0].first+' at '+rep[0].company+'. Then prep for '+(calls[0]?calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:''):'your next call')+'.':calls[0]?'Nobody is waiting on a reply. Prep for '+calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:'')+'.':(()=>{const R=this.postReplies();const b=R.filter(e=>verdictOf(e)==='DM + reply');return R.length?R.length+(R.length===1?' reply is':' replies are')+' worth answering'+(b.length?', '+b.length+' from people who fit our ICP. Start with '+String(b[0].Name||b[0].Handle).split(' ')[0]+'.':'. Reply under their comments.'):'Nobody is waiting on a reply.';})();h.cta=rep[0]?'Reply to '+rep[0].first:calls[0]?'Prep the call':'';h.go=rep[0]?()=>this.openC(rep[0].id):calls[0]?()=>this.openC(calls[0].id):null;}
     if(page==='calendar'){const today=new Date();const n=this.postList().filter(p=>onCal(p)&&p.o._date&&AK.sameDay(p.o._date,today)).length;
@@ -758,7 +762,7 @@ class Component extends DCLogic {
   homeVals(P){const s=this.state;const E=s.entered;const L=this.lists(P);
     const today=new Date();const planned=this.postList().filter(p=>onCal(p)&&p.o._date&&AK.sameDay(p.o._date,today)).length;
     const fresh=AK.newPosts();const toDM=this.engagers().filter(e=>e.Status!=='Messaged').length;
-    const cards=[{label:'Outbound',hint:'DMs on X',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new posts to learn from',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who engaged',dot:'var(--mid)',a:String(L.rep.length),aL:'replies waiting',b:String(toDM),bL:'people to DM',go:()=>this.go('inbox')}];
+    const cards=[{label:'Outbound',hint:'DMs on X',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new posts to learn from',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who engaged',dot:'var(--mid)',a:String(L.rep.length),aL:'DM replies waiting',b:String(toDM),bL:'people who engaged',go:()=>this.go('engaged')}];
     const raw=[...L.rep.map(p=>({p,k:'r',kind:pill('Reply','mid'),title:'Reply to '+p.name,meta:p.company+(p.result?' · '+clip(p.result,80):''),cta:'Reply'})),...L.fu.map(p=>({p,k:'f',kind:pill('Follow-up','out'),title:this.nextOf(p)+' to '+p.name,meta:(p.role?p.role+' · ':'')+p.company,cta:'Open'})),...L.calls.map(p=>({p,k:'c',kind:pill('Call','mid'),title:'Prep the call with '+p.name,meta:(p.call?p.call+' · ':'')+p.company,cta:'Prep'}))];
     const shown=s.more.todo?raw:raw.slice(0,10);
     const todo=shown.map((t,i)=>{const key=t.p.id+t.k;const d=!!s.done[key];return{kind:t.kind,title:t.title,meta:t.meta,cta:t.cta,open:()=>this.openC(t.p.id),toggle:stop(()=>{this.setState(st=>({done:{...st.done,[key]:!d}}));if(!d)this.toast('Nice. '+(raw.length-raw.filter(x=>({...s.done,[key]:true})[x.p.id+x.k]).length)+' left');}),fill:d?'var(--ink)':'transparent',ring:d?'inset 0 0 0 1.5px var(--ink)':'inset 0 0 0 1.5px var(--hairline-strong)',sc:d?'scale(1.08)':'scale(1)',dash:d?'0':'22',op:d?'.45':'1',strike:d?'line-through':'none',bt:i===0?'none':'1px solid var(--hairline)'};});
@@ -801,8 +805,8 @@ class Component extends DCLogic {
     const track=STAGES.slice(0,7).map((st,k)=>{const reached=i<7&&k<=i;const cur=k===i;return{label:SHORT[st],full:st,set:()=>{if(!f&&st!==p.stage)this.setStage(p.id,st);},dotBg:reached?STAGE_DOT[p.stage]:'#fff',sh:cur?'0 0 0 4px '+(TONE[STAGE_T[p.stage]]||TONE.neutral)[0]+', 0 0 0 5px '+(TONE[STAGE_T[p.stage]]||TONE.neutral)[2]:reached?'none':'inset 0 0 0 1.5px var(--hairline-strong)',sc:cur?'scale(1.15)':'scale(1)',fg:cur?'var(--ink)':reached?'var(--ink-2)':'var(--ink-4)',fw:cur?'600':'400',hasLine:k<6,lineBg:i<7&&k<i?STAGE_DOT[p.stage]:'var(--hairline-strong)'};});
     const nm=this.nextMsg(p);const ck=p.id+'pn';const cb=this.copyBtn(ck,'Copy '+nm.title.toLowerCase());
     const cpy=act(cb.label,this.state.copied===ck?'copied':'secondary',()=>this.copy(nm.text,ck,nm.title+' copied'));
-    const A={'To send':[cpy,act('Mark first message sent','primary',()=>this.setStage(p.id,'Sent','Marked as sent'))],
-      'Sent':[cpy,act('Mark follow-up 1 sent','primary',()=>this.setStage(p.id,'Follow-up 1 sent')),act('They replied','mid',()=>this.setStage(p.id,'Replied'))],
+    const A={'To send':[cpy,act('Mark first message sent','primary',()=>this.setStage(p.id,'Contacted','Marked as contacted'))],
+      'Contacted':[cpy,act('Mark follow-up 1 sent','primary',()=>this.setStage(p.id,'Follow-up 1 sent')),act('They replied','mid',()=>this.setStage(p.id,'Replied'))],
       'Follow-up 1 sent':[cpy,act('Mark follow-up 2 sent','primary',()=>this.setStage(p.id,'Follow-up 2 sent')),act('They replied','mid',()=>this.setStage(p.id,'Replied'))],
       'Follow-up 2 sent':[act('They replied','mid',()=>this.setStage(p.id,'Replied')),act('Close: no reply','ghost',()=>this.setStage(p.id,'Closed'))],
       'Replied':[act('Book a call','mid',()=>this.setStage(p.id,'Call booked','Call booked with '+p.first)),act('Close','ghost',()=>this.setStage(p.id,'Closed'))],
@@ -894,7 +898,8 @@ class Component extends DCLogic {
     return out;}
   pipeVals(P){const s=this.state;
     const nT=this.tplFamilies().reduce((n,f)=>n+f.v.length,0);
-    const tabs=this.tabs([['Board',''],['People',String(P.length)],['Companies',String(new Set(P.map(p=>p.company)).size)]],s.pipeTab,t=>this.setState({pipeTab:t}));
+    const nS=AK.M.templates.filter(t=>/^[A-Z]\d+[A-Z]?$/.test(t.ID)).length;
+    const tabs=this.tabs([['Board',''],['People',String(P.length)],['Scripts',String(nS)]],s.pipeTab,t=>this.setState({pipeTab:t}));
     const o={tabs,isBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
     if(o.isBoard)o.board=this.boardVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
     return o;}
@@ -930,6 +935,30 @@ class Component extends DCLogic {
         const tone=/double/i.test(vt)?'ok':/rewrite|kill|drop/i.test(vt)?'bad':/keep/i.test(vt)?'warn':'neutral';const k='tpl'+code;const cb=this.copyBtn(k,'Copy opener');
         const f1=Object.keys(x).find(h=>h.indexOf('Follow-up 1')===0),f2=Object.keys(x).find(h=>h.indexOf('Follow-up 2')===0);
         return{code,isBest:code===best&&r>=0.04,sent:String(sent),rep:String(rep),rate:sent?Math.round(r*100)+'%':'–',rateW:this.state.entered?Math.min(100,r*500)+'%':'0%',rateBg:tone==='ok'?'var(--ok)':tone==='bad'?'var(--bad)':tone==='warn'?'var(--warn)':'var(--ink-4)',verdict:pill(vt,tone),open:x.Opener,f1:(f1&&x[f1])||'–',f2:(f2&&x[f2])||'–',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(x.Opener,k,code+' opener copied')};})};});}
+  /* Engaged (9 Nov): DM replies, calls, and everyone who replied to, quoted or mentioned our posts, with the reply and the
+     DM ready to copy. Done puts an engager in the Pipeline as Contacted. */
+  engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
+    const VO={'DM + reply':0,'Reply only':1};
+    const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));
+    const done=E.filter(e=>/^(Messaged|Replied)$/.test(e.Status||'')).reverse();
+    const isTodo=s.engTab!=='done';const list=isTodo?todo:done;
+    const card=e=>{const name=e.Name||e.Handle;const h=String(e.Handle||'').replace(/^@/,'');const said=String(e['What they said']||'').replace(/^(@\w+\s*)+/,'');
+      const reply=e['Our reply']||'',dm=e['DM ready']||'';const v=verdictOf(e);const kr=e._key+'r',kd=e._key+'d';const busy=AK.S.busy.has(e._key);
+      const cr=this.copyBtn(kr,'Copy reply'),cd=this.copyBtn(kd,'Copy DM');
+      return{...avatar(name),name,sub:'@'+h+(num(e.Followers)!=null?' · '+fmtK(num(e.Followers))+' followers':''),why:e.Why||'',fit:pill(v==='DM + reply'?'Good fit':v==='Reply only'?'Worth a reply':v,v==='DM + reply'?'solid':'mid'),
+        how:(e.How||'Replied')+' '+(AK.dayWord(AK.parseDate(e['Found on']))||e['Found on']||'').toLowerCase(),said:clip(said,280),hasSaid:!!said,
+        reply,hasReply:!!reply,dm,hasDm:!!dm&&v==='DM + reply',todo:isTodo,view:!isTodo,doneNote:'In the Pipeline'+(e['Messaged on']?' since '+e['Messaged on']:''),
+        copyReply:()=>this.copy(reply,kr,'Reply for '+name.split(' ')[0]+' copied'),rLabel:cr.label,rbg:cr.bg,rfg:cr.fg,rsh:cr.sh,
+        copyDm:()=>this.copy(dm,kd,'DM for '+name.split(' ')[0]+' copied'),dLabel:cd.label,dbg:cd.bg,dfg:cd.fg,dsh:cd.sh,
+        openPost:()=>open(e['Their link']),openProfile:()=>window.open('https://x.com/'+h,'_blank','noopener'),
+        doneLabel:busy?'Saving…':'Done, add to Pipeline',done:()=>{if(AK.canEdit()&&!busy)AK.engagerToPipeline(e);},skip:()=>this.dismissEngager(e,name)};};
+    const pRow=(p,kind)=>({...avatar(p.name),name:p.name,sub:(p.role?p.role+' · ':'')+p.company,note:kind==='call'?(p.call?'Call '+p.call:'Call booked'):(p.result?clip(p.result,140):'Replied to your DM'),
+      open:()=>this.openC(p.id),openX:()=>{if(p.handle)window.open('https://x.com/'+String(p.handle).replace(/^@/,''),'_blank','noopener');},cta:kind==='call'?'Prep the call':'Open and reply'});
+    const tab=(id,label,c)=>{const on=(id==='done')!==isTodo;return{label,count:String(c),go:()=>this.setState({engTab:id}),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};};
+    return{tabs:[tab('todo','To do',todo.length),tab('done','Done',done.length)],replies:L.rep.map(p=>pRow(p,'reply')),hasReplies:L.rep.length>0&&isTodo,calls:L.calls.map(p=>pRow(p,'call')),hasCalls:L.calls.length>0&&isTodo,
+      cards:list.slice(0,n).map(card),hasCards:list.length>0,none:!list.length&&!(isTodo&&(L.rep.length||L.calls.length)),
+      noneText:isTodo?'Nobody to answer right now. Replies, quotes and mentions on your X posts are checked every 6 hours.':'Nobody marked done yet.',
+      hasMore:list.length>n,more:()=>this.setState(st=>({more:{...st.more,eng:n+20}})),moreN:String(Math.min(20,list.length-n))};}
   /* DM scripts (9 Nov): the A/B/C versions, edited here. Each new lead gets the next version in turn (x-leads), and the
      numbers come from DM Pipeline: sent = Sent on filled in, replies = Replied on filled in (drag them to Replied). */
   scriptsVals(P){const s=this.state;const T=AK.M.templates.filter(t=>/^[A-Z]\d+[A-Z]?$/.test(t.ID));
@@ -957,7 +986,7 @@ class Component extends DCLogic {
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
       add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
-  moreVals(P){const pg=this.state.page;const o={};if(pg==='scripts')o.scr=this.scriptsVals(P);if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);if(pg==='liPeople')o.lip=this.liPeopleVals();
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -1909,12 +1938,14 @@ class Component extends DCLogic {
   midVals(pg){const s=this.state;const o={};const n=s.narrow;
     o.L={cmpCols:n?'minmax(0,1fr)':'minmax(0,1fr) 44px minmax(0,1fr)',arrow:n?'↓':'→',aH:n?'0px':'auto'};
     if(pg==='calendar')o.cal=this.calVals();
-    if(pg==='posts'){o.posts=this.postsVals();o.hasCmp=true;o.cmp=this.cmpVals();}
+    const comp=pg==='comps'||(pg==='posts'&&s.inspTab==='comp');
+    o.insp={on:pg==='posts',tabs:[['drafts','Our drafts',this.ownPosts().filter(p=>p.status==='To post').length],['comp','Competitors\u2019 best posts',AK.M.theirs.length]].map(([id,label,n])=>{const on=s.inspTab===id||(id==='drafts'&&s.inspTab!=='comp');return{label,count:String(n),go:()=>this.setState({inspTab:id,compId:null,cmpOn:false}),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};})};
+    if(pg==='posts'&&!comp){o.posts=this.postsVals();o.hasCmp=true;o.cmp=this.cmpVals();}
     if(pg==='tracker')o.trk=this.trkVals();
     if(pg==='pdm')o.pdm=this.pdmVals();
-    if(pg==='comps'){o.comp=this.compVals();if(o.comp.isDetail){const c=o.comp.d;const h=this.hdrVals(this.ppl());const nx=c.top.findIndex(t=>t.noCopy);const left=c.top.filter(t=>t.noCopy).length;const done=c.top.length-left;
+    if(comp){o.comp=this.compVals();if(o.comp.isDetail){const c=o.comp.d;const h=this.hdrVals(this.ppl());const nx=c.top.findIndex(t=>t.noCopy);const left=c.top.filter(t=>t.noCopy).length;const done=c.top.length-left;
       o.hdr={...h,eyebrow:'Inbound · Competitors',title:c.name,next:!c.top.length?'No posts saved for '+c.name+' yet. They arrive with the next refresh.':left>0?'We’ve copied '+done+' of their '+c.top.length+' biggest posts. Copy #'+(nx+1)+' next.':'All '+c.top.length+' of their biggest posts are copied. Check their latest posts.',cta:'All competitors',go:()=>this.setState({compId:null}),hasCta:true};}}
-    const on=s.cmpOn&&pg==='posts';o.cmpUi={op:on?'1':'0',pe:on?'auto':'none',t:on?'none':'scale(.98) translateY(12px)'};
+    const on=s.cmpOn&&pg==='posts'&&!comp;o.cmpUi={op:on?'1':'0',pe:on?'auto':'none',t:on?'none':'scale(.98) translateY(12px)'};
     return o;}
   gateVals(){const g=AK.gate();if(!g||g.wait)return{on:false};
     const fn=g.action==='allow'?()=>AK.allow():g.action==='retry'?()=>AK.refresh():()=>open(AK.SHEET_URL);
@@ -1940,7 +1971,7 @@ class Component extends DCLogic {
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
       tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=s.plat!=='X'?0:x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;const lb=this.lastBy&&this.lastBy[s.plat+'|'+x.id];return{label:x.label,go:()=>this.go(lb&&x.pages.includes(lb)?lb:x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
       hdr:this.hdrVals(P),loading:L,notLoading:!L,E:{op:E?'1':'0',t:E?'none':'translateY(10px)'},gate,stale:AK.staleNote(),hasStale:!!AK.staleNote()&&ready,
-      is:Object.fromEntries(Object.keys(PAGES).map(k=>[k,page===k&&ready&&!gate.on])),skel3:[1,2,3],skel6:[1,2,3,4,5,6],
+      is:(()=>{const on=ready&&!gate.on;const o=Object.fromEntries(Object.keys(PAGES).map(k=>[k,page===k&&on]));o.scripts=page==='pipeline'&&s.pipeTab==='Scripts'&&on;o.comps=page==='posts'&&s.inspTab==='comp'&&on;o.posts=page==='posts'&&s.inspTab!=='comp'&&on;return o;})(),skel3:[1,2,3],skel6:[1,2,3,4,5,6],
       tips,hideTip:()=>this.state.tip&&this.setState({tip:null}),
       cp:this.panelVals(),closePanel:()=>{if(this.state.lid)this.closeLead();this.setState({cid:null});},lp:this.leadPanel(),pal:this.palVals(),
       toast:{msg:s.toastMsg,hasUndo:!!s.toastUndo,noUndo:!s.toastUndo,ic:s.toastErr?'!':'✓',icBg:s.toastErr?'var(--bad)':'var(--ok)',ws:s.toastErr?'normal':'nowrap',undo:()=>{const u=this.state.toastUndo;this.setState({toastUndo:null,toastOn:false});u&&u();}},
@@ -3346,6 +3377,80 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </div>
 </sc-if>
 
+<!-- Engaged (9 Nov): DM replies, calls coming up, and everyone who replied to, quoted or mentioned our X posts, with the reply
+     and the DM ready to copy. Spliced in by build_app.py; values come from engagedVals() in logic.js (eng). -->
+<sc-if value="{{ is.engaged }}">
+<div style="display:flex; flex-wrap:wrap; gap:6px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<sc-for list="{{ eng.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 14px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">{{ t.label }} <span style="font-weight:700; opacity:.75;">{{ t.count }}</span></button></sc-for>
+</div>
+
+<sc-if value="{{ eng.hasReplies }}">
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Replied to your DMs</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ eng.replies }}" as="r">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="width:var(--av-md); height:var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
+<div style="flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:500;">{{ r.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }} · {{ r.note }}</span></div>
+<button onClick="{{ r.openX }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open X</button>
+<button onClick="{{ r.open }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.cta }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ eng.hasCalls }}">
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Calls coming up</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ eng.calls }}" as="r">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="width:var(--av-md); height:var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
+<div style="flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:500;">{{ r.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }} · {{ r.note }}</span></div>
+<button onClick="{{ r.open }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.cta }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{ eng.hasCards }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<sc-for list="{{ eng.cards }}" as="c">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:flex-start; gap:10px;">
+<span style="width:var(--av-md); height:var(--av-md); flex:0 0 var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;">
+<a href="#" onClick="{{ c.openProfile }}" style="font-size:var(--fs-md); font-weight:600; color:var(--ink); text-decoration:none;">{{ c.name }}</a>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ c.sub }}</span>
+</div>
+<span style="height:22px; display:inline-flex; align-items:center; padding:0 9px; border-radius:var(--r-pill); background:{{ c.fit.bg }}; color:{{ c.fit.fg }}; box-shadow:{{ c.fit.bd }}; font-size:var(--fs-3xs); font-weight:600; white-space:nowrap;">{{ c.fit.label }}</span>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.45;">{{ c.why }}</span>
+<sc-if value="{{ c.hasSaid }}"><div style="display:flex; flex-direction:column; gap:3px; padding:10px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-3xs); color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">They {{ c.how }}</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.said }}</span></div></sc-if>
+<sc-if value="{{ c.hasReply }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--mid-soft); box-shadow:inset 0 0 0 1px var(--mid-line);">
+<span style="font-size:var(--fs-3xs); color:var(--mid-ink); text-transform:uppercase; letter-spacing:.04em;">Your reply</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.reply }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ c.copyReply }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.rbg }}; color:{{ c.rfg }}; box-shadow:{{ c.rsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.rLabel }}</button><button onClick="{{ c.openPost }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open their post ↗</button></div>
+</div></sc-if>
+<sc-if value="{{ c.hasDm }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line);">
+<span style="font-size:var(--fs-3xs); color:var(--out-ink); text-transform:uppercase; letter-spacing:.04em;">Your DM</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.dm }}</span>
+<div style="display:flex; gap:6px;"><button onClick="{{ c.copyDm }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.dbg }}; color:{{ c.dfg }}; box-shadow:{{ c.dsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.dLabel }}</button><button onClick="{{ c.openProfile }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open their X ↗</button></div>
+</div></sc-if>
+<sc-if value="{{ c.todo }}"><div style="display:flex; gap:8px; align-items:center;">
+<button onClick="{{ c.done }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ c.doneLabel }}</button>
+<button onClick="{{ c.skip }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-3); font-size:var(--fs-xs); cursor:pointer;">Skip</button>
+</div></sc-if>
+<sc-if value="{{ c.view }}"><span style="font-size:var(--fs-xs); color:var(--ok-ink);">{{ c.doneNote }}</span></sc-if>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ eng.hasMore }}"><button onClick="{{ eng.more }}" style="align-self:center; height:var(--btn-h-sm); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">Show {{ eng.moreN }} more</button></sc-if>
+</sc-if>
+
+<sc-if value="{{ eng.none }}"><div style="padding:var(--s-6); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ eng.noneText }}</div></sc-if>
+</sc-if>
+
 <sc-if value="{{ is.calendar }}">
 <div style="display:flex; align-items:center; gap:var(--s-3); flex-wrap:wrap; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
 <div style="display:flex; gap:2px; padding:3px; border-radius:var(--r-md); background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline);">
@@ -3440,6 +3545,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-for>
 </sc-if>
 
+<sc-if value="{{ insp.on }}"><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ insp.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:8px; height:34px; padding:0 16px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">{{ t.label }} <span style="font-weight:700; opacity:.75;">{{ t.count }}</span></button></sc-for></div></sc-if>
 <sc-if value="{{ is.posts }}">
 <div style="display:flex; align-items:center; gap:var(--s-3); flex-wrap:wrap; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
 <div role="tablist" style="display:flex; gap:2px; padding:3px; border-radius:var(--r-md); background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); max-width:100%; overflow-x:auto;">
@@ -3489,7 +3595,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:8px; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ p.avBg }}; color:{{ p.avFg }};">{{ p.ini }}</span>
 <span style="display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ p.comp }}</span><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-3);">{{ p.compH }}</span></span>
 </div>
-<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty;">{{ p.cText }}</p>
+<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty; white-space:pre-wrap; max-height:420px; overflow:auto;">{{ p.cText }}</p>
 <span style="margin-top:auto; font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ink-3);">{{ p.cNums }}</span>
 </div>
 <div style="position:relative; height:{{ L.aH }}; display:grid; place-items:center; z-index:1;">
@@ -3502,7 +3608,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ p.accName }}</span><span style="font-family:var(--font-mono); font-size:var(--fs-3xs); color:var(--ink-3);">{{ p.time }}</span></span>
 <span style="margin-left:auto; display:inline-flex; align-items:center; height:22px; padding:0 8px; border-radius:var(--r-pill); font-size:var(--fs-2xs); font-weight:500; background:{{ p.st.bg }}; color:{{ p.st.fg }}; box-shadow:{{ p.st.bd }};">{{ p.st.label }}</span>
 </div>
-<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink); text-wrap:pretty;">{{ p.text }}</p>
+<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink); text-wrap:pretty; white-space:pre-wrap;">{{ p.text }}</p>
 <sc-if value="{{ p.hasNums }}"><span style="margin-top:auto; font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ok-ink);">{{ p.ourViews }} views · {{ p.ourLikes }} likes</span></sc-if>
 <sc-if value="{{ p.noNums }}"><span style="margin-top:auto; font-family:var(--font-mono); font-size:var(--fs-2xs); color:var(--ink-4);">Numbers show up once it’s live</span></sc-if>
 </div>

@@ -323,7 +323,19 @@ src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" ar
 
 # ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
 k0 = src.index('<sc-if value="{{ is.calendar }}">')
-src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "engaged.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+
+# ---------- inspiration (9 Nov): drafts keep their line breaks, and threads show each tweet on its own ----------
+rep('<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty;">{{ p.cText }}</p>',
+    '<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty; white-space:pre-wrap; max-height:420px; overflow:auto;">{{ p.cText }}</p>')
+rep('<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink); text-wrap:pretty;">{{ p.text }}</p>',
+    '<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink); text-wrap:pretty; white-space:pre-wrap;">{{ p.text }}</p>')
+
+# ---------- inspiration (9 Nov): one switch on top for our drafts and the competitors' best posts ----------
+p0 = src.index('<sc-if value="{{ is.posts }}">')
+src = (src[:p0] + '<sc-if value="{{ insp.on }}"><div style="display:flex; flex-wrap:wrap; gap:6px;">'
+    '<sc-for list="{{ insp.tabs }}" as="t"><button onClick="{{ t.go }}" style="display:inline-flex; align-items:center; gap:8px; height:34px; padding:0 16px; border-radius:var(--r-pill); border:1px solid {{ t.bd }}; background:{{ t.bg }}; color:{{ t.fg }}; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">{{ t.label }} <span style="font-weight:700; opacity:.75;">{{ t.count }}</span></button></sc-for>'
+    '</div></sc-if>\n' + src[p0:])
 
 # ---------- send today (9 Nov): each row shows the message it will send, filled in for that person ----------
 g0 = src.index('<sc-for list="{{ send.groups }}" as="g">')

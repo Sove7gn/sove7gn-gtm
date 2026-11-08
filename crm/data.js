@@ -606,6 +606,15 @@ async function saveEngager(e,status){
     return prev;
   }catch(err){delete S.messagedLocal[e._row];build();emit();toast("Couldn't save: "+(err&&err.message||err),true);return false}
 }
+/* Engaged page (9 Nov): "Done" puts the person in DM Pipeline as Contacted and marks them messaged here. */
+async function engagerToPipeline(e){
+  if(S.busy.has(e._key))return false;
+  S.busy.add(e._key);const when=new Date().toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+  S.messagedLocal[e._row]={when,at:Date.now()};build();emit();let ok=false;
+  try{await scriptCall({action:"engagerToPipeline",row:e._row,handle:e.Handle});ok=true;toast((e.Name||e.Handle)+" is in the Pipeline as Contacted.");goLive();}
+  catch(err){delete S.messagedLocal[e._row];build();toast("Couldn't save: "+(err&&err.message||err),true)}
+  S.busy.delete(e._key);emit();return ok;
+}
 async function saveScheduled(p,on,opt){
   opt=opt||{};
   const status=on?"Scheduled":"Ready to post";
@@ -1390,7 +1399,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

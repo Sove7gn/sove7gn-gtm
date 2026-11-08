@@ -101,7 +101,7 @@ async function judge(author: any, tweet: any, seg: string) {
   const bio = String(author.profile_bio?.description || author.description || "");
   const at = (bio.match(/@([A-Za-z0-9_]{2,15})/) || [])[1] || "";
   const query = (at ? at + " " : "") + clip(bio, 120) + " startup funding";
-  const schema = { type: "object", required: ["fit", "name", "company", "hook", "why"], properties: {
+  const schema = { type: "object", required: ["fit", "name", "company", "why"], properties: {
     fit: { type: "string", enum: ["hot", "warm", "not a fit"] },
     name: { type: "string", description: "Their full name as a person (not the company)" },
     role: { type: "string", description: "Their role, short, e.g. Co-founder & CEO" },
@@ -110,7 +110,6 @@ async function judge(author: any, tweet: any, seg: string) {
     stage: { type: "string", description: "Latest round and when, e.g. 'Seed, $4M, Oct 2026', or 'Unknown'" },
     team: { type: "string", enum: ["1-10", "11-50", "51-200", "200+", "unknown"] },
     is_person: { type: "boolean", description: "true only if this X account belongs to one named person; false for company, product or project accounts" },
-    hook: { type: "string", description: "The first line of a friendly DM to them about their post, max 14 words, e.g. 'Congrats on the Series A, saw the news on X.' or 'Saw you're hiring a founding GTM lead.' No em dashes, no hype words, never mention GTM, sales or connecting. Only things they posted." },
     why: { type: "string", description: "One plain sentence: why they fit or not" } } };
   const res = await fetch("https://api.exa.ai/search", {
     method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
@@ -122,6 +121,17 @@ async function judge(author: any, tweet: any, seg: string) {
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0, source: j.results?.[0]?.url ?? "" };
+}
+
+// The [hook] in the DM scripts: one plain sentence a person would write, nothing clever.
+const ROLE = /(founding gtm|first gtm|gtm engineer|founding growth|head of growth|head of marketing|marketing lead|growth lead|first marketer|founding marketer|founding ae|first sales hire|founding sales)/i;
+function hookFor(seg: string, stage: string, text: string) {
+  if (seg === "Hiring signal") { const m = String(text || "").match(ROLE); return m ? "Saw you're hiring a " + m[1].toLowerCase().replace("gtm", "GTM").replace(/ ae$/, " AE") + "." : "Saw you're hiring for growth."; }
+  if (seg === "YC launch") return "Congrats on the YC launch.";
+  const m = (String(stage || "") + " " + String(text || "")).match(/(pre-?seed|seed|series [abc])/i);
+  if (!m) return "Congrats on the raise.";
+  const r = m[1].toLowerCase();
+  return r.startsWith("series") ? "Congrats on the Series " + r.slice(-1).toUpperCase() + "." : r.startsWith("pre") ? "Congrats on the pre-seed round." : "Congrats on the seed round.";
 }
 
 // ---------- the run ----------
@@ -215,7 +225,7 @@ async function findLeads(force: boolean) {
       writes.push({ row: r, col: 28, values: [["Found by the lead finder on " + istStamp(new Date()) + ". " + noDash(o.why || "") + (o.what ? " " + co + ": " + noDash(o.what) : "") +
         " X: " + (a.followers ?? 0) + " followers. Bio: " + clip(bio, 160)]] });
       writes.push({ row: r, col: 32, values: [[String((haveCompany.get(co.toLowerCase()) ?? 1)), "Done-for-you GTM: " + clip(noDash(o.why || ""), 140), "",
-        o.stage && !/unknown/i.test(o.stage) ? o.stage : (t._seg === "Raised recently" ? "Raised recently (see post)" : "Unknown"), o.source || t.url || "", noDash(o.hook || "")]] });
+        o.stage && !/unknown/i.test(o.stage) ? o.stage : (t._seg === "Raised recently" ? "Raised recently (see post)" : "Unknown"), o.source || t.url || "", hookFor(t._seg, o.stage, t.text)]] });
     }
   }
 
