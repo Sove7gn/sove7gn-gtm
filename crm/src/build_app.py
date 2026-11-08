@@ -288,15 +288,17 @@ rep('font-size:var(--fs-sm); font-weight:600;">A</div>', 'font-size:var(--fs-sm)
 rep('<option value="Karan">Karan</option>\n<option value="Shreenabh">Shreenabh</option>\n<option value="Aktoria page">Aktoria page</option>\n',
     "".join('<option value="%s">%s</option>\n' % (a, a) for a in ACCOUNTS))
 rep('Things only Karan or Shreenabh can answer', 'Things only the founders can answer')
-rep('people asking about Aktoria without us messaging first.', 'people asking about us without us messaging first.')
+rep('The two goals agreed for the pilot: 1,000 followers on each account, and a steady stream of people asking about Aktoria without us messaging first.',
+    'Every day: 3 posts on X, 30 DMs, and an answer for everyone who engages. The bars are DM replies plus people worth answering on our posts, week by week.')
 rep('DMs go out from Karan’s and Shreenabh’s accounts. Pick one of them, or show everyone.', 'DMs go out from your X accounts. Pick one, or show everyone.')
 rep('DM replies go to Karan and Shreenabh.', 'DM replies go to the account that sent the DM.')
 rep('Pick Karan or Shreenabh, or show everyone.', 'Pick an account, or show everyone.')
 rep('Grouped by how close they are to what Aktoria does', 'Grouped by how close they are to what we do')
 rep('Copy one and send it on WhatsApp.', 'Copy one and get it answered first.')
-rep('The two goals agreed for the pilot: 1,000 followers on each account,',
-    'The two goals: {:,} followers on each account,'.format(int(CFG.get("pilot", {}).get("followerTarget") or 1000)))
-rep('font-weight:600; letter-spacing:-0.015em;">Pilot goals</h2>', 'font-weight:600; letter-spacing:-0.015em;">Goals</h2>')
+rep('font-weight:600; letter-spacing:-0.015em;">Pilot goals</h2>', 'font-weight:600; letter-spacing:-0.015em;">Today</h2>')
+rep('<span style="font-size:var(--fs-sm); font-weight:500;">Inbound inquiries a week</span>', '<span style="font-size:var(--fs-sm); font-weight:500;">Replies a week</span>')
+rep('>Open sheet<', '>Database<')
+rep('New replies show up here as soon as the sheet updates.', 'New replies show up here as soon as they come in.')
 rep('rarely have budget for remote operators yet,', 'rarely have budget for us yet,')
 rep('Robotics leaders come first, then robotics, investors and everyone else.', 'Good fits come first, then related people, investors and everyone else.')
 rep('>Drive folder ↗<', '>Media folder ↗<')
@@ -321,7 +323,26 @@ src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" ar
 
 # ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
 k0 = src.index('<sc-if value="{{ is.calendar }}">')
-src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+
+# ---------- send today (9 Nov): each row shows the message it will send, filled in for that person ----------
+g0 = src.index('<sc-for list="{{ send.groups }}" as="g">')
+g1 = src.index('</sc-for>\n</div>\n</div>\n</sc-for>', g0)
+src = (src[:g1] + '</sc-for>\n</div>\n<sc-if value="{{ r.hasSaid }}">\n'
+    '<div style="flex:1 1 100%; display:flex; flex-direction:column; gap:4px; padding:10px 12px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line);">\n'
+    '<span style="font-size:var(--fs-sm); line-height:1.5; color:var(--ink); white-space:pre-wrap; text-wrap:pretty;">{{ r.said }}</span>\n'
+    '<span style="font-size:var(--fs-3xs); color:var(--out-ink);">{{ r.saidWhen }}</span>\n'
+    '</div>\n</sc-if>\n</div>\n</sc-for>' + src[g1 + len('</sc-for>\n</div>\n</div>\n</sc-for>'):])
+
+# ---------- send today (9 Nov): the lead finder's status and a "Find more now" button above the list ----------
+rep('<sc-if value="{{ is.send }}">\n<div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:var(--r-lg); background:var(--glass-faint);',
+    '<sc-if value="{{ is.send }}">\n'
+    '<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 14px; border-radius:var(--r-md); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">\n'
+    '<span style="width:8px; height:8px; border-radius:50%; background:var(--out);"></span>\n'
+    '<span style="flex:1; min-width:200px; font-size:var(--fs-sm); color:var(--ink-2);">{{ send.finder.text }}</span>\n'
+    '<sc-if value="{{ send.finder.idle }}"><button onClick="{{ send.finder.run }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Find more now</button></sc-if>\n'
+    '</div>\n'
+    '<div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:var(--r-lg); background:var(--glass-faint);')
 a0 = src.index('<aside aria-label="Contact"')
 a1 = src.index('</aside>', a0) + len('</aside>')
 src = src[:a1] + "\n\n" + open(os.path.join(HERE, "leads_panel.html"), encoding="utf-8").read().strip() + src[a1:]

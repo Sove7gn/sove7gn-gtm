@@ -7,3 +7,4 @@ _kit/
 *.log
 .DS_Store
 crm/_mock*
+_research/

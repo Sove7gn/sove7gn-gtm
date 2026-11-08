@@ -399,7 +399,7 @@ root.GTM={ICP_DEFAULT,DIMS,INTEL,FIELD,SIGNALS,TOUCH_TYPES,OUT_TYPES,QUALIFYING,
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=87667dbd6c"></script>
+<script src="./data.js?v=314c103522"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -420,9 +420,9 @@ const stop=fn=>e=>{if(e&&e.stopPropagation)e.stopPropagation();fn(e);};
 const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=data.length>1?W/(data.length-1):0;const pts=data.map((v,i)=>[+(i*st).toFixed(1),+(H-(v/max)*(H-pad)).toFixed(1)]);return{line:pts.map(p=>p.join(',')).join(' '),area:'M0,'+H+' L'+pts.map(p=>p.join(',')).join(' L')+' L'+W+','+H+' Z',dots:pts.map((p,i)=>({cx:String(p[0]),cy:String(p[1]),v:data[i]})),max};};
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
 
-const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'People to DM'},comps:{sec:'in',label:'Competitors'},
+const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Our posts'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Inspiration'},
   leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Bring in'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'LinkedIn views'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Who engaged'}};
-const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'DMs we send',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'Posts that bring buyers to us',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who replied or reacted',pages:['inbox','pdm']}];
+const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','scripts']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker','comps']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['pdm','inbox']}];
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
 const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','gtmNow','gtmViews','leadBoard','leadList','gtmDash','leadAdd','leadSetup']};
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
@@ -514,7 +514,7 @@ const GCOLS={newconn:[['size','Size'],['fund','Last funding'],['icp','ICP score'
   status:[['rel','Relationship'],['src','Source'],['icp','ICP score'],['value','Value'],['next','Next step'],['touch','Last touch']],
   dq:[['icp','ICP score'],['dq','Why excluded'],['rel','Relationship'],['src','Source']]};
 const liMarkKey=t=>String(t||'').replace(/\s+/g,' ').trim().slice(0,80).toLowerCase();
-const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show in Inbox.',off:'DMs are on. Press Pause DMs to hide everything unsent until you start again.'};
+const DM_HOLD={on:'DMs are paused, so nothing shows as ready to send or follow-up due. Replies still show.',off:'Copy the message, send it on X, then press Mark sent. Can’t DM = their DMs are closed or need a passcode.'};
 
 /* sheet <-> design */
 const SHEET2STAGE={'To send':'To send','Sent':'Sent','FU1 sent':'Follow-up 1 sent','FU2 sent':'Follow-up 2 sent','Replied':'Replied','Call booked':'Call booked','Customer':'Customer','Not now':'Closed','No reply':'Closed','Do not contact':'Closed'};
@@ -559,7 +559,7 @@ class Component extends DCLogic {
     const dow=(new Date().getDay()+6)%7;
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
-    pipeTab:'Board',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
+    pipeTab:'Board',tplEd:{},tplNew:null,sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
@@ -604,7 +604,7 @@ class Component extends DCLogic {
     return {fu:P.filter(p=>p.due),ts:P.filter(p=>B('send').test(p.act)&&this.canSend(p)).sort(byPri),skip:P.filter(p=>B('send').test(p.act)&&!this.canSend(p)).sort(byPri),
       find:P.filter(p=>B('research').test(p.act)).sort(byPri),noreply:P.filter(p=>B('noreply').test(p.act)).sort(byPri),
       rep:P.filter(p=>p.stage==='Replied'||p.act==='Reply now').sort(byPri),calls:P.filter(p=>p.stage==='Call booked').sort(byPri)};}
-  fundPill(p){if(p.fund==='early')return pill(p.funding+': skip','warn');if(p.fund==='unknown')return pill('Funding unknown','ghost');if(p.fund==='none')return pill('Funding not checked','ghost');return pill(p.funding,'neutral');}
+  fundPill(p){if(p.fund==='early')return pill(p.funding,'neutral');if(p.fund==='unknown')return pill('Funding unknown','ghost');if(p.fund==='none')return pill('Funding not checked','ghost');return pill(p.funding,'neutral');}
   nextOf(p){const a=p.act,B=id=>AK.bucket(id);
     if(a==='Updating…')return 'Updating…';
     if(B('reply').test(a)||p.stage==='Replied')return 'Reply now';
@@ -649,6 +649,11 @@ class Component extends DCLogic {
     const nx=p.due?(p.fuN===2?'Follow-up 2 sent':'Follow-up 1 sent'):({'To send':'Sent','Sent':'Follow-up 1 sent','Follow-up 1 sent':'Follow-up 2 sent'}[p.stage]||p.stage);
     this.setState(s=>({leaving:{...s.leaving,[id]:true}}));
     setTimeout(()=>{this.setState(s=>{const l={...s.leaving};delete l[id];return{leaving:l};});this.setStage(id,nx,'Marked as sent to '+p.first);},300);}
+  // Their DMs are closed or need a passcode: off today's list (Status "Not now"), and the next person moves up.
+  async cantDM(p){const c=AK.M.contacts.find(x=>x._key===p.id)||p.c;const d=new Date();
+    const cells=Object.assign({},AK.statusCells(c,'Not now'),{'DM result':'Not sent on X ('+d.getDate()+' '+AK.MON[d.getMonth()]+'): DMs closed or need a passcode'});
+    this.setState(s=>({leaving:{...s.leaving,[p.id]:true}}));
+    setTimeout(async()=>{this.setState(s=>{const l={...s.leaving};delete l[p.id];return{leaving:l};});await this.saveCells(p,cells,p.first+'’s DMs are closed. Next person moved up.');},300);}
   saveCall(p){const v=this.state.callAt[p.id];if(v==null||v===p.callIso||!v)return;
     const d=new Date(v);if(isNaN(d)){this.toast('Pick a full date and time first.',null,true);return;}
     const cells={'Call on':AK.sheetSerial(d,true)};if(p.stage!=='Call booked'&&p.stage!=='Customer')cells.Status='Call booked';
@@ -715,9 +720,11 @@ class Component extends DCLogic {
       if(rep[0])h={...h,next:'Reply to '+rep[0].name+' at '+rep[0].company+' first.'+(rep.length>1?' '+(rep.length-1)+' other '+(rep.length-1===1?'reply is':'replies are')+' waiting.':''),cta:'Open reply',go:()=>this.openC(rep[0].id)};
       else if(fu[0])h={...h,next:'No replies waiting. '+fu.length+' follow-up'+(fu.length===1?' is':'s are')+' due, starting with '+fu[0].name+'.',cta:'Go to Send today',go:()=>this.go('send')};
       else{const today=this.ownPosts().filter(p=>p.status!=='Later'&&p.o._date&&AK.sameDay(p.o._date,new Date()));
-        h={...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
+        h=ts.length&&!AK.dmsPaused()?{...h,next:'No replies waiting. '+ts.length+' DMs are ready to send, and '+today.length+' of 3 posts are planned for today.',cta:'Go to Send today',go:()=>this.go('send')}
+          :{...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' of 3 planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
+    if(page==='scripts'){h.next='Each new lead gets the next version in turn. Edit any version here; unsent messages pick up the change straight away.';}
     if(page==='pipeline'){const sent=P.filter(p=>['Sent','Follow-up 1 sent','Follow-up 2 sent'].includes(p.stage)).length;
       h.next=rep.length?rep.length+' people replied and are waiting on us. Calls come next: '+calls.length+' booked.':P.length+' people in the pipeline. '+sent+' have a message out and nobody is waiting on a reply from us.';h.cta=rep.length?'Open replies':'';h.go=rep.length?()=>this.go('inbox'):null;}
     if(page==='inbox'){h.title='Replies and calls';h.next=rep[0]?'Reply to '+rep[0].first+' at '+rep[0].company+'. Then prep for '+(calls[0]?calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:''):'your next call')+'.':calls[0]?'Nobody is waiting on a reply. Prep for '+calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:'')+'.':(()=>{const R=this.postReplies();const b=R.filter(e=>verdictOf(e)==='DM + reply');return R.length?R.length+(R.length===1?' reply is':' replies are')+' worth answering'+(b.length?', '+b.length+' from people who fit our ICP. Start with '+String(b[0].Name||b[0].Handle).split(' ')[0]+'.':'. Reply under their comments.'):'Nobody is waiting on a reply.';})();h.cta=rep[0]?'Reply to '+rep[0].first:calls[0]?'Prep the call':'';h.go=rep[0]?()=>this.openC(rep[0].id):calls[0]?()=>this.openC(calls[0].id):null;}
@@ -751,7 +758,7 @@ class Component extends DCLogic {
   homeVals(P){const s=this.state;const E=s.entered;const L=this.lists(P);
     const today=new Date();const planned=this.postList().filter(p=>onCal(p)&&p.o._date&&AK.sameDay(p.o._date,today)).length;
     const fresh=AK.newPosts();const toDM=this.engagers().filter(e=>e.Status!=='Messaged').length;
-    const cards=[{label:'Outbound',hint:'DMs we send',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new competitor posts',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who replied',dot:'var(--mid)',a:String(L.rep.length),aL:'replies waiting',b:String(toDM),bL:'people to DM',go:()=>this.go('inbox')}];
+    const cards=[{label:'Outbound',hint:'DMs on X',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new posts to learn from',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who engaged',dot:'var(--mid)',a:String(L.rep.length),aL:'replies waiting',b:String(toDM),bL:'people to DM',go:()=>this.go('inbox')}];
     const raw=[...L.rep.map(p=>({p,k:'r',kind:pill('Reply','mid'),title:'Reply to '+p.name,meta:p.company+(p.result?' · '+clip(p.result,80):''),cta:'Reply'})),...L.fu.map(p=>({p,k:'f',kind:pill('Follow-up','out'),title:this.nextOf(p)+' to '+p.name,meta:(p.role?p.role+' · ':'')+p.company,cta:'Open'})),...L.calls.map(p=>({p,k:'c',kind:pill('Call','mid'),title:'Prep the call with '+p.name,meta:(p.call?p.call+' · ':'')+p.company,cta:'Prep'}))];
     const shown=s.more.todo?raw:raw.slice(0,10);
     const todo=shown.map((t,i)=>{const key=t.p.id+t.k;const d=!!s.done[key];return{kind:t.kind,title:t.title,meta:t.meta,cta:t.cta,open:()=>this.openC(t.p.id),toggle:stop(()=>{this.setState(st=>({done:{...st.done,[key]:!d}}));if(!d)this.toast('Nice. '+(raw.length-raw.filter(x=>({...s.done,[key]:true})[x.p.id+x.k]).length)+' left');}),fill:d?'var(--ink)':'transparent',ring:d?'inset 0 0 0 1.5px var(--ink)':'inset 0 0 0 1.5px var(--hairline-strong)',sc:d?'scale(1.08)':'scale(1)',dash:d?'0':'22',op:d?'.45':'1',strike:d?'line-through':'none',bt:i===0?'none':'1px solid var(--hairline)'};});
@@ -764,10 +771,22 @@ class Component extends DCLogic {
     const lastW=weeks[weeks.length-1];const tgtW=(AK.M.weekly.map(w=>w['Inquiry target per week']).filter(Boolean)[0])||'5 to 10';
     return{cards,todo,allDone:raw.length===0,doneLabel:nd+' of '+raw.length+' done',donePct:raw.length?Math.round(nd/raw.length*100)+'%':'100%',hasMoreTodo:raw.length>10&&!s.more.todo,moreTodo:()=>this.setState(st=>({more:{...st.more,todo:true}})),moreTodoN:String(raw.length-10),
       alerts:fresh.slice(0,4).map(t=>{const who=t._comp?t._comp.Name:t.Competitor;const v=num(t.Views);return{who,comp:AK.norm(who),...avatar(who),what:'posted “'+clip(firstLine(t.Hook||t['Full text']),90)+'”',stat:v?fmtK(v)+' views':fmtK(t._eng)+' engagement',when:AK.dayWord(t._date),go:()=>this.openComp(AK.norm(who))};}),hasAlerts:fresh.length>0,
-      fq,hasFq:fq.length>0,
-      goals:fol.filter(f=>accs.some(a=>a.acc===f.acc)).map(f=>({name:f.name,v:f.v==null?'–':f.v.toLocaleString(),tgt:f.tgt.toLocaleString(),w:E&&f.v?Math.min(100,f.v/f.tgt*100)+'%':'0%'})),
-      inqText:lastW?lastW['Qualified inbound inquiries']+' in '+lastW.Week+'. Goal is '+tgtW+' a week.':'No weekly counts typed in yet. Goal is '+tgtW+' a week (Our Accounts tab).',hasInq:weeks.length>0,
-      inq:weeks.map((w,i)=>{const v=num(w['Qualified inbound inquiries'])||0;return{h:E?Math.max(4,Math.min(40,v*4))+'px':'4px',bg:i===weeks.length-1?'var(--mid)':'var(--n-soft-2)',dl:(i*60)+'ms',t:w.Week+': '+v+' inquiries'};})};}
+      fq,hasFq:false,
+      goals:this.todayGoals(P).map(g=>({name:g.name,v:String(g.v),tgt:String(g.tgt),w:E&&g.tgt?Math.min(100,g.v/g.tgt*100)+'%':'0%'})),
+      ...this.weekReplies(E)};}
+  // The three daily goals (9 Nov): 3 posts, 30 DMs, everyone who engaged answered.
+  todayGoals(P){const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
+    const posted=this.postList().filter(p=>platOf(p.o)==='X'&&p.status==='Posted'&&sameDay(p.o._date)).length;
+    const sent=P.filter(p=>[p.d[0],p.d[1],p.d[2]].some(x=>sameDay(AK.cellDate(x)))).length;
+    const eng=this.engagers().filter(e=>sameDay(AK.parseDate(e['Found on']))&&verdictOf(e)!=='Skip');const done=eng.filter(e=>/Messaged|Replied|Dismissed/.test(e.Status||'')).length;
+    return[{name:'Posts on X today',v:posted,tgt:3},{name:'DMs sent today (first messages and follow-ups)',v:sent,tgt:30},{name:'People who engaged today, answered',v:done,tgt:eng.length}];}
+  // Replies to our DMs plus people who engaged with our posts, per week, for the last 6 weeks.
+  weekReplies(E){const now=AK.weekStart(0).getTime();const wk=d=>now-Math.ceil((now-d.getTime())/(7*864e5))*7*864e5;const by={};
+    for(const c of AK.M.contacts){const d=AK.cellDate(c['Replied on']);if(d)by[wk(d)]=(by[wk(d)]||0)+1;}
+    for(const e of this.engagers()){const d=AK.parseDate(e['Found on']);if(d&&verdictOf(e)!=='Skip')by[wk(d)]=(by[wk(d)]||0)+1;}
+    const weeks=[5,4,3,2,1,0].map(i=>now-i*7*864e5);const v=weeks.map(w=>by[w]||0);
+    return{inqText:v[5]+' this week (DM replies plus people worth answering on our posts).',hasInq:true,
+      inq:v.map((n,i)=>({h:E?Math.max(4,Math.min(40,n*3))+'px':'4px',bg:i===5?'var(--mid)':'var(--n-soft-2)',dl:(i*60)+'ms',t:n+' that week'}))};}
   followers(){const out=[];
     for(const a of Object.keys(AK.HANDLES)){const row=AK.M.accounts.find(r=>r.Account===a)||{};
       const tr=AK.M.tracking.filter(r=>r.Account===a&&num(r.Followers)!=null).sort((x,y)=>x._t-y._t);
@@ -825,15 +844,16 @@ class Component extends DCLogic {
   /* ---------- outbound ---------- */
   row(p,i,kind){const s=this.state;const a=avatar(p.name);const lv=!!s.leaving[p.id];const f=this.founder;const nm=this.nextMsg(p);const key=p.id+'row';const cb=this.copyBtn(key,kind==='fu'?'Copy '+nm.title.toLowerCase():'Copy message');
     let actions=[];
-    if(!f){if(kind==='send'||kind==='fu')actions=[act(cb.label,s.copied===key?'copied':'secondary',stop(()=>this.copy(nm.text,key,nm.title+' for '+p.first+' copied'))),act('Mark sent','primary',stop(()=>this.markSent(p.id)))];
+    if(!f){if(kind==='send'||kind==='fu')actions=[act('Open X','ghost',stop(()=>{if(p.handle)window.open('https://x.com/'+String(p.handle).replace(/^@/,''),'_blank','noopener');})),act(cb.label,s.copied===key?'copied':'secondary',stop(()=>this.copy(nm.text,key,nm.title+' for '+p.first+' copied'))),act('Mark sent','primary',stop(()=>this.markSent(p.id)))];
+      if(kind==='send')actions.splice(1,0,act('Can’t DM','ghost',stop(()=>this.cantDM(p))));
       if(kind==='find')actions=[act('Search on X','secondary',stop(()=>{window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');this.toast('Searching X for '+p.name+'. Add the handle in the sheet.');}))];
       if(kind==='skip')actions=[act('Send anyway','ghost',stop(()=>{const any={...this.state.anyway,[p.id]:true};store.set('anyway',any);this.setState({anyway:any});this.toast(p.first+' moved to Send today (on this browser)',()=>{const x={...this.state.anyway};delete x[p.id];store.set('anyway',x);this.setState({anyway:x});this.toast('Undone');});}))];
       if(kind==='noreply')actions=[act('Mark as no reply','secondary',stop(()=>this.setStage(p.id,'Closed','Closed '+p.first+': no reply')))];
       if(kind==='reply')actions=[act('Reply now','mid',stop(()=>this.openC(p.id)))];
       if(kind==='call')actions=[act('Prep the call','mid',stop(()=>this.openC(p.id)))];
       if(kind!=='call')actions.push(act('×','ghost',stop(()=>this.dismissPerson(p))));}
-    const nx=this.nextOf(p);
-    return{...a,id:p.id,name:p.name,role:p.role||'–',company:p.company,fund:this.fundPill(p),next:pill(nx,NEXT_T[nx]),actions,open:()=>this.openC(p.id),bt:i===0?'none':'1px solid var(--hairline)',op:lv?'0':'1',tf:lv?'translateX(24px)':'none',mh:lv?'0px':'240px',py:lv?'0px':'var(--row-py)',said:p.said,hasSaid:kind==='reply'&&!!p.said,saidWhen:p.saidWhen,hasCall:kind==='call'&&!!p.call,call:p.call,ownerIni:p.owner[0],owner:p.owner};}
+    const nx=this.nextOf(p);const msgRow=(kind==='send'||kind==='fu')&&!!nm.text;
+    return{...a,id:p.id,name:p.name,role:(p.role||'–')+(p.handle?' · @'+String(p.handle).replace(/^@/,''):''),company:p.company,fund:msgRow&&p.tpl?pill('Script '+p.tpl,'neutral'):this.fundPill(p),next:pill(nx,NEXT_T[nx]),actions,open:()=>this.openC(p.id),bt:i===0?'none':'1px solid var(--hairline)',op:lv?'0':'1',tf:lv?'translateX(24px)':'none',mh:lv?'0px':(msgRow?'420px':'240px'),py:lv?'0px':'var(--row-py)',said:msgRow?nm.text:p.said,hasSaid:msgRow||(kind==='reply'&&!!p.said),saidWhen:msgRow?(p.why?clip(p.why,120):''):p.saidWhen,hasCall:kind==='call'&&!!p.call,call:p.call,ownerIni:p.owner[0],owner:p.owner};}
   group(id,title,help,list,kind,lim=5){const n=this.state.more[id]||lim;const shown=list.slice(0,n);return{id,title,help,count:String(list.length),rows:shown.map((p,i)=>this.row(p,i,kind)),hasMore:list.length>n,moreN:String(Math.min(20,list.length-n)),more:()=>this.setState(s=>({more:{...s.more,[id]:n+20}})),show:list.length>0};}
   sendVals(P){const s=this.state;const E=s.entered;const L=this.lists(P);
     const groups=[this.group('fu','Follow-ups due','They saw the first message and haven’t replied.',L.fu,'fu'),this.group('ts','Send today','First messages, best fit first.',L.ts,'send'),this.group('nr','Mark as no reply','Two follow-ups and a week of silence.',L.noreply,'noreply'),this.group('find','Find their handle first','We know who they are, not their X account or full name.',L.find,'find')].filter(g=>g.show);
@@ -843,7 +863,10 @@ class Component extends DCLogic {
       const tgt=a=>num((AK.M.stats.find(x=>x.Account===a)||{})['Daily target'])||30;
       acc=Object.keys(AK.HANDLES).map(a=>({a,n:R.sent.filter(c=>c.Owner===a).length})).filter(x=>x.n>0).map(x=>{const of=tgt(x.a);const name=ownerName(x.a);return{name,...avatar(avName(name)),done:x.n,of,label:x.n+' of '+of,w:E?Math.min(100,x.n/of*100)+'%':'0%',bar:x.n>=of?'var(--ok)':'var(--out)'};});}
     const so=!!s.more.skip;const early=L.skip.filter(p=>p.fund==='early').length;
-    return{groups,noDM:false,hasGroups:groups.length>0,allClear:groups.length===0,acc,hasRes:!!res&&(res.sent!=='0'||res.hasCant),res:res||{},hold:AK.dmsPaused()?DM_HOLD.on:DM_HOLD.off,clearTitle:AK.dmsPaused()?'DMs are paused':'Everything for today is sent',clearText:AK.dmsPaused()?'Nothing to send while DMs are paused. Press Resume DMs above to bring the list back.':'New people show up here as soon as the sheet marks them ready to send.',pauseLabel:AK.S.busy.has('pause')?'Saving…':AK.dmsPaused()?'Resume DMs':'Pause DMs',togglePause:()=>{if(AK.canEdit())AK.savePaused(!AK.dmsPaused());},holdDot:AK.dmsPaused()?'var(--warn, #b7791f)':'var(--ok)',skipOpen:so,skipN:String(L.skip.length),skipLabel:'Skipped for now: '+L.skip.length+(early===L.skip.length?' seed-stage people':' seed-stage or unclear-funding people'),hasSkip:L.skip.length>0,skipRot:so?'rotate(90deg)':'none',skipCta:so?'Hide':'Show',toggleSkip:()=>this.setState(st=>({more:{...st.more,skip:!st.more.skip}})),skipRows:L.skip.slice(0,s.more.skipAll?999:20).map((p,i)=>this.row(p,i,'skip')),showEveryone:()=>this.setOwner('Everyone')};}
+    const lr=(AK.XJ.runs['x-leads']||[]).find(r=>r.ok);const run=!!AK.XJ.running['x-leads'];const sm=lr&&lr.summary||{};
+    const finder={text:run?'Looking for founders on X who just raised or are hiring for GTM… about a minute.':lr?'Lead finder: '+(sm.added_today!=null&&AK.sameDay(new Date(lr.started_at),new Date())?sm.added_today+' new people today (goal '+(sm.target||40)+'). ':'')+'Last ran '+this.since(lr.finished_at||lr.started_at)+'. Runs on its own at 7:30 and 12:30 IST.':'Lead finder: finds 30 to 40 funded founders to DM every morning at 7:30 IST.',
+      idle:!run,run:()=>{if(AK.canEdit())AK.xRun('x-leads');}};
+    return{finder,groups,noDM:false,hasGroups:groups.length>0,allClear:groups.length===0,acc,hasRes:!!res&&(res.sent!=='0'||res.hasCant),res:res||{},hold:AK.dmsPaused()?DM_HOLD.on:DM_HOLD.off,clearTitle:AK.dmsPaused()?'DMs are paused':'Everything for today is sent',clearText:AK.dmsPaused()?'Nothing to send while DMs are paused. Press Resume DMs above to bring the list back.':'The lead finder adds new people every morning. Press Find more now to look straight away.',pauseLabel:AK.S.busy.has('pause')?'Saving…':AK.dmsPaused()?'Resume DMs':'Pause DMs',togglePause:()=>{if(AK.canEdit())AK.savePaused(!AK.dmsPaused());},holdDot:AK.dmsPaused()?'var(--warn, #b7791f)':'var(--ok)',skipOpen:so,skipN:String(L.skip.length),skipLabel:'Skipped for now: '+L.skip.length+(early===L.skip.length?' seed-stage people':' seed-stage or unclear-funding people'),hasSkip:L.skip.length>0,skipRot:so?'rotate(90deg)':'none',skipCta:so?'Hide':'Show',toggleSkip:()=>this.setState(st=>({more:{...st.more,skip:!st.more.skip}})),skipRows:L.skip.slice(0,s.more.skipAll?999:20).map((p,i)=>this.row(p,i,'skip')),showEveryone:()=>this.setOwner('Everyone')};}
   /* People who replied to or quoted our posts in the last 14 days and haven't been answered: buyers first. */
   postReplies(){const wk=Date.now()-14*864e5;const ORD={'Core buyer':0,'Good fit':1,'Related':2,'Investor':3,'Other':4};
     const VO={'DM + reply':0,'Reply only':1};
@@ -871,7 +894,7 @@ class Component extends DCLogic {
     return out;}
   pipeVals(P){const s=this.state;
     const nT=this.tplFamilies().reduce((n,f)=>n+f.v.length,0);
-    const tabs=this.tabs([['Board',''],['People',String(P.length)],['Companies',String(new Set(P.map(p=>p.company)).size)],['DM templates',String(nT)]],s.pipeTab,t=>this.setState({pipeTab:t}));
+    const tabs=this.tabs([['Board',''],['People',String(P.length)],['Companies',String(new Set(P.map(p=>p.company)).size)]],s.pipeTab,t=>this.setState({pipeTab:t}));
     const o={tabs,isBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
     if(o.isBoard)o.board=this.boardVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
     return o;}
@@ -890,7 +913,7 @@ class Component extends DCLogic {
     const k=s.sortKey;const val=p=>k==='stage'?STAGES.indexOf(p.stage):k==='fit'?-(p.fitN||0):k==='pri'?-(p.priN==null?-99:p.priN):k==='next'?this.nextOf(p):k==='funding'?p.funding.toLowerCase():String(p[k]||'').toLowerCase();
     L=[...L].sort((a,b)=>{const x=val(a),y=val(b);return(x>y?1:x<y?-1:0)*s.sortDir||byPri(a,b);});
     const lim=s.more.tbl||10;const total=L.length;
-    const TT={fund:'We only send first messages to companies that raised Series A or later. Seed and pre-seed are skipped unless someone chooses Send anyway.',fit:'How closely they match who we sell to, from the 1–10 fit score: Strong is 9 or 10, Good is 7 or 8.',likely:'What they would most likely buy from us, worked out from their company and role.'};
+    const TT={fund:'Their latest round, as the lead finder found it.',fit:'How closely they match who we sell to, from the 1–10 fit score: Strong is 9 or 10, Good is 7 or 8.',likely:'What they would most likely buy from us, worked out from their company and role.'};
     const C=[['pri','Priority'],['name','Name'],['company','Company'],['funding','Funding stage','fund'],['owner','Owner'],['ch','Channel'],['stage','Stage'],['next','Next step']].concat(s.allCols?[['fit','Fit','fit'],['likely','Likely to buy','likely']]:[]);
     const cols=C.map(([key,label,tip])=>{const on=k===key;return{label,arrow:on?(s.sortDir>0?'↑':'↓'):'↕',arrOp:on?'1':'.25',fg:on?'var(--ink)':'var(--ink-3)',sort:()=>this.setState(st=>({sortKey:key,sortDir:st.sortKey===key?-st.sortDir:1})),hasTip:!!tip,tip:tip?this.tipFor('h'+tip):{},tipText:TT[tip]||'',tl:tip==='fund'?'-8px':'auto',tr:tip==='fund'?'auto':'-8px'};});
     const FB={Strong:3,Good:2,Weak:1};
@@ -907,7 +930,34 @@ class Component extends DCLogic {
         const tone=/double/i.test(vt)?'ok':/rewrite|kill|drop/i.test(vt)?'bad':/keep/i.test(vt)?'warn':'neutral';const k='tpl'+code;const cb=this.copyBtn(k,'Copy opener');
         const f1=Object.keys(x).find(h=>h.indexOf('Follow-up 1')===0),f2=Object.keys(x).find(h=>h.indexOf('Follow-up 2')===0);
         return{code,isBest:code===best&&r>=0.04,sent:String(sent),rep:String(rep),rate:sent?Math.round(r*100)+'%':'–',rateW:this.state.entered?Math.min(100,r*500)+'%':'0%',rateBg:tone==='ok'?'var(--ok)':tone==='bad'?'var(--bad)':tone==='warn'?'var(--warn)':'var(--ink-4)',verdict:pill(vt,tone),open:x.Opener,f1:(f1&&x[f1])||'–',f2:(f2&&x[f2])||'–',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(x.Opener,k,code+' opener copied')};})};});}
-  moreVals(P){const pg=this.state.page;const o={};if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);if(pg==='liPeople')o.lip=this.liPeopleVals();
+  /* DM scripts (9 Nov): the A/B/C versions, edited here. Each new lead gets the next version in turn (x-leads), and the
+     numbers come from DM Pipeline: sent = Sent on filled in, replies = Replied on filled in (drag them to Replied). */
+  scriptsVals(P){const s=this.state;const T=AK.M.templates.filter(t=>/^[A-Z]\d+[A-Z]?$/.test(t.ID));
+    const fu=(t,n)=>{const h=Object.keys(t).find(k=>k.indexOf('Follow-up '+n)===0);return h?t[h]||'':'';};
+    const live=T.filter(t=>!/^off/i.test(t.Verdict||''));const tot=T.reduce((a,t)=>a+(num(t.Sent)||0),0),totR=T.reduce((a,t)=>a+(num(t.Replies)||0),0);
+    const rated=live.filter(t=>(num(t.Sent)||0)>=10);const best=rated.length?rated.reduce((a,b)=>(num(b.Replies)||0)/(num(b.Sent)||1)>(num(a.Replies)||0)/(num(a.Sent)||1)?b:a).ID:'';
+    const cards=T.map(t=>{const ed=s.tplEd[t.ID];const off=/^off/i.test(t.Verdict||'');const sent=num(t.Sent)||0,rep=num(t.Replies)||0,calls=num(t.Calls)||0;const r=sent?rep/sent:0;
+      const vt=off?'Off':sent<10?'Needs 10+ sends to judge':r>=0.1?'Working':r<0.04?'Rewrite it':'Keep testing';const tone=off?'ghost':/working/i.test(vt)?'ok':/rewrite/i.test(vt)?'bad':/keep/i.test(vt)?'warn':'neutral';
+      const ex=P.find(p=>p.tpl===t.ID&&p.stage==='To send');const busy=AK.S.busy.has('tpl:'+t.ID);
+      const f=ed||{};const set=k=>e=>{const v=e.target.value;this.setState(st=>({tplEd:{...st.tplEd,[t.ID]:{...st.tplEd[t.ID],[k]:v}}}));};
+      return{id:t.ID,intent:t.Intent||'',use:t['Use it for']||'',opener:t.Opener||'',fu1:fu(t,1)||'–',fu2:fu(t,2)||'–',sent:String(sent),rep:String(rep),calls:String(calls),rate:sent?Math.round(r*100)+'%':'–',
+        verdict:pill(vt,tone),isBest:t.ID===best&&r>0,op:off?'.55':'1',words:String((t.Opener||'').split(/\s+/).filter(Boolean).length)+' words',
+        hasEx:!!ex&&!ed,ex:ex?'For '+ex.first+' at '+ex.company+': '+ex.opener:'',
+        editing:!!ed,view:!ed,busy,saveLabel:busy?'Saving…':'Save',
+        f:{intent:f.intent??'',use:f.use??'',opener:f.opener??'',fu1:f.fu1??'',fu2:f.fu2??''},on:{intent:set('intent'),use:set('use'),opener:set('opener'),fu1:set('fu1'),fu2:set('fu2')},
+        edit:()=>this.setState(st=>({tplEd:{...st.tplEd,[t.ID]:{intent:t.Intent||'',use:t['Use it for']||'',opener:t.Opener||'',fu1:fu(t,1),fu2:fu(t,2)}}})),
+        cancel:()=>this.setState(st=>{const x={...st.tplEd};delete x[t.ID];return{tplEd:x};}),
+        save:async()=>{if(!AK.canEdit()||busy)return;const ok=await AK.saveTpl(t,{intent:f.intent,use:f.use,opener:f.opener,fu1:f.fu1,fu2:f.fu2});if(ok)this.setState(st=>{const x={...st.tplEd};delete x[t.ID];return{tplEd:x};});},
+        toggleLabel:off?'Turn on':'Turn off',toggle:()=>{if(AK.canEdit()&&!busy)AK.saveTpl(t,{verdict:off?'':'Off'});},
+        copy:()=>this.copy(t.Opener||'','tplc'+t.ID,t.ID+' copied')};});
+    const nf=s.tplNew;const letters=new Set(T.map(t=>t.ID[0]));const nextId=(()=>{for(const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){if(!letters.has(c))return c+'1';}return 'Z9';})();
+    const setN=k=>e=>{const v=e.target.value;this.setState(st=>({tplNew:{...st.tplNew,[k]:v}}));};
+    return{cards,none:!cards.length,summary:live.length+' versions in use. Every new lead gets the next one in turn, so each gets a fair share. '+(tot?tot+' sent so far, '+totR+' replies ('+Math.round(totR/tot*100)+'%).':'Nothing sent yet.'),
+      help:'Write [first name], [company] and [hook] anywhere in a message. [hook] is a one-line opener the lead finder writes about that person\u2019s post. When someone answers, drag them to Replied in the Pipeline, and the reply rate here updates.',
+      adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
+      n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
+      add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='scripts')o.scr=this.scriptsVals(P);if(PAGES[pg].sec==='leads')o.ld=this.leadVals(pg);if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -1990,7 +2040,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span>{{ status }}</span>
 </button>
 <button onClick="{{ refresh }}" title="Reload now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Refresh now</button>
-<a href="#" onClick="{{ openSheet }}" style="display:flex; align-items:center; justify-content:space-between; height:32px; padding:0 12px; border-radius:var(--r-btn); background:rgba(255,255,255,.65); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; color:var(--ink); transition:background var(--dur), box-shadow var(--dur);" style-hover="background:#fff; color:var(--ink); box-shadow:var(--shadow-sm);">Open sheet<span style="color:var(--ink-3);">↗</span></a>
+<a href="#" onClick="{{ openSheet }}" style="display:flex; align-items:center; justify-content:space-between; height:32px; padding:0 12px; border-radius:var(--r-btn); background:rgba(255,255,255,.65); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; color:var(--ink); transition:background var(--dur), box-shadow var(--dur);" style-hover="background:#fff; color:var(--ink); box-shadow:var(--shadow-sm);">Database<span style="color:var(--ink-3);">↗</span></a>
 </div>
 </div>
 </aside>
@@ -2180,7 +2230,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <div style="padding:var(--s-8) var(--s-4); display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center;">
 <span style="width:44px; height:44px; border-radius:50%; display:grid; place-items:center; background:var(--ok-soft); color:var(--ok-ink); font-size:18px;">✓</span>
 <span style="font-size:var(--fs-md); font-weight:600;">All done for now</span>
-<span style="font-size:var(--fs-sm); color:var(--ink-3);">New replies show up here as soon as the sheet updates.</span>
+<span style="font-size:var(--fs-sm); color:var(--ink-3);">New replies show up here as soon as they come in.</span>
 </div>
 </sc-if>
 </div>
@@ -2229,8 +2279,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <section style="display:flex; flex-direction:column; gap:var(--s-3);">
 <div style="display:flex; align-items:center; gap:8px;">
-<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Goals</h2>
-<span onMouseEnter="{{ tips.pilot.show }}" onMouseLeave="{{ hideTip }}" onClick="{{ tips.pilot.show }}" style="position:relative; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-family:var(--font-mono); font-size:9.5px; font-weight:600; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help; transition:all var(--dur);" style-hover="color:var(--ink); background:#fff; box-shadow:inset 0 0 0 1px var(--ink-3);">i<span role="tooltip" style="position:absolute; top:calc(100% + 8px); left:50%; margin-left:-120px; width:240px; padding:10px 12px; border-radius:var(--r-md); background:var(--tooltip-bg); color:#fff; font-family:var(--font-sans); font-size:var(--fs-xs); font-weight:400; line-height:1.45; text-align:left; box-shadow:var(--shadow-lg); pointer-events:none; z-index:30; opacity:{{ tips.pilot.op }}; transform:{{ tips.pilot.tf }}; transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease);">The two goals: 1,000 followers on each account, and a steady stream of people asking about us without us messaging first.</span></span>
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600; letter-spacing:-0.015em;">Today</h2>
+<span onMouseEnter="{{ tips.pilot.show }}" onMouseLeave="{{ hideTip }}" onClick="{{ tips.pilot.show }}" style="position:relative; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-family:var(--font-mono); font-size:9.5px; font-weight:600; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help; transition:all var(--dur);" style-hover="color:var(--ink); background:#fff; box-shadow:inset 0 0 0 1px var(--ink-3);">i<span role="tooltip" style="position:absolute; top:calc(100% + 8px); left:50%; margin-left:-120px; width:240px; padding:10px 12px; border-radius:var(--r-md); background:var(--tooltip-bg); color:#fff; font-family:var(--font-sans); font-size:var(--fs-xs); font-weight:400; line-height:1.45; text-align:left; box-shadow:var(--shadow-lg); pointer-events:none; z-index:30; opacity:{{ tips.pilot.op }}; transform:{{ tips.pilot.tf }}; transition:opacity var(--dur) var(--ease), transform var(--dur) var(--ease);">Every day: 3 posts on X, 30 DMs, and an answer for everyone who engages. The bars are DM replies plus people worth answering on our posts, week by week.</span></span>
 </div>
 <div style="display:flex; flex-direction:column; gap:var(--s-4); padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
 <sc-for list="{{ home.goals }}" as="g" hint-placeholder-count="3">
@@ -2245,7 +2295,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <div style="height:1px; background:var(--hairline);"></div>
 <div style="display:flex; align-items:flex-end; gap:var(--s-4);">
 <div style="display:flex; flex-direction:column; gap:4px; flex:1;">
-<span style="font-size:var(--fs-sm); font-weight:500;">Inbound inquiries a week</span>
+<span style="font-size:var(--fs-sm); font-weight:500;">Replies a week</span>
 <span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ home.inqText }}</span>
 </div>
 <div style="display:flex; align-items:flex-end; gap:4px; height:40px;">
@@ -2261,6 +2311,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-if>
 
 <sc-if value="{{ is.send }}">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 14px; border-radius:var(--r-md); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<span style="width:8px; height:8px; border-radius:50%; background:var(--out);"></span>
+<span style="flex:1; min-width:200px; font-size:var(--fs-sm); color:var(--ink-2);">{{ send.finder.text }}</span>
+<sc-if value="{{ send.finder.idle }}"><button onClick="{{ send.finder.run }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Find more now</button></sc-if>
+</div>
 <div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:var(--r-lg); background:var(--glass-faint); border:1px dashed var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink-2); opacity:{{ E.op }}; transition:opacity 500ms var(--ease);"><span style="width:8px; height:8px; flex:0 0 8px; border-radius:50%; background:{{ send.holdDot }};"></span><span style="flex:1 1 auto;">{{ send.hold }}</span><button onClick="{{ send.togglePause }}" style="flex:0 0 auto; padding:6px 12px; border-radius:var(--r-md); border:1px solid var(--hairline-strong); background:#fff; color:var(--ink); font-size:var(--fs-sm); font-weight:500; cursor:pointer;">{{ send.pauseLabel }}</button></div>
 <sc-if value="{{ send.hasRes }}">
 <div style="display:flex; flex-wrap:wrap; gap:var(--s-5) var(--s-8); padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
@@ -2321,6 +2376,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <button onClick="{{ a.fn }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:500; cursor:pointer; white-space:nowrap; background:{{ a.bg }}; color:{{ a.fg }}; box-shadow:{{ a.sh }}; transition:transform var(--dur-fast) var(--ease), filter var(--dur), background var(--dur), color var(--dur);" style-hover="transform:translateY(-1px); filter:brightness(1.06);" style-active="transform:scale(.97);">{{ a.label }}</button>
 </sc-for>
 </div>
+<sc-if value="{{ r.hasSaid }}">
+<div style="flex:1 1 100%; display:flex; flex-direction:column; gap:4px; padding:10px 12px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line);">
+<span style="font-size:var(--fs-sm); line-height:1.5; color:var(--ink); white-space:pre-wrap; text-wrap:pretty;">{{ r.said }}</span>
+<span style="font-size:var(--fs-3xs); color:var(--out-ink);">{{ r.saidWhen }}</span>
+</div>
+</sc-if>
 </div>
 </sc-for>
 <sc-if value="{{ g.hasMore }}"><button onClick="{{ g.more }}" style="width:100%; height:44px; border:0; border-top:1px solid var(--hairline); background:transparent; font-size:var(--fs-sm); font-weight:500; color:var(--ink-2); cursor:pointer; transition:background var(--dur), color var(--dur);" style-hover="background:rgba(255,255,255,.7); color:var(--ink);">Show {{ g.moreN }} more</button></sc-if>
@@ -3201,6 +3262,88 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Under the research band a lead leaves the ICP views: “Needs research” if it could still reach it once its UNKNOWNs are known, “Excluded” if it can’t. {{ ld.icp.status }}</span>
 </div>
 </section>
+</sc-if>
+
+<!-- DM scripts (9 Nov): the A/B/C DM versions, edited right here, with how many were sent and how many got a reply.
+     Spliced in by build_app.py; values come from scriptsVals() in logic.js (scr). -->
+<sc-if value="{{ is.scripts }}">
+<div style="display:flex; flex-direction:column; gap:6px; padding:14px 16px; border-radius:var(--r-md); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi); opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
+<span style="font-size:var(--fs-sm); font-weight:600; color:var(--ink);">{{ scr.summary }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.5;">{{ scr.help }}</span>
+</div>
+
+<div style="display:flex; flex-direction:column; gap:var(--s-4); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease) 60ms, transform 500ms var(--ease) 60ms;">
+<sc-for list="{{ scr.cards }}" as="c">
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ c.op }};">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+<span style="display:inline-grid; place-items:center; min-width:38px; height:32px; padding:0 8px; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-family:var(--font-mono); font-size:var(--fs-sm); font-weight:600;">{{ c.id }}</span>
+<div style="display:flex; flex-direction:column; gap:2px; flex:1; min-width:200px;">
+<span style="font-size:var(--fs-md); font-weight:600;">{{ c.intent }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ c.use }}</span>
+</div>
+<sc-if value="{{ c.isBest }}"><span style="height:24px; display:inline-flex; align-items:center; padding:0 10px; border-radius:var(--r-pill); background:var(--ok-soft); color:var(--ok-ink); font-size:var(--fs-2xs); font-weight:600;">Best reply rate</span></sc-if>
+<span style="height:24px; display:inline-flex; align-items:center; padding:0 10px; border-radius:var(--r-pill); background:{{ c.verdict.bg }}; color:{{ c.verdict.fg }}; box-shadow:{{ c.verdict.bd }}; font-size:var(--fs-2xs); font-weight:600;">{{ c.verdict.label }}</span>
+</div>
+
+<div style="display:flex; flex-wrap:wrap; gap:var(--s-6); padding:10px 14px; border-radius:var(--r-md); background:rgba(255,255,255,.55); box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">Sent</span><span style="font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:600;">{{ c.sent }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">Replies</span><span style="font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:600;">{{ c.rep }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">Reply rate</span><span style="font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:600;">{{ c.rate }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">Calls booked</span><span style="font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:600;">{{ c.calls }}</span></div>
+</div>
+
+<sc-if value="{{ c.view }}">
+<div style="display:flex; flex-direction:column; gap:4px;">
+<span style="font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">First message · {{ c.words }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.55; white-space:pre-wrap; color:var(--ink);">{{ c.opener }}</span>
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:var(--s-4);">
+<div style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">Follow-up 1 · day 3</span><span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap; color:var(--ink-2);">{{ c.fu1 }}</span></div>
+<div style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">Follow-up 2 · day 7</span><span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap; color:var(--ink-2);">{{ c.fu2 }}</span></div>
+</div>
+<sc-if value="{{ c.hasEx }}"><div style="padding:10px 14px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line); font-size:var(--fs-xs); line-height:1.5; color:var(--out-ink);">{{ c.ex }}</div></sc-if>
+<div style="display:flex; flex-wrap:wrap; gap:8px;">
+<button onClick="{{ c.edit }}" style="height:var(--btn-h-sm); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Edit</button>
+<button onClick="{{ c.copy }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Copy first message</button>
+<button onClick="{{ c.toggle }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); color:var(--ink-2); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.toggleLabel }}</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ c.editing }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:10px;">
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Name of this version<input value="{{ c.f.intent }}" onChange="{{ c.on.intent }}" style="height:36px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; color:var(--ink); outline:none;"></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">When to use it<input value="{{ c.f.use }}" onChange="{{ c.on.use }}" style="height:36px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; color:var(--ink); outline:none;"></label>
+</div>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">First message<textarea value="{{ c.f.opener }}" onChange="{{ c.on.opener }}" rows="5" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Follow-up 1 (day 3)<textarea value="{{ c.f.fu1 }}" onChange="{{ c.on.fu1 }}" rows="3" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Follow-up 2 (day 7)<textarea value="{{ c.f.fu2 }}" onChange="{{ c.on.fu2 }}" rows="3" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<div style="display:flex; gap:8px;">
+<button onClick="{{ c.save }}" style="height:var(--btn-h-sm); padding:0 18px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ c.saveLabel }}</button>
+<button onClick="{{ c.cancel }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); color:var(--ink-2); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Cancel</button>
+</div>
+</sc-if>
+</div>
+</sc-for>
+
+<sc-if value="{{ scr.notAdding }}"><button onClick="{{ scr.startAdd }}" style="align-self:flex-start; height:var(--btn-h); padding:0 16px; border:1px dashed var(--hairline-strong); border-radius:var(--r-btn); background:rgba(255,255,255,.6); color:var(--ink-2); font-size:var(--fs-sm); font-weight:500; cursor:pointer;">+ Add a version</button></sc-if>
+<sc-if value="{{ scr.adding }}">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-5); border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);">
+<span style="font-size:var(--fs-md); font-weight:600;">New version</span>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap:10px;">
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Code (like A2 or D1)<input value="{{ scr.n.id }}" onChange="{{ scr.onN.id }}" style="height:36px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; color:var(--ink); outline:none;"></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Name<input value="{{ scr.n.intent }}" onChange="{{ scr.onN.intent }}" placeholder="e.g. Pitch, shorter" style="height:36px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; color:var(--ink); outline:none;"></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">When to use it<input value="{{ scr.n.use }}" onChange="{{ scr.onN.use }}" style="height:36px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; color:var(--ink); outline:none;"></label>
+</div>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">First message<textarea value="{{ scr.n.opener }}" onChange="{{ scr.onN.opener }}" rows="5" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Follow-up 1 (day 3)<textarea value="{{ scr.n.fu1 }}" onChange="{{ scr.onN.fu1 }}" rows="2" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<label style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-2xs); font-weight:600; color:var(--ink-3);">Follow-up 2 (day 7)<textarea value="{{ scr.n.fu2 }}" onChange="{{ scr.onN.fu2 }}" rows="2" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); font-weight:400; line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<div style="display:flex; gap:8px;">
+<button onClick="{{ scr.add }}" style="height:var(--btn-h-sm); padding:0 18px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ scr.addLabel }}</button>
+<button onClick="{{ scr.cancelAdd }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); color:var(--ink-2); font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Cancel</button>
+</div>
+</div>
+</sc-if>
+</div>
 </sc-if>
 
 <sc-if value="{{ is.calendar }}">

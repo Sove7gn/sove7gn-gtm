@@ -14,7 +14,7 @@ const SERVER="Supabase";
 const SHEET_URL=SB_URL?"https://supabase.com/dashboard/project/"+SB_URL.replace(/^https:\/\//,"").split(".")[0]+"/editor":"https://supabase.com/dashboard";
 const PIPE_TAB="'DM Pipeline'";
 const RANGES={
-  pipeline:"'DM Pipeline'!A2:AJ1000",
+  pipeline:"'DM Pipeline'!A2:AK1000",
   targets:"'Target Accounts'!A3:N300",
   stats:"'DM Templates'!A3:K6",  // K4 = "DMs paused" switch
   templates:"'DM Templates'!A10:M40",
@@ -40,7 +40,7 @@ const STATUSES=["To send","Sent","FU1 sent","FU2 sent","Replied","Call booked","
 const STAGES=["To send","Sent","FU1 sent","FU2 sent","Replied","Call booked","Customer"];
 const CLOSED=new Set(["Not now","No reply","Do not contact"]);
 // Only plain-value columns. Everything else in DM Pipeline (A, B, U, W, AA, AC, AD, AE) is an ARRAYFORMULA and must never be written.
-const WRITABLE=new Set(["Status","Sent on","FU1 sent","FU2 sent","Replied on","Call on","Notes"]);
+const WRITABLE=new Set(["Status","Sent on","FU1 sent","FU2 sent","Replied on","Call on","Notes","DM result","Template","Opener (30-40 words)","X handle"]);
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const FOLDERS=CFG.folders||[];
@@ -393,6 +393,7 @@ async function publicLoad(){
   build();emit();
   if(LI.id)liLoad();
   leadsLoad();
+  if(!XJ.loadedAt||Date.now()-XJ.loadedAt>6e4){XJ.loadedAt=Date.now();xRunsLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -406,7 +407,8 @@ async function refresh(){
     let asked=false;
     try{await scriptCall({action:"refresh"});asked=true}catch(e){}
     await goLive();liLoad(true);
-    toast(asked?"Up to date. New numbers and replies from X land once the tracker runs; this page keeps checking.":"Up to date.");
+    toast("Up to date. Checking X for new numbers and replies too; they land in about a minute.");
+    xRun("x-engage",true);
     return;
   }
   if(!S.mcp)return;
@@ -430,11 +432,13 @@ function fundKind(c){
   if(/^(seed|pre-seed)/i.test(f))return "early";
   return "unknown";
 }
-const sendable=c=>{const k=fundKind(c);return k!=="early"&&k!=="unknown"};
+const sendable=c=>true;   // 9 Nov: the ICP is pre-seed to Series C, so funding no longer holds anyone back
 function messages(c){
   const t=M.templates.find(x=>x.ID===c.Template)||{};
   const fn=firstName(c.Name);
-  const fill=s=>String(s||"").replace(/\[first name\]/gi,fn);
+  const hook=String(c.Hook||"").trim();
+  const fill=s=>String(s||"").replace(/\[first name\]/gi,fn).replace(/\[company\]/gi,c.Company&&!/^unknown$/i.test(c.Company)?c.Company:"your company")
+    .replace(/\s*\[hook\]\s*/gi,hook?" "+hook+" ":" ").replace(/ {2,}/g," ").replace(/^ | $/g,"");
   return {opener:pick(c,"Opener")||fill(t.Opener),fu1:fill(pick(t,"Follow-up 1")),fu2:fill(pick(t,"Follow-up 2"))};
 }
 
@@ -632,6 +636,24 @@ async function savePaused(on){
     toast(on?"DMs paused. Nothing shows as ready to send until you press Resume.":"DMs are back on. Send today fills up again.");
   }catch(e){toast("Couldn't save: "+(e&&e.message||e),true)}
   S.busy.delete("pause");emit();return ok;
+}
+/* DM scripts (9 Nov): edit a version or add one. DM Templates rows 11 on; the page shows the saved text straight away. */
+async function saveTpl(t,fields){
+  const k="tpl:"+t.ID;if(S.busy.has(k))return false;
+  S.busy.add(k);emit();let ok=false;
+  try{await scriptCall(Object.assign({action:"tplSave",row:t._row,id:t.ID},fields));Object.assign(t,{Intent:fields.intent??t.Intent,"Use it for":fields.use??t["Use it for"],Opener:fields.opener??t.Opener,Verdict:fields.verdict??t.Verdict});
+    if(fields.fu1!=null)for(const h in t)if(h.indexOf("Follow-up 1")===0)t[h]=fields.fu1;
+    if(fields.fu2!=null)for(const h in t)if(h.indexOf("Follow-up 2")===0)t[h]=fields.fu2;
+    ok=true;toast("Saved "+t.ID+". New messages use it straight away.");publicLoad();}
+  catch(e){toast("Couldn't save: "+(e&&e.message||e),true)}
+  S.busy.delete(k);emit();return ok;
+}
+async function addTpl(fields){
+  if(S.busy.has("tpl:new"))return false;
+  S.busy.add("tpl:new");emit();let ok=false;
+  try{await scriptCall(Object.assign({action:"tplAdd"},fields));ok=true;toast("Added "+fields.id+". New leads start getting it in turn.");await publicLoad();}
+  catch(e){toast("Couldn't add: "+(e&&e.message||e),true)}
+  S.busy.delete("tpl:new");emit();return ok;
 }
 /* Delete a post from the CRM: Status "Deleted" (never deletes anything on X). Undo puts the old status back. */
 const snip=t=>String(t||"").replace(/\s+/g," ").trim().slice(0,40);
@@ -1093,6 +1115,26 @@ function liPeople(){
   return out;
 }
 
+/* ---------- X jobs (9 Nov): x-leads finds people to DM, x-engage reads post numbers and who replied ---------- */
+const XJ={runs:{"x-leads":[],"x":[]},running:{}};
+async function xRunsLoad(){
+  if(!sb||!session||!member)return;
+  try{const {data}=await sb.from("crm_sync_runs").select("*").in("platform",["x-leads","x"]).order("started_at",{ascending:false}).limit(20);
+    XJ.runs={"x-leads":(data||[]).filter(r=>r.platform==="x-leads"),"x":(data||[]).filter(r=>r.platform==="x")};emit()}catch(e){}
+}
+async function xRun(slug,quiet){
+  if(!sb||XJ.running[slug])return null;
+  XJ.running[slug]=true;emit();
+  try{const {data,error}=await sb.functions.invoke(slug,{body:slug==="x-leads"?{force:true}:{}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    if(data&&data.skipped){if(!quiet)toast(data.skipped)}
+    else if(data&&slug==="x-leads")toast("Added "+data.added+" new "+(data.added===1?"person":"people")+" to DM. "+data.added_today+" today so far.");
+    else if(data&&!quiet)toast("Checked X: "+data.posts+" posts, "+data.new_people+" new people replied or mentioned you.");
+    return data}
+  catch(e){if(!quiet)toast((slug==="x-leads"?"The lead search":"The X check")+" didn't finish: "+(e.message||e),true);return null}
+  finally{XJ.running[slug]=false;await publicLoad();xRunsLoad()}
+}
+
 /* ---------- Automatic post tracking (7 Nov) ---------- */
 // Runs the tracking job now (the "Check now" button). It takes about a minute.
 async function socialRun(){
@@ -1348,7 +1390,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
