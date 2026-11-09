@@ -394,6 +394,7 @@ async function publicLoad(){
   if(LI.id)liLoad();
   leadsLoad();
   if(!XJ.loadedAt||Date.now()-XJ.loadedAt>6e4){XJ.loadedAt=Date.now();xRunsLoad()}
+  if(!LIS.at||Date.now()-LIS.at>6e4){LIS.at=Date.now();lisLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -1131,6 +1132,29 @@ async function xRunsLoad(){
   try{const {data}=await sb.from("crm_sync_runs").select("*").in("platform",["x-leads","x"]).order("started_at",{ascending:false}).limit(20);
     XJ.runs={"x-leads":(data||[]).filter(r=>r.platform==="x-leads"),"x":(data||[]).filter(r=>r.platform==="x")};emit()}catch(e){}
 }
+/* LinkedIn comment ideas (9 Nov): the li-engage job's 10 founder posts a day, each with a comment ready to copy. */
+const LIS={rows:[],loaded:false,running:false};
+async function lisLoad(){
+  if(!sb||!session||!member)return;
+  try{const {data,error}=await sb.from("crm_li_suggest").select("*").gte("day",new Date(Date.now()-3*864e5).toISOString().slice(0,10)).order("created_at",{ascending:false}).limit(60);
+    if(error)throw error;LIS.rows=data||[];LIS.loaded=true;emit()}catch(e){LIS.loaded=true;LIS.err=String(e.message||e);emit()}
+}
+async function lisSet(url,patch){
+  const before=LIS.rows;const who=session&&session.user?session.user.email:"";
+  const p={...patch};if(p.status&&p.status!=="new"){p.done_by=who;p.done_at=new Date().toISOString()}
+  LIS.rows=LIS.rows.map(r=>r.url===url?{...r,...p}:r);emit();
+  const {error}=await sb.from("crm_li_suggest").update(p).eq("url",url);
+  if(error){LIS.rows=before;emit();toast("Couldn't save: "+error.message,true);return false}
+  return true;
+}
+async function lisRun(){
+  if(!sb||LIS.running)return;LIS.running=true;emit();
+  try{const {data,error}=await sb.functions.invoke("li-engage",{body:{}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    toast(data&&data.skipped?data.skipped:"Found "+((data&&data.added)||0)+" new posts to comment on.")}
+  catch(e){toast("Couldn't find posts: "+(e.message||e),true)}
+  finally{LIS.running=false;await lisLoad()}
+}
 async function xRun(slug,quiet){
   if(!sb||XJ.running[slug])return null;
   XJ.running[slug]=true;emit();
@@ -1321,6 +1345,33 @@ async function gtmMerge(keepId,dupId){
   await leadArchive(dupId,true);
   return true;
 }
+/* LinkedIn connections (9 Nov): the Connections.csv from LinkedIn's data export. Everyone not in Leads yet goes into the
+   first stage (New) as a LinkedIn lead we haven't messaged; people already in Leads are left as they are. */
+function csvRows(text){const out=[];let row=[],cell="",q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++}else q=false}else cell+=c;continue}
+    if(c==='"')q=true;else if(c===","){row.push(cell);cell=""}else if(c==="\n"||c==="\r"){if(c==="\r"&&text[i+1]==="\n")i++;row.push(cell);out.push(row);row=[];cell=""}else cell+=c}
+  if(cell||row.length){row.push(cell);out.push(row)}return out}
+async function importLiConnections(text){
+  if(S.busy.has("liImport"))return;S.busy.add("liImport");emit();
+  try{
+    const rows=csvRows(text);const h=rows.findIndex(r=>r.some(c=>/^\s*first name\s*$/i.test(c))&&r.some(c=>/^\s*url\s*$/i.test(c)));
+    if(h<0)throw new Error("That isn't LinkedIn's Connections.csv (no First Name / URL columns).");
+    const H=rows[h].map(c=>c.trim().toLowerCase());const ix=k=>H.indexOf(k);
+    const norm=u=>String(u||"").trim().toLowerCase().replace(/[?#].*$/,"").replace(/\/+$/,"").replace(/^https?:\/\/(www\.)?/,"https://www.");
+    const have=new Set(LD.rows.map(l=>norm(l.linkedin)).filter(Boolean));
+    const stage=leadSetting("stages")[0]?.name||"New";const who=session&&session.user?session.user.email:"";
+    const add=[];
+    for(const r of rows.slice(h+1)){const url=norm(r[ix("url")]);if(!url||have.has(url))continue;have.add(url);
+      const name=[r[ix("first name")],r[ix("last name")]].filter(Boolean).join(" ").trim();const on=r[ix("connected on")]||"";
+      add.push({name:name||null,company:r[ix("company")]||null,role:r[ix("position")]||null,email:(ix("email address")>=0&&r[ix("email address")])||null,linkedin:url,
+        source:"LinkedIn",direction:"Outbound",source_detail:"LinkedIn connection"+(on?" since "+on:""),stage,origin_key:"li-conn:"+url,created_by:who||"import"})}
+    if(!add.length){toast("Everyone in that file is already in Leads.");return}
+    for(let i=0;i<add.length;i+=200){const {error}=await sb.from("crm_leads").insert(add.slice(i,i+200));if(error)throw error}
+    toast("Added "+add.length+" LinkedIn connections to the Pipeline, in "+stage+".");await leadsLoad();
+  }catch(e){toast("Couldn't import: "+(e&&e.message||e),true)}
+  finally{S.busy.delete("liImport");emit()}
+}
 /* ICP posts (9 Nov): their LinkedIn posts we comment on, to start a conversation and get them to connect. Kept on the lead
    (gtm.content). The daily job finds posts and drafts comments; a teammate edits and approves; the 30-minute job posts the
    approved ones (at most li_engage.cap a day) and logs each as an outbound touch. Nothing is posted without approval. */
@@ -1430,7 +1481,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,LIS,lisSet,lisRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

@@ -76,6 +76,7 @@
 <div style="display:flex; align-items:center; gap:6px; padding:4px 4px 4px 6px; border-radius:10px; background:var(--n-soft);">
 <sc-if value="{{ k.notLi }}"><select value="{{ k.status }}" onChange="{{ k.setStatus }}" disabled="{{ k.ro }}" aria-label="Status" style="height:30px; padding:0 6px; border:0; background:transparent; font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ k.stOpts }}" as="o"><option value="{{ o.v }}">{{ o.v }}</option></sc-for></select></sc-if>
 <sc-if value="{{ k.canLink }}"><button onClick="{{ k.toggleLink }}" style="height:30px; padding:0 8px; border:0; border-radius:8px; background:transparent; font-size:var(--fs-xs); color:var(--ink-2); cursor:pointer;" style-hover="background:#fff;">Link post</button></sc-if>
+<sc-if value="{{ k.canSched }}"><button onClick="{{ k.toggleSched }}" title="Mark this post as scheduled on X (press again to undo)" style="margin-left:auto; height:30px; padding:0 10px; border:0; border-radius:8px; background:{{ k.schedBg }}; color:{{ k.schedFg }}; box-shadow:{{ k.schedSh }}; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ k.schedLabel }}</button></sc-if>
 <button onClick="{{ k.copy }}" style="margin-left:auto; height:30px; padding:0 14px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); font-weight:600; color:var(--ink); cursor:pointer;">{{ k.copyLabel }}</button>
 </div>
 </sc-if>

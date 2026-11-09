@@ -70,6 +70,14 @@ s2 = src.index('</script>', s1)
 src = src[:s1] + "\nconst Component=window.AK_LOGIC(DCLogic,React);\n" + src[s2:]
 
 # ---------- chrome ----------
+# sidebar (9 Nov): an (i) next to every page; hovering it says what the page shows
+rep('<span style="flex:1;">{{ pg.label }}</span>',
+    '<span style="flex:1;">{{ pg.label }}</span>'
+    '<sc-if value="{{ pg.hasInfo }}"><span onMouseEnter="{{ pg.tipShow }}" onMouseLeave="{{ pg.tipHide }}" onClick="{{ pg.tipShow }}" aria-label="{{ pg.info }}" '
+    'style="position:relative; flex:0 0 16px; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-family:var(--font-mono); font-size:9.5px; font-weight:600; color:var(--ink-4); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i'
+    '<sc-if value="{{ pg.tipOn }}"><span role="tooltip" style="position:absolute; right:-4px; top:22px; z-index:60; width:196px; padding:10px 12px; border-radius:10px; background:var(--ink); color:#fff; '
+    'font-family:var(--font-sans, inherit); font-size:12px; font-weight:400; line-height:1.45; text-align:left; white-space:normal; box-shadow:0 10px 30px -10px rgba(0,0,0,.45); pointer-events:none;">{{ pg.info }}</span></sc-if></span></sc-if>')
+
 rep('<span>10:42</span>', '<span>{{ phoneTime }}</span>')
 
 # connection notice (no data yet, connector needs approval, sheet not published...) and stale-range note
@@ -323,7 +331,7 @@ src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" ar
 
 # ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
 k0 = src.index('<sc-if value="{{ is.calendar }}">')
-src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "engaged.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "li.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "engaged.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
 
 # ---------- inspiration (9 Nov): drafts keep their line breaks, and threads show each tweet on its own ----------
 rep('<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty;">{{ p.cText }}</p>',
