@@ -125,4 +125,21 @@ ok("analytics: response and positive rates by template", () => {
   const rows = G.groupBy(items, (x) => G.templateOf(x.l, x.c));
   assert.equal(rows[0].name, "Reyansh DM · new connection"); assert.equal(rows[0].sent, 2); assert.equal(rows[0].respRate, "50%");
 });
+ok("ICP posts: our comment is outreach; a reply to it, or engaging with our post after we reached out, makes them Midbound", () => {
+  const commented = cls({ direction: "Outbound", stage: "New", fields: { gtm: { touches: [{ at: "2026-11-05", dir: "out", type: "comment", ch: "LinkedIn", text: "Great point" }] } } });
+  assert.equal(commented.rel, "outbound"); assert.ok(commented.contacted);
+  const replied = cls({ direction: "Outbound", stage: "Contacted", fields: { gtm: { touches: [{ at: "2026-11-05", dir: "out", type: "comment" }, { at: "2026-11-06", dir: "in", type: "comment_reply", text: "Thanks!" }] } } });
+  assert.equal(replied.rel, "midbound"); assert.ok(replied.tags.includes("Midbound"));
+  const lead = { direction: "Outbound", stage: "Contacted", source_detail: "LinkedIn DM from Reyansh sent 2026-11-01" };
+  assert.equal(cls(lead, [{ kind: "engaged", at: "2026-11-04T10:00:00Z", text: "Liked your post" }]).rel, "midbound", "liked our post after the DM");
+  assert.equal(cls(lead, [{ kind: "engaged", at: "2026-10-20T10:00:00Z", text: "Liked your post" }]).rel, "outbound", "engagement before outreach doesn't count");
+});
+ok("ICP posts: daily comment count and post link checks", () => {
+  const rows = [{ fields: { gtm: { content: [{ url: "https://www.linkedin.com/feed/update/urn:li:activity:7390000000000000001/", status: "posted", postedAt: "2026-11-08T09:00:00" }, { url: "https://x", status: "approved" }] } } },
+    { fields: { gtm: { content: [{ url: "https://www.linkedin.com/posts/a_b-activity-7390000000000000002-x", status: "posted", postedAt: "2026-11-07T09:00:00" }] } } }];
+  assert.equal(G.commentsOn(rows, "2026-11-08"), 1);
+  assert.equal(G.normPost("https://www.linkedin.com/feed/update/urn:li:activity:7390000000000000001/?x=1"), "urn:7390000000000000001");
+  assert.equal(G.normPost("https://www.linkedin.com/posts/a_b-activity-7390000000000000002-x"), "urn:7390000000000000002");
+  assert.ok(G.isLiPost("https://www.linkedin.com/posts/abc")); assert.ok(!G.isLiPost("https://example.com/post"));
+});
 console.log(passed + " checks passed");

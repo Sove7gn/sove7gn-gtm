@@ -60,9 +60,12 @@ const INTEL=[
 ];
 const FIELD=Object.fromEntries(INTEL.flatMap(g=>g.fields.map(f=>[f[0],{key:f[0],label:f[1],type:f[2],opts:f[3]||null,g:g.g}])));
 const SIGNALS={raise:'Recent raise',hiring:'GTM hiring',founder_post:'Founder posting about acquisition',launch:'Launch',expansion:'Expansion',mkt_gap:'No marketing team',weak_organic:'Weak organic presence',other:'Other'};
-const TOUCH_TYPES={connection:'Connection request',dm:'Direct message',followup:'Follow-up',email:'Email',accepted:'Accepted connection',reply:'Reply',question:'Question',interest:'Showed interest',meeting:'Meeting booked',not_interested:'Not interested',other:'Other'};
-const OUT_TYPES=['connection','dm','followup','email'];
-const QUALIFYING=['reply','question','interest','meeting'];   // these move an outbound lead to Midbound; accepting a connection does not
+const TOUCH_TYPES={connection:'Connection request',dm:'Direct message',followup:'Follow-up',email:'Email',accepted:'Accepted connection',comment:'Commented on their post',comment_reply:'Replied to our comment',post_engaged:'Engaged with our post',reply:'Reply',question:'Question',interest:'Showed interest',meeting:'Meeting booked',not_interested:'Not interested',other:'Other'};
+const OUT_TYPES=['connection','dm','followup','email','comment'];
+// These make an outbound lead Midbound (we reached out first, then they engaged); accepting a connection does not.
+const QUALIFYING=['reply','question','interest','meeting','comment_reply','post_engaged'];
+// Of those, the ones that are a real conversation and move the stage forward (a like on our post doesn't).
+const STAGE_MOVERS=['reply','question','interest','meeting','comment_reply'];
 const POSITIVE=['interest','meeting'];
 
 // Money as people write it: "$17M", "17.0m", "2.5 million", "500k", "1,200,000".
@@ -275,8 +278,10 @@ function statusOf(stage,kind){const s=low(stage).trim();if(STAGE_STATUS[s])retur
   return /proposal/.test(s)?'Proposal':/call|meeting|demo/.test(s)?'Meeting booked':/qualif/.test(s)?'Qualified':/nurture|cold|later/.test(s)?'Nurture':/talk|engag|repl/.test(s)?'Engaged':/contact|sent|follow/.test(s)?'Contacted':'New';}
 const ENGAGED_ST=['Engaged','Meeting booked','Qualified','Proposal','Won'];
 // Whether they answered at some point: a logged reply, a stage they reached (the outreach job moves replies to In talks), or the stage now.
-function engagedEvidence(l,events,stages){
+function engagedEvidence(l,events,stages,contacted){
   const g=gtmOf(l);const T=g.touches||[];const t=T.filter(x=>x.dir==='in'&&QUALIFYING.includes(x.type));if(t.length)return{how:t[t.length-1].type,at:t[t.length-1].at,src:'touch'};
+  // They liked or commented on one of our posts after we first reached out (the post sync logs these as 'engaged').
+  if(contacted&&contacted.at){const c0=new Date(contacted.at);const e=(events||[]).filter(x=>x.kind==='engaged'&&new Date(x.at)>c0).sort((a,b)=>new Date(b.at)-new Date(a.at))[0];if(e)return{how:'post_engaged',at:e.at,src:'engaged with our post: '+String(e.text||'').slice(0,60)};}
   const kindOf=n=>{const s=(stages||[]).find(x=>x.name===n);return s?s.kind:'';};
   const st=statusOf(l.stage,kindOf(l.stage));
   for(const e of events||[])if(e.kind==='stage'){const to=String(e.text).split('→').pop().trim();if(ENGAGED_ST.includes(statusOf(to,kindOf(to))))return{how:'stage',at:e.at,src:'stage history: '+e.text};}
@@ -310,17 +315,17 @@ function acqOf(l){
 // Everything about one lead the views need. events = this lead's events; stages = the stage settings.
 function classify(l,events,stages,cfg,now){
   now=now||new Date();const kindOf=n=>{const s=(stages||[]).find(x=>x.name===n);return s?s.kind:'open';};
-  const status=statusOf(l.stage,kindOf(l.stage));const eng=engagedEvidence(l,events,stages);const conn=connOf(l,events);const contacted=contactedOf(l,events,stages);
+  const status=statusOf(l.stage,kindOf(l.stage));const contacted=contactedOf(l,events,stages);const eng=engagedEvidence(l,events,stages,contacted);const conn=connOf(l,events);
   const rel=l.direction==='Inbound'?'inbound':eng?'midbound':conn==='connected'&&!contacted?'new':'outbound';
   const g=gtmOf(l);const T=(g.touches||[]).slice().sort((a,b)=>new Date(a.at)-new Date(b.at));
-  const sc=score(l,cfg,now);const rd=radar(l,now);const tg=tags(l,sc,rd,cfg);
+  const sc=score(l,cfg,now);const rd=radar(l,now);const tg=tags(l,sc,rd,cfg);if(rel==='midbound')tg.unshift('Midbound');
   const lastIn=[...T].reverse().find(t=>t.dir==='in');const lastAny=T[T.length-1];
   const fuN=T.filter(t=>t.dir==='out'&&t.type==='followup').length;
   return{id:l.id,rel,relLabel:REL[rel],acq:acqOf(l),status,closed:['Won','Lost'].includes(status),conn,contacted,engaged:eng,score:sc,radar:rd,tags:tg,touches:T,fuN,
     lastIn,lastAny,positive:T.some(t=>t.dir==='in'&&POSITIVE.includes(t.type))||['Meeting booked','Qualified','Proposal','Won'].includes(status)};
 }
 // Multi-tags, each with the evidence behind it.
-const TAGS=['YC','AI','Deep Tech','Recently Funded','Founder-led GTM','Hiring Growth','High Intent','Weak Organic Presence'];
+const TAGS=['Midbound','YC','AI','Deep Tech','Recently Funded','Founder-led GTM','Hiring Growth','High Intent','Weak Organic Presence'];
 function tags(l,sc,rd,cfg){
   const E=evidence(l);const out=[];const txt=low([E.industry&&E.industry.v,E.description&&E.description.v,l.company,l.role].join(' '));
   if(E.accelerator&&/\b(yc|y combinator)\b/i.test(E.accelerator.v))out.push('YC');
@@ -382,7 +387,16 @@ function groupBy(items,keyOf,order){const m=new Map();for(const x of items){cons
   const keys=[...m.keys()].sort((a,b)=>order?(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(b)<0?99:order.indexOf(b)):m.get(b).length-m.get(a).length);
   return keys.map(k=>funnelRow(k,m.get(k)));}
 
-root.GTM={ICP_DEFAULT,DIMS,INTEL,FIELD,SIGNALS,TOUCH_TYPES,OUT_TYPES,QUALIFYING,POSITIVE,STATUSES,ACQ,REL,TAGS,BAND,ANGLES,
+/* ---------- ICP posts (9 Nov): their LinkedIn posts we comment on, kept on the lead as gtm.content ----------
+   item: {id, url, at (post date), text (excerpt), found, draft (our comment), status: new | approved | posted | skipped, postedAt, by} */
+const CONTENT_ST=['new','approved','posted','skipped'];
+const contentOf=l=>(gtmOf(l).content||[]).filter(x=>x&&x.url);
+// Comments posted on a given day (YYYY-MM-DD, local) across all leads: the 10-a-day budget.
+function commentsOn(rows,day){let n=0;for(const l of rows||[])for(const x of contentOf(l))if(x.status==='posted'&&x.postedAt&&iso(new Date(x.postedAt))===day)n++;return n;}
+const normPost=u=>{const s=String(u||'').trim();const m=s.match(/urn:li:(?:activity|ugcPost|share):(\d{10,})/i)||s.match(/activity[-:](\d{10,})/i);return m?'urn:'+m[1]:low(s).replace(/[?#].*$/,'').replace(/\/+$/,'');};
+const isLiPost=u=>/^https:\/\/(www\.)?linkedin\.com\/(feed\/update|posts)\//i.test(String(u||'').trim());
+
+root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEFAULT,DIMS,INTEL,FIELD,SIGNALS,TOUCH_TYPES,OUT_TYPES,QUALIFYING,POSITIVE,STATUSES,ACQ,REL,TAGS,BAND,ANGLES,
   icpConfig,parseMoney,fmtMoney,parseDay,isUrl,validateIntel,normLi,normName,normCo,dupes,findDup,gtmOf,ycBatch,evidence,score,signals,radar,
   statusOf,engagedEvidence,connOf,contactedOf,acqOf,classify,tags,firstName,messages,whyUs,templateOf,angleOf,personaOf,funnelRow,groupBy,iso};
 })(typeof window!=='undefined'?window:globalThis);
