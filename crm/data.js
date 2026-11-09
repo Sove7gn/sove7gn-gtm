@@ -168,8 +168,8 @@ function build(){
     M.contacts=t.rows.filter(r=>r.Name).map(r=>{r._key=r.Name+"|"+r.Company;r._pri=num(r.Priority);r._fit=num(r["Fit (1-10)"]);
       // Public page: show a saved change for 10 minutes, while Google's published copy catches up.
       const loc=S.pipeLocal[r._row];
-      if(loc&&loc.name===r.Name&&Date.now()-loc.at<6e5){for(const k in loc.cells){const v=loc.cells[k];r[k]=typeof v==="number"?fmtSerial(v,k==="Sent on"||k==="Call on"):v}
-        if(loc.cells.Status&&r.Status!==loc.cells.Status)r["Next action"]="Updating…"}
+      if(loc&&loc.name===r.Name&&Date.now()-loc.at<6e5){const before=r.Status||"To send";for(const k in loc.cells){const v=loc.cells[k];r[k]=typeof v==="number"?fmtSerial(v,k==="Sent on"||k==="Call on"):v}
+        if(loc.cells.Status&&before!==loc.cells.Status){r["Next action"]="Updating…";r.Ready="";r["Queue #"]=""}}
       r._status=r.Status||"To send";return r});
   }else{M.headers=[];M.contacts=[]}
   M.targets=S.raw.targets?toObjects(S.raw.targets,0,3).rows.filter(r=>r.Company):[];
@@ -491,6 +491,7 @@ async function write(c,cells,label,opt){
       const prev=S.pipeLocal[c._row];
       S.pipeLocal[c._row]={cells:Object.assign({},prev&&prev.name===c.Name?prev.cells:{},keep),at:Date.now(),name:c.Name};
       build();ok=true;if(!opt.quiet)toast("Saved: "+label);
+      publicLoad();
     }catch(e){toast("Couldn't save: "+(e&&e.message||e),true)}
     S.busy.delete(c._key);emit();
     return ok;

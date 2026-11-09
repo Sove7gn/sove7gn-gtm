@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=41340a0ee1"></script>
+<script src="./data.js?v=3d361a7b09"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -693,12 +693,13 @@ class Component extends DCLogic {
   markSent(id){const p=this.findP(id);if(!p)return;
     const nx=p.due?(p.fuN===2?'Follow-up 2 sent':'Follow-up 1 sent'):({'To send':'Contacted','Contacted':'Follow-up 1 sent','Follow-up 1 sent':'Follow-up 2 sent'}[p.stage]||p.stage);
     this.setState(s=>({leaving:{...s.leaving,[id]:true}}));
-    setTimeout(()=>{this.setState(s=>{const l={...s.leaving};delete l[id];return{leaving:l};});this.setStage(id,nx,'Marked as sent to '+p.first);},300);}
+    // Stays hidden while it saves; only comes back if the save fails.
+    setTimeout(async()=>{await this.setStage(id,nx,'Marked as sent to '+p.first);this.setState(s=>{const l={...s.leaving};delete l[id];return{leaving:l};});},300);}
   // Their DMs are closed or need a passcode: off today's list (Status "Not now"), and the next person moves up.
   async cantDM(p){const c=AK.M.contacts.find(x=>x._key===p.id)||p.c;const d=new Date();
     const cells=Object.assign({},AK.statusCells(c,'Not now'),{'DM result':'Not sent on X ('+d.getDate()+' '+AK.MON[d.getMonth()]+'): DMs closed or need a passcode'});
     this.setState(s=>({leaving:{...s.leaving,[p.id]:true}}));
-    setTimeout(async()=>{this.setState(s=>{const l={...s.leaving};delete l[p.id];return{leaving:l};});await this.saveCells(p,cells,p.first+'’s DMs are closed. Next person moved up.');},300);}
+    setTimeout(async()=>{await this.saveCells(p,cells,p.first+'’s DMs are closed. Next person moved up.');this.setState(s=>{const l={...s.leaving};delete l[p.id];return{leaving:l};});},300);}
   saveCall(p){const v=this.state.callAt[p.id];if(v==null||v===p.callIso||!v)return;
     const d=new Date(v);if(isNaN(d)){this.toast('Pick a full date and time first.',null,true);return;}
     const cells={'Call on':AK.sheetSerial(d,true)};if(p.stage!=='Call booked'&&p.stage!=='Customer')cells.Status='Call booked';
