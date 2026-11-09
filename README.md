@@ -29,4 +29,6 @@ Leads has four more pages: **Right now** (the Buying Window Radar), **LinkedIn v
   - `AK.gtm.set(id, 'rel.conn', 'connected')` marks an accepted invite;
   - `AK.gtm.find({linkedin, email, name, company})` checks for a duplicate before creating a lead;
   - `AK.gtm.classify(id)` returns the score, radar and relationship.
+- **ICP posts (9 Nov):** a Leads page for commenting on what ICP leads post on LinkedIn, to start a conversation and get them to connect. Posts live on the lead (`fields.gtm.content`). The daily LinkedIn run finds posts and drafts comments; you edit and **Approve**; the 30-minute check posts approved comments (at most `li_engage.cap`, default 10 a day) and sends a no-note invite if you aren't connected. Calls: `AK.gtm.postAdd(id,{url,at,text,draft})`, `AK.gtm.postSet(id,pid,{draft|status})`, `AK.gtm.postPosted(id,pid,text)`, `AK.gtm.commentsToday()`, `AK.gtm.engageCfg()`.
+- **Midbound** = we reached out first (DM or comment), then they engaged: a reply, a reply to our comment (`comment_reply`), or liking/commenting on our posts after the outreach. It shows as a chip on Pipeline and All leads, a Relationship filter, and a tag.
 - `pnpm mock` (after `pnpm build`) writes `crm/_mock.html`, the page on an in-memory stand-in for Supabase with made-up leads, for trying changes without touching live data (`pnpm serve`, then open /_mock.html).

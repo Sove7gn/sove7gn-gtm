@@ -1273,7 +1273,7 @@ async function gtmTouch(id,t,opts){
   const G=G_();t=t||{};opts=opts||{};const l=LD.rows.find(r=>r.id===id);if(!l){toast("That lead isn't loaded. Reload and try again.",true);return false}
   if(!["in","out"].includes(t.dir)||!G.TOUCH_TYPES[t.type]){toast("Pick who it was from and what happened.",true);return false}
   const text=String(t.text||"").trim().slice(0,4000);
-  if(G.QUALIFYING.includes(t.type)&&t.type!=="meeting"&&!text){toast("Paste or sum up what they said, so the history shows it.",true);return false}
+  if(G.STAGE_MOVERS.includes(t.type)&&t.type!=="meeting"&&!text){toast("Paste or sum up what they said, so the history shows it.",true);return false}
   // A plain date from the form: today means now; an earlier day means midday that day (not UTC midnight, which would sort
   // a reply logged today before the message we sent this morning).
   const at=!t.at||String(t.at).slice(0,10)===todayIso()?new Date().toISOString():/^\d{4}-\d\d-\d\d$/.test(String(t.at))?new Date(t.at+"T12:00:00").toISOString():!isNaN(new Date(t.at))?new Date(t.at).toISOString():new Date().toISOString();
@@ -1283,7 +1283,7 @@ async function gtmTouch(id,t,opts){
   const extra={};const fwd=st=>{const s=stageFor(st);if(s&&STATUS_RANK(st)>STATUS_RANK(now)&&!["Won","Lost"].includes(now))extra.stage=s.name;};
   const first=G.firstName(l.name);
   if(t.dir==="out"&&G.OUT_TYPES.includes(t.type)&&t.type!=="connection")fwd("Contacted");
-  if(t.dir==="in"&&G.QUALIFYING.includes(t.type)){
+  if(t.dir==="in"&&G.STAGE_MOVERS.includes(t.type)){
     if(t.type==="meeting"){fwd("Meeting booked");extra.next_step="Prep the call with "+first;}
     else{if(now==="Nurture"){const s=stageFor("Engaged");if(s)extra.stage=s.name}else fwd("Engaged");extra.next_step="Reply to "+first+" on "+touch.ch;extra.next_date=todayIso();}
     extra.heat="Hot";
@@ -1295,7 +1295,7 @@ async function gtmTouch(id,t,opts){
     return{...g,rel,touches:[...(g.touches||[]),touch].slice(-200)}},extra);
   if(!ok)return false;
   const who=t.dir==="out"?"We → them":"Them → us";const label=G.TOUCH_TYPES[t.type];
-  const evKind=t.type==="meeting"?"meeting":t.type==="email"?"email":["dm","followup","reply","question","interest","connection"].includes(t.type)?"message":"note";
+  const evKind=t.type==="meeting"?"meeting":t.type==="email"?"email":["dm","followup","reply","question","interest","connection","comment","comment_reply"].includes(t.type)?"message":"note";
   await leadNote(id,evKind,touch.ch+" · "+who+" · "+label+(touch.tpl?" ("+touch.tpl+")":"")+(text?": "+text:""));
   return true;
 }
@@ -1321,6 +1321,37 @@ async function gtmMerge(keepId,dupId){
   await leadArchive(dupId,true);
   return true;
 }
+/* ICP posts (9 Nov): their LinkedIn posts we comment on, to start a conversation and get them to connect. Kept on the lead
+   (gtm.content). The daily job finds posts and drafts comments; a teammate edits and approves; the 30-minute job posts the
+   approved ones (at most li_engage.cap a day) and logs each as an outbound touch. Nothing is posted without approval. */
+const engageCfg=()=>({cap:10,auto:true,...(leadSetting("li_engage")||{})});
+const commentsToday=()=>G_().commentsOn(LD.rows,todayIso());
+async function gtmPostAdd(id,p){
+  p=p||{};const url=String(p.url||"").trim();
+  if(!G_().isLiPost(url)){toast("Paste the post's LinkedIn link (linkedin.com/feed/update/… or linkedin.com/posts/…).",true);return false}
+  if(p.at&&!G_().parseDay(p.at)){toast("The post date must look like 2026-11-08.",true);return false}
+  const key=G_().normPost(url);
+  return leadGtmSave(id,g=>{const C=(g.content||[]).slice();if(C.some(x=>G_().normPost(x.url)===key))throw new Error("That post is already on this lead.");
+    C.push({id:"p"+Date.now().toString(36),url,at:p.at||"",text:String(p.text||"").trim().slice(0,600),found:todayIso(),draft:String(p.draft||"").trim().slice(0,1250),status:"new",by:meEmail()||p.by||""});
+    return{...g,content:C.slice(-40)}});
+}
+// Edit the draft, approve (queues it for the 30-minute job), skip, or put it back to review.
+async function gtmPostSet(id,pid,patch){
+  patch=patch||{};if(patch.status&&!["new","approved","skipped"].includes(patch.status)){toast("Use Mark posted for a comment that's live.",true);return false}
+  if(patch.status==="approved"){const l=LD.rows.find(r=>r.id===id);const x=l&&G_().contentOf(l).find(y=>y.id===pid);const d=patch.draft!=null?patch.draft:x&&x.draft;
+    if(!String(d||"").trim()){toast("Write the comment before approving it.",true);return false}}
+  return leadGtmSave(id,g=>({...g,content:(g.content||[]).map(x=>x.id===pid?{...x,...(patch.draft!=null?{draft:String(patch.draft).slice(0,1250)}:{}),...(patch.status?{status:patch.status,[patch.status+"At"]:new Date().toISOString(),[patch.status+"By"]:meEmail()}:{})}:x)}));
+}
+// A comment is live on their post: counts toward today's budget and is logged as outreach (so a reply makes them Midbound).
+async function gtmPostPosted(id,pid,text){
+  const cap=engageCfg().cap;if(commentsToday()>=cap){toast("That's "+cap+" comments today already, the daily limit.",true);return false}
+  const l=LD.rows.find(r=>r.id===id);const x=l&&G_().contentOf(l).find(y=>y.id===pid);if(!x){toast("That post isn't on this lead any more.",true);return false}
+  const body=String(text||x.draft||"").trim();if(!body){toast("There's no comment text to log.",true);return false}
+  const ok=await leadGtmSave(id,g=>({...g,content:(g.content||[]).map(y=>y.id===pid?{...y,draft:body,status:"posted",postedAt:new Date().toISOString(),postedBy:meEmail()}:y)}));
+  if(!ok)return false;
+  return gtmTouch(id,{dir:"out",type:"comment",ch:"LinkedIn",text:body+" (on "+x.url+")",tpl:"ICP comment",angle:"peer"});
+}
+
 // One lead, classified (relationship, source, status, ICP score, radar, tags).
 function gtmClassify(id){const l=LD.rows.find(r=>r.id===id);if(!l)return null;return G_().classify(l,LD.events.filter(e=>e.lead_id===id),leadSetting("stages")||[],gtmCfg(),new Date())}
 
@@ -1405,7 +1436,8 @@ window.AK={
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
   // GTM intelligence (8 Nov): for the page and for scheduled jobs that enrich leads or log replies. Nothing here sends a message.
   gtm:{save:leadGtmSave,intel:gtmIntel,intelMany:gtmIntelMany,signal:gtmSignal,signalDel:gtmSignalDel,set:gtmSet,touch:gtmTouch,
-    dupes:gtmDupes,find:gtmFind,merge:gtmMerge,classify:gtmClassify,cfg:gtmCfg,stageFor},
+    dupes:gtmDupes,find:gtmFind,merge:gtmMerge,classify:gtmClassify,cfg:gtmCfg,stageFor,
+    postAdd:gtmPostAdd,postSet:gtmPostSet,postPosted:gtmPostPosted,commentsToday,engageCfg},
 };
 start();
 })();
