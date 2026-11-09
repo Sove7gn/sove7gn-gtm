@@ -225,7 +225,7 @@ async function findLeads(force: boolean) {
       writes.push({ row: r, col: 28, values: [["Found by the lead finder on " + istStamp(new Date()) + ". " + noDash(o.why || "") + (o.what ? " " + co + ": " + noDash(o.what) : "") +
         " X: " + (a.followers ?? 0) + " followers. Bio: " + clip(bio, 160)]] });
       writes.push({ row: r, col: 32, values: [[String((haveCompany.get(co.toLowerCase()) ?? 1)), "Done-for-you GTM: " + clip(noDash(o.why || ""), 140), "",
-        o.stage && !/unknown/i.test(o.stage) ? o.stage : (t._seg === "Raised recently" ? "Raised recently (see post)" : "Unknown"), o.source || t.url || "", hookFor(t._seg, o.stage, t.text)]] });
+        o.stage && !/unknown/i.test(o.stage) ? o.stage : (t._seg === "Raised recently" ? "Raised recently (see post)" : "Unknown"), o.source || t.url || "", hookFor(t._seg, o.stage, t.text), String(a.id || "")]] });
     }
   }
 

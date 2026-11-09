@@ -14,7 +14,7 @@ const SERVER="Supabase";
 const SHEET_URL=SB_URL?"https://supabase.com/dashboard/project/"+SB_URL.replace(/^https:\/\//,"").split(".")[0]+"/editor":"https://supabase.com/dashboard";
 const PIPE_TAB="'DM Pipeline'";
 const RANGES={
-  pipeline:"'DM Pipeline'!A2:AK1000",
+  pipeline:"'DM Pipeline'!A2:AL1000",
   targets:"'Target Accounts'!A3:N300",
   stats:"'DM Templates'!A3:K6",  // K4 = "DMs paused" switch
   templates:"'DM Templates'!A10:M40",
@@ -25,7 +25,7 @@ const RANGES={
   accounts:"'Our Accounts'!A3:H6",
   weekly:"'Our Accounts'!A8:E40",
   tracking:"'Post Tracking'!A3:J5000",
-  engagers:"'Post Engagers'!A3:T2000",  // R "Our reply", S "Verdict", T "Why": written by the engager-replies task
+  engagers:"'Post Engagers'!A3:U2000",  // R "Our reply", S "Verdict", T "Why": written by the engager-replies task
 };
 const SCRIPT_URL="";
 const PAGE_TOKEN="";

@@ -16,6 +16,9 @@ const act=(label,kind,fn)=>({label,...(BTN[kind]||BTN.secondary),fn});
 const stop=fn=>e=>{if(e&&e.stopPropagation)e.stopPropagation();fn(e);};
 const mkChart=(data,W,H,pad=12)=>{const max=Math.max(1,...data)*1.1;const st=data.length>1?W/(data.length-1):0;const pts=data.map((v,i)=>[+(i*st).toFixed(1),+(H-(v/max)*(H-pad)).toFixed(1)]);return{line:pts.map(p=>p.join(',')).join(' '),area:'M0,'+H+' L'+pts.map(p=>p.join(',')).join(' L')+' L'+W+','+H+' Z',dots:pts.map((p,i)=>({cx:String(p[0]),cy:String(p[1]),v:data[i]})),max};};
 const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener');};
+// X DMs (9 Nov): straight into the chat with the message typed in (X needs the account's number for that); the profile otherwise.
+const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'').replace(/^@/,'').trim();
+  const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
   leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liOut:{sec:'out',label:'Outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
@@ -175,7 +178,7 @@ function person(c){
     fund:fk==='ok'?'late':fk==='early'?'early':fk==='unknown'?'unknown':'none',funding:fShort||'Not checked yet',fundingFull:fRaw,src:c['Funding source']||'',sendable:AK.sendable(c),
     priN:pn,pri:pn==null?3:pn>=10?1:pn>=7?2:3,fitN,fit:fitN==null?'–':fitN>=9?'Strong':fitN>=7?'Good':'Weak',
     likely:lk?(li>0?lk.slice(0,li).trim():lk):'',likelyWhy:li>0?lk.slice(li+1).trim():'',
-    why:AK.plain(c['Signal (why now)']||''),whyTime:c['Signal time']||'',handle:c['X handle']||'',linkedin:c.LinkedIn||'',email:c.Email||'',
+    xid:c['X user ID']||'',why:AK.plain(c['Signal (why now)']||''),whyTime:c['Signal time']||'',handle:c['X handle']||'',linkedin:c.LinkedIn||'',email:c.Email||'',
     ch:/^x/i.test(ch)?'X':ch||'–',tpl:c.Template||'',opener:m.opener,f1:m.fu1,f2:m.fu2,result:c['DM result']||'',
     said:'',saidWhen:'',call:callD?(AK.dayWord(callD)+(callD.getHours()||callD.getMinutes()?', '+hhmm(callD):'')):'',callIso:isoLocal(callD),
     d,fu1Due:c['FU1 due']||'',fu2Due:c['FU2 due']||'',notes:c.Notes||''};
@@ -475,7 +478,7 @@ class Component extends DCLogic {
   /* ---------- outbound ---------- */
   row(p,i,kind){const s=this.state;const a=avatar(p.name);const lv=!!s.leaving[p.id];const f=this.founder;const nm=this.nextMsg(p);const key=p.id+'row';const cb=this.copyBtn(key,kind==='fu'?'Copy '+nm.title.toLowerCase():'Copy message');
     let actions=[];
-    if(!f){if(kind==='send'||kind==='fu')actions=[act('Open X','ghost',stop(()=>{if(p.handle)window.open('https://x.com/'+String(p.handle).replace(/^@/,''),'_blank','noopener');})),act(cb.label,s.copied===key?'copied':'secondary',stop(()=>this.copy(nm.text,key,nm.title+' for '+p.first+' copied'))),act('Mark sent','primary',stop(()=>this.markSent(p.id)))];
+    if(!f){if(kind==='send'||kind==='fu')actions=[act(p.xid?'Open DM':'Open X','ghost',stop(()=>xDm(p.xid,p.handle,nm.text))),act(cb.label,s.copied===key?'copied':'secondary',stop(()=>this.copy(nm.text,key,nm.title+' for '+p.first+' copied'))),act('Mark sent','primary',stop(()=>this.markSent(p.id)))];
       if(kind==='send')actions.splice(1,0,act('Can’t DM','ghost',stop(()=>this.cantDM(p))));
       if(kind==='find')actions=[act('Search on X','secondary',stop(()=>{window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');this.toast('Searching X for '+p.name+'. Add the handle in the sheet.');}))];
       if(kind==='skip')actions=[act('Send anyway','ghost',stop(()=>{const any={...this.state.anyway,[p.id]:true};store.set('anyway',any);this.setState({anyway:any});this.toast(p.first+' moved to Send today (on this browser)',()=>{const x={...this.state.anyway};delete x[p.id];store.set('anyway',x);this.setState({anyway:x});this.toast('Undone');});}))];
@@ -577,10 +580,10 @@ class Component extends DCLogic {
         reply,hasReply:!!reply,dm,hasDm:!!dm&&v==='DM + reply',todo:isTodo,view:!isTodo,doneNote:'In the Pipeline'+(e['Messaged on']?' since '+e['Messaged on']:''),
         copyReply:()=>this.copy(reply,kr,'Reply for '+name.split(' ')[0]+' copied'),rLabel:cr.label,rbg:cr.bg,rfg:cr.fg,rsh:cr.sh,
         copyDm:()=>this.copy(dm,kd,'DM for '+name.split(' ')[0]+' copied'),dLabel:cd.label,dbg:cd.bg,dfg:cd.fg,dsh:cd.sh,
-        openPost:()=>open(e['Their link']),openProfile:()=>window.open('https://x.com/'+h,'_blank','noopener'),
+        openPost:()=>open(e['Their link']),openProfile:()=>window.open('https://x.com/'+h,'_blank','noopener'),openDm:()=>xDm(e['X user ID'],h,dm),dmBtn:e['X user ID']?'Open DM ↗':'Open their X ↗',
         doneLabel:busy?'Saving…':'Done, add to Pipeline',done:()=>{if(AK.canEdit()&&!busy)AK.engagerToPipeline(e);},skip:()=>this.dismissEngager(e,name)};};
     const pRow=(p,kind)=>({...avatar(p.name),name:p.name,sub:(p.role?p.role+' · ':'')+p.company,note:kind==='call'?(p.call?'Call '+p.call:'Call booked'):(p.result?clip(p.result,140):'Replied to your DM'),
-      open:()=>this.openC(p.id),openX:()=>{if(p.handle)window.open('https://x.com/'+String(p.handle).replace(/^@/,''),'_blank','noopener');},cta:kind==='call'?'Prep the call':'Open and reply'});
+      open:()=>this.openC(p.id),openX:()=>xDm(p.xid,p.handle,''),xLabel:p.xid?'Open DM':'Open X',cta:kind==='call'?'Prep the call':'Open and reply'});
     const tab=(id,label,c)=>{const on=(id==='done')!==isTodo;return{label,count:String(c),go:()=>this.setState({engTab:id}),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};};
     return{tabs:[tab('todo','To do',todo.length),tab('done','Done',done.length)],replies:L.rep.map(p=>pRow(p,'reply')),hasReplies:L.rep.length>0&&isTodo,calls:L.calls.map(p=>pRow(p,'call')),hasCalls:L.calls.length>0&&isTodo,
       cards:list.slice(0,n).map(card),hasCards:list.length>0,none:!list.length&&!(isTodo&&(L.rep.length||L.calls.length)),

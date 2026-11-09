@@ -162,7 +162,7 @@ async function syncX() {
       const bio = String(a.profile_bio?.description || a.description || "");
       engagers.push([istStamp(new Date(t.createdAt || now)), ACCOUNT, parent ? link(parent) : (t.url || ""), clip(parent?.text || "(a mention)", 200), how,
         a.userName, a.name || "", clip(bio, 200), String(a.followers ?? ""), a.canDm ? "Yes" : "", t.text || "", t.url || t.twitterUrl || "",
-        o.fit || "", ACCOUNT, noDash(o.dm || ""), o.verdict === "Skip" ? "Dismissed" : "To message", "", noDash(o.reply || ""), o.verdict || "Skip", noDash(o.why || "")]);
+        o.fit || "", ACCOUNT, noDash(o.dm || ""), o.verdict === "Skip" ? "Dismissed" : "To message", "", noDash(o.reply || ""), o.verdict || "Skip", noDash(o.why || ""), String(a.id || "")]);
       people.push({ handle: String(a.userName).toLowerCase(), name: a.name || "", bio: clip(bio, 300), followers: a.followers ?? null,
         fit: o.verdict === "DM + reply" ? "hot" : o.verdict === "Reply only" ? "warm" : "not a fit", why: noDash(o.why || ""), company: o.company || "",
         found_by: "engage", added: true, judged_at: new Date().toISOString() });

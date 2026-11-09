@@ -13,7 +13,7 @@
 <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
 <span style="width:var(--av-md); height:var(--av-md); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-2xs); font-weight:600; background:{{ r.avBg }}; color:{{ r.avFg }};">{{ r.ini }}</span>
 <div style="flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:500;">{{ r.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }} · {{ r.note }}</span></div>
-<button onClick="{{ r.openX }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open X</button>
+<button onClick="{{ r.openX }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">{{ r.xLabel }}</button>
 <button onClick="{{ r.open }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ r.cta }}</button>
 </div>
 </sc-for>
@@ -56,7 +56,7 @@
 </div></sc-if>
 <sc-if value="{{ c.hasDm }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--out-soft); box-shadow:inset 0 0 0 1px var(--out-line);">
 <span style="font-size:var(--fs-3xs); color:var(--out-ink); text-transform:uppercase; letter-spacing:.04em;">Your DM</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ c.dm }}</span>
-<div style="display:flex; gap:6px;"><button onClick="{{ c.copyDm }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.dbg }}; color:{{ c.dfg }}; box-shadow:{{ c.dsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.dLabel }}</button><button onClick="{{ c.openProfile }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open their X ↗</button></div>
+<div style="display:flex; gap:6px;"><button onClick="{{ c.copyDm }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ c.dbg }}; color:{{ c.dfg }}; box-shadow:{{ c.dsh }}; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ c.dLabel }}</button><button onClick="{{ c.openDm }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">{{ c.dmBtn }}</button></div>
 </div></sc-if>
 <sc-if value="{{ c.todo }}"><div style="display:flex; gap:8px; align-items:center;">
 <button onClick="{{ c.done }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ c.doneLabel }}</button>
