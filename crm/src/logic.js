@@ -21,8 +21,8 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
   const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
-const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},xShared:{sec:'out',label:'Shared leads'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
+const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
@@ -31,9 +31,12 @@ const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',page
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
+const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound']};
+const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o=String(l.origin_key||'');if(o.startsWith('li-src:'))return o.split(':')[1]||'outbound';if(o.startsWith('li-person:'))return /comment/i.test(l.source_detail||'')?'commented':'liked';return 'outbound';};
+const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
-const PAGE_INFO={home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
+const PAGE_INFO={xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
   pipeline:'Everyone we\u2019ve DMed on X and where they are. Board and People show the stages; Scripts is where you edit the 3 DM versions and see which gets replies.',
   calendar:'Your X posts for each day: write them, move them, add an image, mark them scheduled or posted.',
@@ -624,7 +627,7 @@ class Component extends DCLogic {
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
       add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
-  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='xShared')o.xs=this.xSharedVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -1183,7 +1186,7 @@ class Component extends DCLogic {
       ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
-      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,
+      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
 
@@ -1304,7 +1307,9 @@ class Component extends DCLogic {
      moves the card at once; the bot does the sending in the background. Columns come from the lead's stage, fields.li
      (written by the bot) and approved messages waiting to send. */
   liPipeScore(l){const v=AK.version();if(this._lpV!==v){this._lpV=v;this._lpS=new Map();}
-    if(!this._lpS.has(l.id)){const sc=GTM.score(l,AK.gtm.cfg());this._lpS.set(l.id,{n:Math.max(1,Math.min(10,Math.round(sc.score/10))),sc});}
+    if(!this._lpS.has(l.id)){const sc=GTM.score(l,AK.gtm.cfg());const li=(l.fields||{}).li||{},src=liSrcOf(l);const bonus=[];
+      if(src==='commented')bonus.push(['+1 commented on our post',1]);if(src==='inbound'||li.inbound_at)bonus.push(['+2 sent us a request',2]);if(src==='viewed'||li.viewed)bonus.push(['+1 viewed our profile',1]);
+      const b=bonus.reduce((a,x)=>a+x[1],0);this._lpS.set(l.id,{n:Math.max(1,Math.min(10,Math.round(sc.score/10)+b)),sc,bonus:bonus.map(x=>x[0])});}
     return this._lpS.get(l.id);}
   liNotFit(l){const role=String(l.role||'').trim();const I=((l.fields||{}).gtm||{}).intel||{};const v=k=>I[k]&&I[k].v;
     if(role&&!/^unknown$/i.test(role)&&!/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role))return 'Not a decision maker ('+clip(role,40)+')';
@@ -1318,6 +1323,23 @@ class Component extends DCLogic {
   liMove(l,stage){if(!AK.canEdit())return;const f=l.fields||{},li={...(f.li||{})};li.stop=stage==='In talks'?'in talks':String(stage).toLowerCase();if(stage==='In talks'&&!li.replied)li.talks=new Date().toISOString();
     const ids=AK.LBT.rows.filter(t=>t.lead_id===l.id&&['review','ready','sending','failed'].includes(t.status)).map(t=>t.id);
     AK.leadSave(l.id,{stage,fields:{...f,li}}).then(ok=>{if(!ok)return;if(ids.length)AK.lbtSet(ids,{status:'skipped'});this.toast((l.name||'They')+' moved to '+stage+'. The bot won’t message them any more.');});}
+  /* X tab, Shared leads (11 Nov): LinkedIn leads scoring 6+ who fit, to reach on X as well. */
+  briefVals(l,isNew){const b=(!isNew&&l&&l.fields&&l.fields.brief)||null;const booked=!isNew&&l&&/^(call booked|proposal sent)$/i.test(l.stage||'');
+    return{hasBrief:!!(b&&b.text),brief:b?b.text:'',briefMeta:b?(b.mode==='pitch'?'Pitch call':'Advice call: pitch a pilot')+' \u00b7 written '+this.since(b.at):'',
+      noBrief:booked&&!(b&&b.text),copyBrief:()=>this.copy(b?b.text:'','brief'+(l&&l.id),'Call brief copied.'),rebrief:()=>{if(l&&AK.canEdit())AK.liBrief(l.id);}};}
+  xSharedVals(){const s=this.state;const LI=l=>(l.fields||{}).li||{};const ICP=l=>(l.fields||{}).li_icp||{};
+    const list=this.leadsAll().filter(l=>l.source==='LinkedIn'&&/^li-(person|src):/.test(String(l.origin_key||''))&&!/^(won|lost|cold lead)$/i.test(l.stage)&&!this.liNotFit(l)&&LI(l).stop!=='skipped')
+      .map(l=>({l,S:this.liPipeScore(l)})).filter(x=>x.S.n>=6).sort((a,b)=>b.S.n-a.S.n);
+    const cards=list.map(({l,S})=>{const ic=ICP(l),x=LI(l);const xh=String(ic.x||l.x_handle||'').replace(/^@/,'');const first=String(l.name||'').split(/\s+/)[0]||'there';
+      const msg='Hey '+first+', we\u2019re connected on LinkedIn too. Really like what you\u2019re building at '+(l.company||'your company')+'. Would love to swap notes on GTM sometime, open to a quick chat?';
+      const li=x.replied?'Replied on LinkedIn':x.dm?'First message sent on LinkedIn':x.acc?'Connected on LinkedIn':x.req?'LinkedIn request sent':'Not contacted on LinkedIn yet';
+      const xdm=(l.fields||{}).x_dm;
+      return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),score:String(S.n),one:ic.one_liner||'',loc:[ic.hq_city,ic.hq_country].filter(Boolean).join(', '),li,
+        hasX:!!xh,handle:'@'+xh,openX:()=>window.open(xh?'https://x.com/'+xh:'https://x.com/search?q='+encodeURIComponent((l.name||'')+' '+(l.company||''))+'&f=user','_blank','noopener'),xLabel:xh?'Open @'+xh+' on X':'Find them on X',
+        copy:()=>this.copy(msg,'xs'+l.id,'Message copied. Paste it in their X DMs.'),msg,done:!!xdm,notDone:!xdm,doneText:xdm?'Messaged on X '+this.since(xdm):'',
+        mark:()=>{if(!AK.canEdit())return;AK.leadSave(l.id,{fields:{...(l.fields||{}),x_dm:new Date().toISOString()},last_touch:new Date().toISOString()}).then(ok=>{if(ok){AK.leadNote(l.id,'message','Sent an X DM (shared lead from LinkedIn)');this.toast('Saved: messaged '+(l.name||'them')+' on X.');}});},
+        open:()=>this.openLead(l.id)};});
+    return{cards,has:cards.length>0,none:!cards.length,n:String(cards.length),todo:String(cards.filter(c=>!c.done).length)};}
   liPipeVals(){const s=this.state;const set=AK.LD.settings.li_bot||{};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const LI=l=>(l.fields||{}).li||{};const ICP=l=>(l.fields||{}).li_icp||{};const I=l=>((l.fields||{}).gtm||{}).intel||{};
     const open=new Map(),skipped=new Set();for(const t of T){if(['review','ready','sending','failed'].includes(t.status))open.set(t.lead_id,t);else if(t.status==='skipped'&&(t.kind==='invite'||t.kind==='dm')&&!/already done by hand|they replied|stopped before|not a fit|same person|booked|moved to/i.test(t.error||''))skipped.add(t.lead_id);}
@@ -1331,21 +1353,21 @@ class Component extends DCLogic {
       ['lost','Lost','Not interested, or no reply after follow-up 7.','var(--bad)']];
     const NAME=Object.fromEntries(COLS.map(c=>[c[0],c[1]]));
     const colOf=l=>{const g=String(l.stage||'').toLowerCase(),x=LI(l),t=open.get(l.id),go=t&&(t.status==='ready'||t.status==='sending');
-      if(g==='won')return 'won';if(g==='lost'||g==='cold lead'||x.stop==='no reply')return 'lost';if(g==='call booked'||g==='proposal sent')return 'booked';
+      if(g==='won')return 'won';if(g==='lost'||g==='cold lead'||x.stop==='no reply'||x.stop==='withdrawn')return 'lost';if(g==='call booked'||g==='proposal sent')return 'booked';
       if(x.replied||g==='in talks')return 'talks';
-      if(go&&t.kind==='followup')return 'fu'+Math.min(7,t.step);if(go&&t.kind==='dm')return 'dm';
+      if(go&&t.kind==='followup')return 'fu'+Math.min(7,t.step);if(go&&(t.kind==='dm'||t.kind==='accept'))return 'dm';
       if(x.dm){const f=+x.fu||0;return f>0?'fu'+Math.min(7,f):'dm';}
       if(x.req||x.acc||(go&&t.kind==='invite'))return 'req';return 'found';};
     const q=String(s.lpQ||'').trim().toLowerCase(),min=+s.lpMin||0,showOut=!!s.lpOut;
     const pool=this.leadsAll().filter(l=>{if(l.source!=='LinkedIn')return false;const x=LI(l);
       if(x.stop==='skipped'||(skipped.has(l.id)&&!x.req&&!x.dm&&!x.stop))return false;
-      const eng=String(l.origin_key||'').startsWith('li-person:')&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm'));
+      const eng=/^li-(person|src):/.test(String(l.origin_key||''))&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm'));
       return eng||!!(x.req||x.dm||x.acc||x.replied)||/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)&&eng;});
     // The same person can be in Leads twice (once from our posts, once from outreach done by hand): show the one furthest along.
     {const rank=l=>{const x=LI(l);return(/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)?16:0)+(x.replied?8:0)+(x.dm?4:0)+(x.acc?2:0)+(x.req?1:0);};
       const best=new Map();for(const l of pool){const k=GTM.normName(l.name)||l.id;const b=best.get(k);if(!b||rank(l)>rank(b))best.set(k,l);}
       const keep=new Set([...best.values()].map(l=>l.id));for(let i=pool.length-1;i>=0;i--)if(!keep.has(pool[i].id))pool.splice(i,1);}
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='accept'?'Accept their request + first message':t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
     const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
     const btn=(label,fn)=>({label,go:e=>{e&&e.stopPropagation&&e.stopPropagation();fn();}});
     const card=(l,col,out)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
@@ -1355,26 +1377,36 @@ class Component extends DCLogic {
       const status=out?'Filtered out: '+out:t&&t.status==='failed'?'Didn’t go through: '+(t.error||'unknown problem'):waiting?kindLabel(t)+' waiting for your OK':going?kindLabel(t)+' approved, sending soon':
         col==='found'?(ic.at?'Writing the request…':'Looking them up…'):col==='req'?(x.acc?'Accepted '+this.since(x.acc):'Request sent '+this.since(x.req)):
         col==='dm'||col.startsWith('fu')?'Last message '+this.since(x.last||x.dm):col==='talks'?'In talks since '+this.since(x.replied||x.talks||l.stage_at):
-        col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':'Lost '+this.since(l.stage_at)):l.stage+' '+this.since(l.stage_at);
+        col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':x.stop==='withdrawn'?'Request withdrawn (not accepted in 3 weeks)':'Lost '+this.since(l.stage_at)):
+        col==='booked'?(((l.fields||{}).brief||{}).at?'Call brief ready. Open the card to read it.':'Writing the call brief\u2026'):l.stage+' '+this.since(l.stage_at);
       const SHORT={'united states':'USA','united states of america':'USA','usa':'USA','united kingdom':'UK','united arab emirates':'UAE'};const cty=c=>SHORT[String(c||'').toLowerCase()]||c||'';
       const hqC=(iv.hq&&iv.hq.v)||ic.hq_country||'';const loc=[ic.hq_city,cty(hqC)].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
       const accRaw=iv.accelerator&&iv.accelerator.v;const acc=accRaw&&!/^(none|no|n\/a|unknown|empty.*|-)$/i.test(String(accRaw).trim())?String(accRaw):'';
       const where=[ic.founder_country?'Lives in '+ic.founder_country:'',(iv.hq&&iv.hq.v)||ic.hq_country?'Company in '+((iv.hq&&iv.hq.v)||ic.hq_country):''].filter(Boolean).join(' · ');
       const details=[l.name+(l.role?' — '+l.role:''),l.company&&!/^unknown$/i.test(l.company)?'Company: '+l.company+(ic.kind?' ('+ic.kind+')':''):'',where,one?'Builds: '+one:'',fund?'Funding: '+fund:'Funding: not found',
-        'Score '+S.n+'/10 ('+S.sc.score+' of 100). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'),S.sc.gaps.length?'Not known yet: '+S.sc.gaps.slice(0,4).join(', '):'',
+        'How we met: '+(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[0]+' ('+(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[1]+')'+(x.angle?' \u00b7 first message: '+LI_ANGLE[x.angle]:''),
+        'Score '+S.n+'/10 ('+S.sc.score+' of 100'+(S.bonus.length?', '+S.bonus.join(', '):'')+'). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'),S.sc.gaps.length?'Not known yet: '+S.sc.gaps.slice(0,4).join(', '):'',
         l.source_detail?'How we met: '+l.source_detail:'',out?'Filtered out: '+out:''].filter(Boolean).join('\n');
       const moves=col==='talks'?[['Call booked','Call booked'],['Lost','Lost']]:col==='booked'?[['Won','Won'],['Lost','Lost']]:col==='won'||col==='lost'?[]:[['In talks','In talks'],['Lost','Lost']];
       const tx=t?(ed!=null?ed:t.text):'';const editing=!!(s.lpEdit||{})[l.id]||!!s.lpExp;
       return{id:l.id,...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company&&!/^unknown$/i.test(l.company)?l.company:''].filter(Boolean).join(' · '),
         score:String(S.n),sBg:tn.bg,sFg:tn.fg,one:one||'Not looked up yet',oneC:one?'var(--ink-2)':'var(--ink-4)',fund:fund||'Funding not found',fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
         loc:loc?'\ud83d\udccd '+loc:'\ud83d\udccd Location not found',locC:loc?'var(--ink-2)':'var(--ink-4)',acc,hasAcc:!!acc,
+        src:(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[0],bound:(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[1],bBg:{Midbound:'#f1ecfb',Inbound:'#e6f6ee',Outbound:'#eef2f7'}[(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[1]],bFg:{Midbound:'#6941c6',Inbound:'#16723b',Outbound:'#475467'}[(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[1]],
+        hasDraft:col==='talks'&&!!x.draft,draft:x.draft||'',replyLabel:{interested:'Interested',question:'Asked a question',not_now:'Not now',not_interested:'Not interested',other:'Replied'}[x.reply_label]||'Replied',
+        copyDraft:e=>{e&&e.stopPropagation&&e.stopPropagation();this.copy(x.draft||'','dr'+l.id,'Reply copied. Paste it in their LinkedIn chat.');if(l.linkedin)window.open(l.linkedin,'_blank','noopener');},
+        hasInmail:col==='req'&&!x.acc&&!x.inmail&&S.n>=8&&!this.liNotFit(l)&&x.req&&Date.now()-Date.parse(x.req)>7*864e5,
+        inmail:e=>{e&&e.stopPropagation&&e.stopPropagation();const set2=AK.LD.settings.li_bot||{};const t0=set2.inmail||'Hey {first}, sent you a connection request a little while back and wanted to reach out properly.\n\nI\u2019m Reyansh, building SOVE7GN, a growth studio for funded B2B founders. Would love 15 minutes to hear how you\u2019re thinking about GTM at {company}. Open to a quick call?';
+          const first=String(l.name||'').split(/\s+/)[0]||'there';this.copy(t0.replace(/\{first\}/g,first).replace(/\{company\}/g,l.company||'your company'),'im'+l.id,'InMail copied. On their profile press Message, paste it, send, then press "InMail sent".');if(l.linkedin)window.open(l.linkedin,'_blank','noopener');},
+        inmailSent:e=>{e&&e.stopPropagation&&e.stopPropagation();AK.liStep(l.id,'inmail').then(ok=>ok&&this.toast('InMail saved for '+(l.name||'them')+'.'));},
+        hasBrief:col==='booked'&&!!((l.fields||{}).brief||{}).at,
         details,status,stC:out||(t&&t.status==='failed')?'var(--bad)':waiting?'#0a66c2':'var(--ink-3)',
         hasMsg:!!waiting,msg:tx,msgKind:t?kindLabel(t):'',chars:t&&t.kind==='invite'?tx.length+'/300':'',editing,preview:!editing,
         edit:e=>{e&&e.stopPropagation&&e.stopPropagation();this.setState(z=>({lpEdit:{...(z.lpEdit||{}),[l.id]:true}}));},
         onMsg:e=>{const v=e.target.value;this.setState(z=>({lbtEd:{...(z.lbtEd||{}),[t.id]:v}}));},
         saveMsg:()=>{const v=(this.state.lbtEd||{})[t&&t.id];if(!t||v==null||v===t.text)return;if(t.kind==='invite'&&v.length>300){this.toast('A connection note can be 300 characters at most.',true);return;}AK.lbtSet(t.id,{text:v});},
         approve:e=>{e&&e.stopPropagation&&e.stopPropagation();if(!t||!AK.canEdit())return;const v=(this.state.lbtEd||{})[t.id];const p={status:'ready'};if(v!=null&&v!==t.text&&!(t.kind==='invite'&&v.length>300))p.text=v;
-          AK.lbtSet(t.id,p).then(ok=>ok&&this.toast((l.name||'They')+' moved to '+NAME[t.kind==='invite'?'req':t.kind==='dm'?'dm':'fu'+t.step]+'. The bot sends it in the next few minutes.'));},
+          AK.lbtSet(t.id,p).then(ok=>ok&&this.toast((l.name||'They')+' moved to '+NAME[t.kind==='invite'?'req':t.kind==='dm'||t.kind==='accept'?'dm':'fu'+t.step]+'. The bot sends it in the next few minutes.'));},
         skip:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'skipped'}).then(ok=>ok&&this.toast('Skipped '+(l.name||'them')+'. The bot won’t message them.'));},
         isFailed:!!t&&t.status==='failed',retry:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t)AK.lbtSet(t.id,{status:'ready'});},
         moves:moves.map(([label,stage])=>btn(label,()=>this.liMove(l,stage))),hasMoves:moves.length>0&&!out,stop:e=>{e&&e.stopPropagation&&e.stopPropagation();},
@@ -1438,7 +1470,23 @@ class Component extends DCLogic {
       ...[1,2,3,4,5,6,7].map(n=>tplRow('fu'+n,'Follow-up '+n,n===1?'One a day after DM 1, until they reply.':''))];
     const mode=set.mode==='auto'?'auto':'review';const H=set.hours||{};
     const errOn=!!(st.last_error&&st.last_error_at&&Date.now()-Date.parse(st.last_error_at)<864e5);
-    return{health:health.t,healthC:health.c,hasErr:errOn,lastErr:errOn?'Last problem ('+this.since(st.last_error_at)+'): '+st.last_error:'',
+    // Message scripts (11 Nov): the first line depends on how we met; the rest is angle A, B or C, rotated so each gets an even test.
+    const OPN={liked:"saw you engage with my recent post & thought I'd reach out.",commented:'thanks for the comment on my recent post, really liked your take.',viewed:"noticed you checked out my profile, so thought I'd say hi.",inbound:'thanks for the connection request!',tagged:'hope you liked the post I tagged you in.',niche:"saw your comment on {post_author}'s post and liked your take.",outbound:"thought I'd reach out."};
+    const ANG={advice:set.dm1?String(set.dm1).replace(/^Hey \{first\},[^\n]*\n\n/,''):"I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
+      pitch:"I'm Reyansh, I run SOVE7GN. We're a growth studio for funded B2B founders: we run your founder content on LinkedIn and X plus warm outreach, and turn it into booked sales calls.\n\nWould a quick 15-minute call this week make sense to see if it's a fit for {company}?",
+      freebie:"I'm Reyansh. I had a look at {company} and put together 3 small ideas that could bring in more inbound (content angles and who to reach).\n\nWant me to send them over? Happy to walk you through them on a quick call too."};
+    const so=s.lbtScr||{};const opens={...OPN,...(set.openers||{})},angs={...ANG,...(set.angles||{})},on=Array.isArray(set.angles_on)?set.angles_on:['advice','pitch','freebie'];
+    const scrRow=(grp,k,label,hint)=>{const cur=grp==='o'?opens[k]:angs[k];const ed=so[grp+k];return{label,hint,v:ed!=null?ed:cur,on:e=>{const v=e.target.value;this.setState(z=>({lbtScr:{...(z.lbtScr||{}),[grp+k]:v}}));},
+      save:()=>{const v=(this.state.lbtScr||{})[grp+k];if(v==null||v===cur)return;save(grp==='o'?{openers:{...(set.openers||{}),[k]:v}}:{angles:{...(set.angles||{}),[k]:v}});}};};
+    const openRows=Object.keys(OPN).map(k=>scrRow('o',k,(LI_SRC[k]||[k])[0]+' ('+(LI_SRC[k]||['',''])[1]+')',''));
+    const angRows=Object.keys(ANG).map(k=>({...scrRow('a',k,LI_ANGLE[k],k==='advice'?'Your original message. Works best so far.':''),isOn:on.includes(k),toggle:()=>{const n=on.includes(k)?on.filter(x=>x!==k):[...on,k];if(!n.length){this.toast('Keep at least one angle on.',true);return;}save({angles_on:n});},onLabel:on.includes(k)?'In the test':'Paused'}));
+    const LL=this.leadsAll().filter(l=>l.source==='LinkedIn');const LIx=l=>(l.fields||{}).li||{};const booked=l=>/^(call booked|proposal sent|won)$/i.test(l.stage);const pct=(a,b)=>b?Math.round(a/b*100)+'%':'\u2013';
+    const statRow=(label,L)=>{const sent=L.filter(l=>LIx(l).dm).length,rep=L.filter(l=>LIx(l).dm&&LIx(l).replied).length,bk=L.filter(l=>LIx(l).dm&&booked(l)).length;return{label,sent:String(sent),rep:String(rep),repP:pct(rep,sent),bk:String(bk),bkP:pct(bk,sent)};};
+    const byAngle=Object.keys(ANG).map(k=>statRow(LI_ANGLE[k],LL.filter(l=>LIx(l).angle===k)));byAngle.push(statRow('Before the test (sent by hand)',LL.filter(l=>LIx(l).dm&&!LIx(l).angle)));
+    const byBound=['Midbound','Inbound','Outbound'].map(b=>{const L=LL.filter(l=>(LI_SRC[liSrcOf(l)]||LI_SRC.outbound)[1]===b);const req=L.filter(l=>LIx(l).req).length,acc=L.filter(l=>LIx(l).req&&LIx(l).acc).length;return{...statRow(b,L),req:String(req),accP:pct(acc,req)};});
+    const bySrc=Object.keys(LI_SRC).map(k=>statRow(LI_SRC[k][0],LL.filter(l=>liSrcOf(l)===k))).filter(r=>r.sent!=='0');
+    return{scrOpen:openRows,scrAng:angRows,byAngle,byBound,bySrc,hasBySrc:bySrc.length>0,
+      health:health.t,healthC:health.c,hasErr:errOn,lastErr:errOn?'Last problem ('+this.since(st.last_error_at)+'): '+st.last_error:'',
       paused:!!set.paused,running:!set.paused,modeReview:()=>save({mode:'review'}),modeAuto:()=>save({mode:'auto'}),pause:()=>save({paused:true}),resume:()=>save({paused:false}),
       revBg:mode==='review'?'var(--ink)':'transparent',revFg:mode==='review'?'#fff':'var(--ink-2)',autoBg:mode==='auto'?'var(--ink)':'transparent',autoFg:mode==='auto'?'#fff':'var(--ink-2)',
       modeText:(set.paused?'Paused: nothing is sent. ':'')+(mode==='review'?'Review mode: nothing goes out until you press Approve.':'Auto mode: new messages are approved on their own and sent while Chrome is open.'),

@@ -4,6 +4,7 @@
 // Prints names only, never secrets. Usage: node scripts/deploy-li-bot.mjs
 import { readFileSync, writeFileSync, appendFileSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import postgres from "postgres";
 
 const envPath = new URL("../.env.local", import.meta.url);
 const env = {};
@@ -44,3 +45,15 @@ for (const slug of ["li-bot", "social-sync"]) {
   console.log("function: " + slug + " deployed (version " + ((await r.json()).version ?? "?") + ")");
 }
 if (!existsSync(keyFile)) console.log("warning: key file missing");
+
+// Call briefs: every 15 minutes, any lead moved to Call booked gets researched and a call plan written (runs without the extension).
+if (env.DATABASE_URL) {
+  const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 1, onnotice: () => {} });
+  try {
+    await sql`select cron.unschedule(jobid) from cron.job where jobname = 'li-bot-briefs'`;
+    const call = "select net.http_post(url := 'https://" + ref + ".supabase.co/functions/v1/li-bot', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"briefs\"}'::jsonb, timeout_milliseconds := 150000)";
+    await sql`select cron.schedule('li-bot-briefs', '*/15 * * * *', ${call})`;
+    console.log("schedule: li-bot-briefs, every 15 minutes");
+  } finally { await sql.end(); }
+}
+

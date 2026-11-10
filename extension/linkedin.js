@@ -375,6 +375,115 @@ export async function liOp(op, a = {}) {
     return D;
   }
 
+  // ───────── v2 (11 Nov): new sources, warm touch, accepting requests, withdrawing old ones ─────────
+  // People listed on the page open in this tab (profile viewers, invitation cards...): one entry per profile link, with the
+  // name and headline read from the card around it.
+  function domPeople(x) {
+    const meKeys = new Set([String(x.me && x.me.urn || "").toLowerCase(), String(x.me && x.me.pid || "").toLowerCase()]);
+    const prof = (h) => (acoa(h) || vanity(h) || "").toLowerCase();
+    const seen = new Map();
+    for (const a of document.querySelectorAll("main a[href*='/in/'], [role=main] a[href*='/in/']")) {
+      const k = prof(a.href); if (!k || meKeys.has(k) || seen.has(k)) continue;
+      let card = a; for (let i = 0; i < 6 && card.parentElement && card.innerText.length < 40; i++) card = card.parentElement;
+      card = a.closest("li") || card;
+      const lines = (card.innerText || "").split("\n").map((t) => t.trim()).filter(Boolean);
+      const junk = /^(view|connect|message|follow|following|pending|accept|ignore|withdraw|more|·|•|\d+(st|nd|rd|th)\+?|premium|see all|\d+\s*(m|h|d|w|mo|yr)s?)$/i;
+      const name = ((a.innerText || "").split("\n").map((t) => t.trim()).filter(Boolean)[0] || lines[0] || "").replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").slice(0, 120);
+      const rest = lines.filter((t) => t !== name && !junk.test(t) && !/^(viewed|sent|invited|\d+ mutual)/i.test(t));
+      const message = (lines.find((t) => t.length > 60 && /[.?!]/.test(t) && t !== rest[0]) || "").slice(0, 600);
+      seen.set(k, { urn: acoa(a.href), pid: vanity(a.href), name, headline: (rest[0] || "").slice(0, 200), message: x.messages ? message : "" });
+    }
+    return { people: [...seen.values()].filter((p) => p.name && !/linkedin member|someone/i.test(p.name)), url: location.pathname };
+  }
+
+  // Connection requests people sent us (LinkedIn's own list), with what's needed to accept them.
+  async function invitesReceived() {
+    const j = await get("relationships/invitationViews?includeInsights=true&q=receivedInvitation&start=0&count=50");
+    const I = inc(j), byUrn = new Map(I.filter((e) => e.publicIdentifier).map((m) => [String(m.entityUrn), m]));
+    const out = [];
+    for (const v of I.filter((e) => e.sharedSecret && /Invitation/.test(e.$type || ""))) {
+      const id = (String(v.entityUrn || "").match(/(\d+)$/) || [])[1];
+      const m = byUrn.get(String(v["*fromMember"] || (v.fromMember && v.fromMember["*miniProfile"]) || "")) || {};
+      const urn = acoa(m.entityUrn || m.dashEntityUrn || JSON.stringify(v.fromMember || v["*fromMember"] || ""));
+      if (!urn && !m.publicIdentifier) continue;
+      if (v.invitationType && v.invitationType !== "CONNECTION") continue;
+      out.push({ urn, pid: m.publicIdentifier || "", name: [m.firstName, m.lastName].filter(Boolean).join(" "), headline: m.occupation || "", message: v.message || "", inv: id ? { id, secret: v.sharedSecret } : null });
+    }
+    return { people: out };
+  }
+  async function acceptInvite(x) {
+    if (x.inv && x.inv.id) {
+      const r = await post("relationships/invitations/" + x.inv.id + "?action=accept", { invitationId: x.inv.id, invitationSharedSecret: x.inv.secret, isGenericInvitation: false });
+      if (r.ok) return { ok: true, via: "api" };
+    }
+    // On the invitation manager page: the Accept button on their card.
+    const key = (x.pid || x.urn || "").toLowerCase();
+    for (let i = 0; i < 20 && !document.querySelector("a[href*='/in/']"); i++) await sleep(500);
+    const link = [...document.querySelectorAll("a[href*='/in/']")].find((a) => (acoa(a.href) || vanity(a.href) || "").toLowerCase() === key);
+    let card = link; for (let i = 0; i < 8 && card && !card.querySelector("button"); i++) card = card.parentElement;
+    const btn = card && [...card.querySelectorAll("button")].find((b) => /^accept/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+    if (!btn) return { ok: false, error: "Couldn't find their request to accept" };
+    btn.click(); await sleep(1500);
+    return { ok: true, via: "page" };
+  }
+
+  // Warm touch: like their latest post (the profile visit happens by opening their profile in the tab first).
+  async function likeLatest(x) {
+    if (!x.urn) return { liked: false };
+    try {
+      const j = await get("identity/profileUpdatesV2?count=5&includeLongTermHistory=true&moduleKey=member-shares%3Aphone&numComments=0&q=memberShareFeed&start=0&profileUrn=" + encodeURIComponent("urn:li:fsd_profile:" + x.urn));
+      const act = (JSON.stringify(j).match(/urn:li:activity:(\d+)/) || [])[1];
+      if (!act || Date.now() - Number(BigInt(act) >> 22n) > 60 * 86400e3) return { liked: false, reason: "no recent post" };
+      if (x.dry) return { liked: false, reason: "dry run", post: act };
+      const r = await post("voyagerSocialDashReactions?threadUrn=" + encodeURIComponent("urn:li:activity:" + act), { reactionType: "LIKE" });
+      return { liked: r.ok, status: r.status };
+    } catch (e) { return { liked: false, reason: String(e.message) }; }
+  }
+
+  // On "Sent invitations": withdraw requests older than maxDays (oldest first), up to limit. dry = only count them.
+  async function domWithdraw(x) {
+    const maxDays = x.maxDays || 21, limit = x.limit || 25, out = [];
+    for (let i = 0; i < 20 && !document.querySelector("button"); i++) await sleep(500);
+    for (let i = 0; i < 12; i++) {                                      // load the whole list
+      window.scrollTo(0, document.body.scrollHeight); await sleep(900);
+      const more = [...document.querySelectorAll("button")].find((b) => /show more|load more|see more/i.test(b.innerText || "") && b.offsetParent);
+      if (more) { more.click(); await sleep(1500); } else if (i > 2) break;
+    }
+    const days = (t) => { const m = String(t).match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago/i); if (!m) return /yesterday/i.test(t) ? 1 : 0;
+      return +m[1] * ({ minute: 0, hour: 0, day: 1, week: 7, month: 30, year: 365 })[m[2].toLowerCase()]; };
+    const btns = [...document.querySelectorAll("button")].filter((b) => /^withdraw/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+    const items = btns.map((b) => { let c = b; for (let i = 0; i < 8 && c.parentElement && !c.querySelector("a[href*='/in/']"); i++) c = c.parentElement;
+      const a = c.querySelector("a[href*='/in/']"); return { b, a, age: days(c.innerText || ""), name: a ? (a.innerText || "").split("\n")[0].trim() : "", ageText: ((c.innerText || "").match(/\d+\s*\w+\s*ago/i) || [""])[0] }; })
+      .filter((it) => it.age >= maxDays).sort((p, q) => q.age - p.age);
+    if (x.dry) return { eligible: items.length, total: btns.length, withdrawn: [] };
+    for (const it of items.slice(0, limit)) {
+      it.b.scrollIntoView({ block: "center" }); it.b.click(); await sleep(900 + Math.random() * 600);
+      const dlg = document.querySelector("[role=dialog], [role=alertdialog]");
+      const ok = dlg && [...dlg.querySelectorAll("button")].find((b) => /^withdraw/i.test((b.innerText || "").trim()));
+      if (ok) { ok.click(); await sleep(1500 + Math.random() * 1500); }
+      out.push({ urn: it.a ? acoa(it.a.href) : "", pid: it.a ? vanity(it.a.href) : "", name: it.name, age: it.ageText });
+    }
+    return { eligible: items.length, total: btns.length, withdrawn: out };
+  }
+
+  // People we tagged in our posts (from the same list of our posts the engagers scan reads).
+  async function tagged(x) {
+    const j = await get("identity/profileUpdatesV2?count=20&includeLongTermHistory=true&moduleKey=member-shares%3Aphone&numComments=0&q=memberShareFeed&start=0&profileUrn=" + encodeURIComponent("urn:li:fsd_profile:" + x.me.urn));
+    const I = inc(j), minis = new Map(I.filter((e) => e.publicIdentifier).map((m) => [acoa(m.entityUrn || m.dashEntityUrn), m]));
+    const since = Date.now() - (x.days || 30) * 86400e3, out = new Map();
+    for (const u of I) {
+      const act = (String((u.updateMetadata && u.updateMetadata.urn) || "").match(/urn:li:activity:(\d+)/) || [])[1];
+      if (!act || Number(BigInt(act) >> 22n) < since || !u.commentary) continue;
+      const text = txt(u.commentary.text || u.commentary);
+      for (const id of new Set((JSON.stringify(u.commentary).match(/ACoA[\w-]{10,}/g) || []))) {
+        if (id === x.me.urn || out.has(id)) continue;
+        const m = minis.get(id) || {};
+        out.set(id, { urn: id, pid: m.publicIdentifier || "", name: [m.firstName, m.lastName].filter(Boolean).join(" "), headline: m.occupation || "", post_text: text.split("\n")[0].slice(0, 160) });
+      }
+    }
+    return { people: [...out.values()].filter((p) => p.name) };
+  }
+
   switch (op) {
     case "me": return me();
     case "lookup": return lookup(a);
@@ -387,6 +496,12 @@ export async function liOp(op, a = {}) {
     case "domComments": return domComments(a);
     case "domProbe": return domProbe(a);
     case "netlog": return netlog();
+    case "domPeople": return domPeople(a);
+    case "invitesReceived": return invitesReceived();
+    case "acceptInvite": return acceptInvite(a);
+    case "likeLatest": return likeLatest(a);
+    case "domWithdraw": return domWithdraw(a);
+    case "tagged": return tagged(a);
     case "invite": return invite(a);
     case "message": return message(a);
     default: throw new Error("unknown op " + op);

@@ -33,6 +33,7 @@ const ACTIVE = /^(new|contacted|follow up)$/i;     // stages the bot may still m
 
 async function allowed(req: Request): Promise<boolean> {
   if (TOKEN && req.headers.get("x-bot-token") === TOKEN) return true;
+  if (CRON && req.headers.get("x-cron-secret") === CRON) return true;
   const auth = req.headers.get("authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return false;
   const user = createClient(SB_URL, ANON, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
@@ -47,7 +48,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -89,7 +90,11 @@ async function hello(b: any) {
     const { data: ppl } = await db.from("crm_social_people").select("name").eq("platform", "linkedin").eq("is_self", false).in("person_key", keys);
     probe = { post, names: (ppl ?? []).map((p) => p.name).filter(Boolean).slice(0, 3) };
   }
+  const sv: any = st?.value ?? {}, ago = (k: string) => Date.now() - (Date.parse(sv[k] ?? "") || 0);
+  const { data: np } = await db.from("crm_li_suggest").select("url,author").eq("status", "done").gte("day", new Date(Date.now() - 4 * 86400e3).toISOString().slice(0, 10)).limit(8);
   return { probe, paused: set.paused, mode: set.mode, in_hours: inHours(set.hours), hours: set.hours,
+    do_views: ago("last_viewed") > 6 * 3600e3, do_invites: ago("last_inbound") > 40 * 60e3, do_withdraw: ago("last_withdraw") > 20 * 3600e3,
+    do_niche: ago("last_niche") > 6 * 3600e3, niche_posts: (np ?? []).map((x: any) => ({ url: x.url, author: x.author })),
     scan_engagers: Date.now() - lastScan > 3 * 3600e3, scan_days: 30, extra_posts: (known ?? []).map((k) => String(k.post_id)).filter((x) => /^\d+$/.test(x)) };
 }
 async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { last_error: String(b.error).slice(0, 500), last_error_at: now() } : {}), ...(b.note ? { last_note: String(b.note).slice(0, 300) } : {}), ...(b.diag ? { diag: b.diag } : {}) }); return { ok: true }; }
@@ -124,7 +129,7 @@ async function pool(set?: Bot): Promise<Lead[]> {
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key")
     .eq("source", "LinkedIn").eq("archived", false).limit(3000);
   if (error) throw error;
-  return ((data ?? []) as Lead[]).filter((l) => (isEngager(l) && heats.includes(l.heat)) || !!(l.fields?.li?.req || l.fields?.li?.dm || l.fields?.li?.acc));
+  return ((data ?? []) as Lead[]).filter((l) => (isOurs(l) && heats.includes(l.heat)) || !!(l.fields?.li?.req || l.fields?.li?.dm || l.fields?.li?.acc || l.fields?.li?.src === "inbound"));
 }
 const isEngager = (l: Lead) => String(l.origin_key ?? "").startsWith("li-person:");
 // Who we never message, from what we know (same rule as the CRM's Pipeline): unknown never rules anyone out.
@@ -185,7 +190,11 @@ async function state(b: any) {
     }
     if (li.replied || !since || Date.parse(t.them_at) <= since) continue;
     li.replied = t.them_at; li.stop = "replied"; if (t.urn) li.urn = t.urn;
-    await saveLi(l, li, ACTIVE.test(l.stage) ? { stage: "In talks" } : {});
+    const sr = await sortReply(l, String(t.them_text ?? "")).catch(() => ({ label: "other", draft: "" }));
+    li.reply_label = sr.label; li.draft = sr.draft;
+    const move: Record<string, unknown> = !ACTIVE.test(l.stage) ? {} : sr.label === "not_interested" ? { stage: "Lost" } :
+      sr.label === "not_now" ? { stage: "Follow up", next_step: "Check back in on LinkedIn", next_date: new Date(Date.now() + 30 * 86400e3).toISOString().slice(0, 10) } : { stage: "In talks" };
+    await saveLi(l, li, move);
     await stopTasks(l.id, "They replied");
     await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on LinkedIn: “" + clip(String(t.them_text ?? ""), 600) + "”", by_email: "linkedin" });
     replied++;
@@ -213,6 +222,8 @@ async function plan(_b: any) {
   const { count: notesUsed } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").neq("text", "").gte("sent_at", m0.toISOString());
   let notesLeft = set.notes_month - (notesUsed ?? 0);
   const newRows: any[] = [], needHook: Lead[] = [];
+  const sc = await scripts();
+  const angleLeads = [...leads];
   // The same person can be in Leads twice (from our posts and from outreach done by hand). Never message a copy of someone
   // the other copy already reached.
   const nameKey = (l: Lead) => String(l.name ?? "").toLowerCase().normalize("NFD").replace(/[^a-z]+/g, "");
@@ -229,8 +240,16 @@ async function plan(_b: any) {
     if (li.stop || li.replied || !ACTIVE.test(l.stage)) continue;
     if (ts.some((t) => ["review", "ready", "sending"].includes(t.status))) continue;
     const had = (kind: string, step = 0) => ts.find((t) => t.kind === kind && t.step === step);
+    if (srcOf(l) === "inbound" && !li.acc && !li.dm) {                    // they sent us a request: accept it and send the first message
+      if (notFit(l) || twin(l, "dm")) continue;
+      const t = had("accept");
+      if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
+      if (!t) { const angle = await nextAngle(sc, angleLeads); li.angle = angle; await saveLi(l, li); angleLeads.push(l);
+        newRows.push({ lead_id: l.id, kind: "accept", step: 0, text: firstDM(sc, l, angle), status }); }
+      continue;
+    }
     if (!li.req && !li.acc) {
-      if (!isEngager(l) || notFit(l) || twin(l, "req")) continue;           // only post engagers who fit get a request
+      if (!isOurs(l) || notFit(l) || twin(l, "req")) continue;              // only our own sources who fit get a request
       const t = had("invite");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
       if (t?.status === "failed") continue;                                // shown on Outreach with Retry
@@ -238,10 +257,11 @@ async function plan(_b: any) {
       continue;
     }
     if (li.acc && !li.dm) {
-      if (!isEngager(l) || twin(l, "dm")) continue;                         // DM 1 says "saw you engage with my post"
+      if (!isOurs(l) || twin(l, "dm")) continue;                            // the first message opens with how we met
       const t = had("dm");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
-      if (!t) newRows.push({ lead_id: l.id, kind: "dm", step: 0, text: fill(set.dm1, l), status });
+      if (!t) { const angle = li.angle || await nextAngle(sc, angleLeads); if (!li.angle) { li.angle = angle; await saveLi(l, li); angleLeads.push(l); }
+        newRows.push({ lead_id: l.id, kind: "dm", step: 0, text: firstDM(sc, l, angle), status }); }
       continue;
     }
     if (li.dm) {
@@ -259,7 +279,9 @@ async function plan(_b: any) {
   }
   // Connection notes: one short opener per person, written from what we know about them.
   if (needHook.length) {
-    const hooks = await writeHooks(needHook.slice(0, 40));
+    const eng = needHook.slice(0, 40).filter((l) => String(l.origin_key ?? "").startsWith("li-person:"));
+    const hooks = eng.length ? await writeHooks(eng) : new Map<string, string>();
+    for (const l of needHook.slice(0, 40)) if (!hooks.has(l.id)) hooks.set(l.id, opener(sc, l));
     for (const l of needHook.slice(0, 40)) {
       let text = "";
       if (notesLeft > 0) {
@@ -287,14 +309,16 @@ async function plan(_b: any) {
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
     const invitesLeft = Math.max(0, Math.min(6, set.week_cap - (weekSent ?? 0)));
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
-    const inv = (ready ?? []).filter((t) => t.kind === "invite").slice(0, invitesLeft);
-    const msg = (ready ?? []).filter((t) => t.kind !== "invite").slice(0, 10);
+    const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
+    const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
+    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && goodTime(l, t.kind); };
+    const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
+    const msg = (ready ?? []).filter((t) => t.kind !== "invite" && ok(t)).slice(0, 10);
     tasks = [...msg, ...inv];
     if (tasks.length) {
-      const { data: ls } = await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", tasks.map((t) => t.lead_id));
-      const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
-      tasks = tasks.filter((t) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied; })
-        .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin }; });
+      // A request goes out at least 3 hours after the warm touch (visit their profile, like their latest post).
+      tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > 3 * 3600e3; })
+        .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, warm: t.kind === "invite" && !l.fields?.li?.warm, inv: l.fields?.li?.inv ?? null }; });
       if (tasks.length) await db.from("crm_li_tasks").update({ status: "sending" }).in("id", tasks.map((t) => t.id));
     }
   }
@@ -340,6 +364,12 @@ async function done(b: any) {
     if (!li.req) li.req = at;
     await saveLi(lead, li); return { ok: true };
   }
+  if (!b.ok && /NOT_FIRST_DEGREE/i.test(String(b.error ?? ""))) {     // not connected (any more): can't message them, stop the sequence
+    await db.from("crm_li_tasks").update({ status: "skipped", error: "Not connected on LinkedIn, so they can't be messaged" }).eq("id", t.id);
+    li.stop = "not connected"; delete li.acc;
+    await saveLi(lead, li); await log(lead.id, "LinkedIn says we're not connected, so the follow-ups stopped. Send them a connection request by hand if you want to continue.", "note");
+    return { ok: true };
+  }
   if (!b.ok) {
     await db.from("crm_li_tasks").update({ status: "failed", error: clip(String(b.error ?? "Failed"), 300) }).eq("id", t.id);
     await saveLi(lead, li); return { ok: true };
@@ -350,10 +380,14 @@ async function done(b: any) {
     li.req = at; li.note = !!t.text; li.last = at;
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, t.text ? "LinkedIn connection request sent, with this note:\n" + t.text : "LinkedIn connection request sent (no note left this month)");
+  } else if (t.kind === "accept") {
+    li.acc = at; li.dm = at; li.last = at; li.fu = 0;
+    if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
+    await log(lead.id, "Accepted their LinkedIn request and sent the first message (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "dm") {
     li.dm = at; li.last = at; li.fu = 0;
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
-    await log(lead.id, "LinkedIn DM 1 sent:\n" + t.text);
+    await log(lead.id, "LinkedIn first message sent (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "followup") {
     li.fu = t.step; li.last = at;
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
@@ -474,7 +508,7 @@ async function calBooking(req: Request) {
 // ───────── enrich: what each LinkedIn lead is building and their latest round (feeds the 1 to 10 score) ─────────
 // One Exa search per person with a structured answer (Exa allows at most 10 fields). Facts go into the lead's intelligence card (fields.gtm.intel) with
 // the page they came from, so the CRM's ICP score counts them as evidence. A short line about them goes in fields.li_icp.
-const EXA = Deno.env.get("EXA_API_KEY") ?? "";
+const EXA = Deno.env.get("EXA_API_KEY") ?? "";   // also used by people() and briefs()
 const ROUNDS = ["Pre-seed", "Seed", "Series A", "Series B", "Series C", "Series D+", "Bootstrapped", "Grant / other"];
 const MODELS = ["B2B", "B2B2C", "B2C", "Marketplace", "Services / agency"];
 async function enrich(b: any) {
@@ -483,7 +517,7 @@ async function enrich(b: any) {
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,fields,notes")
     .eq("source", "LinkedIn").eq("archived", false).like("origin_key", "li-person:%").in("heat", ["Hot", "Warm"]).limit(2000);
   if (error) throw error;
-  const due = (l: any) => !l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3) || !l.fields?.li_icp?.geo2;
+  const due = (l: any) => !l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3) || !l.fields?.li_icp?.geo2 || (!l.fields?.li_icp?.geo3 && !notFit(l));
   const todo = (data ?? []).filter(due).sort((a: any, c: any) => (a.fields?.li?.req ? 1 : 0) - (c.fields?.li?.req ? 1 : 0)).slice(0, limit);
   let done = 0, cost = 0;
   for (let i = 0; i < todo.length; i += 4) {
@@ -523,13 +557,15 @@ async function enrich(b: any) {
         f.li_icp = { at: now, one_liner: o.about_this_company ? String(o.one_liner ?? "").slice(0, 160) : "", funding: o.about_this_company ? fundingLine(o) : "", src };
       }
       if (f.li_icp && !f.li_icp.err) {
-        const ic = { ...f.li_icp, geo_at: now, geo2: now };
+        const ic = { ...f.li_icp, geo_at: now, geo2: now, geo3: now };
         if (g && g.about_this_person) {
           const clean = (x: unknown) => String(x ?? "").trim().replace(/^the\s+/i, "").slice(0, 60);
           if (clean(g.company_hq_country) && !/unknown/i.test(String(g.company_hq_country))) ic.hq_country = clean(g.company_hq_country);
           if (clean(g.founder_lives_in_country) && !/unknown/i.test(String(g.founder_lives_in_country))) ic.founder_country = clean(g.founder_lives_in_country);
           if (clean(g.company_hq_city) && !/unknown/i.test(String(g.company_hq_city))) ic.hq_city = clean(g.company_hq_city);
           if (typeof g.is_tech_company === "boolean") ic.is_tech = g.is_tech_company;
+          const xh = String(g.x_handle ?? "").trim().replace(/^https?:\/\/(www\.)?(x|twitter)\.com\//i, "").replace(/^@/, "").replace(/[/?#].*$/, "");
+          if (/^[A-Za-z0-9_]{2,15}$/.test(xh)) ic.x = xh;
           if (g.what_kind_of_company) ic.kind = String(g.what_kind_of_company).slice(0, 60);
           const gi = { ...(f.gtm?.intel ?? {}) };
           if (ic.hq_country && !gi.hq) { gi.hq = { v: ic.hq_country, src: /^https?:\/\//.test(g.source_url ?? "") ? g.source_url : "", at: day, by: "li-bot" }; f.gtm = { ...(f.gtm ?? {}), intel: gi }; }
@@ -574,6 +610,7 @@ async function whereLookUp(l: any) {
     about_this_person: { type: "boolean", description: "true only if the results are about this person or their current company" },
     founder_lives_in_country: { type: "string", description: "country where this person lives or works now, e.g. United States, India, United Kingdom; 'unknown' if not stated" },
     company_hq_country: { type: "string", description: "country of the company's headquarters; 'unknown' if not stated" },
+    x_handle: { type: "string", description: "this person's X (Twitter) handle if the results show it, like @name; empty if not found" },
     company_hq_city: { type: "string", description: "city of the company's headquarters, e.g. San Francisco, New York, London, Bengaluru; 'unknown' if not stated" },
     is_tech_company: { type: "boolean", description: "true if the company builds software, AI, hardware, deep tech, biotech, fintech or another technology product; false for food, restaurants, retail, consumer goods, agencies, consulting, real estate and similar" },
     what_kind_of_company: { type: "string", description: "two to four words, e.g. B2B AI software, food delivery, marketing agency" },
@@ -586,4 +623,268 @@ async function whereLookUp(l: any) {
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
+}
+
+// ═════════ v2 (11 Nov): where each lead came from, A/B/C message angles, sending at their local morning, the warm touch,
+// withdrawing stale requests, new sources (profile views, requests sent to us, people we tag, commenters on founder posts we
+// commented on), sorting replies, and a call brief with a pitch script when a call is booked. ═════════
+
+// Where a lead came from, and which of the three it is (midbound: engaged with us; inbound: came to us; outbound: we went to them).
+const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: "Commented on our post", viewed: "Viewed our profile", inbound: "Sent us a connection request",
+  tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first" };
+function srcOf(l: Lead): string {
+  const li = l.fields?.li ?? {};
+  if (li.src) return li.src;
+  const o = String(l.origin_key ?? "");
+  if (o.startsWith("li-src:")) return o.split(":")[1] || "outbound";
+  if (o.startsWith("li-person:")) return /comment/i.test(l.source_detail ?? "") ? "commented" : "liked";
+  return "outbound";
+}
+const boundOf = (src: string) => ["liked", "commented", "viewed"].includes(src) ? "midbound" : src === "inbound" ? "inbound" : "outbound";
+const isOurs = (l: Lead) => /^li-(person|src):/.test(String(l.origin_key ?? ""));
+
+const DEF_OPENERS: Record<string, string> = {
+  liked: "saw you engage with my recent post & thought I'd reach out.",
+  commented: "thanks for the comment on my recent post, really liked your take.",
+  viewed: "noticed you checked out my profile, so thought I'd say hi.",
+  inbound: "thanks for the connection request!",
+  tagged: "hope you liked the post I tagged you in.",
+  niche: "saw your comment on {post_author}'s post and liked your take.",
+  outbound: "thought I'd reach out.",
+};
+const DEF_ANGLES: Record<string, string> = {
+  advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
+  pitch: "I'm Reyansh, I run SOVE7GN. We're a growth studio for funded B2B founders: we run your founder content on LinkedIn and X plus warm outreach, and turn it into booked sales calls.\n\nWould a quick 15-minute call this week make sense to see if it's a fit for {company}?",
+  freebie: "I'm Reyansh. I had a look at {company} and put together 3 small ideas that could bring in more inbound (content angles and who to reach).\n\nWant me to send them over? Happy to walk you through them on a quick call too.",
+};
+const ANGLE_LABEL: Record<string, string> = { advice: "A · Ask for advice", pitch: "B · Direct pitch", freebie: "C · Free ideas" };
+type Scripts = { openers: Record<string, string>; angles: Record<string, string>; on: string[]; inmail: string };
+async function scripts(): Promise<Scripts> {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
+  const v: any = data?.value ?? {};
+  const on = (Array.isArray(v.angles_on) ? v.angles_on : ["advice", "pitch", "freebie"]).filter((a: string) => DEF_ANGLES[a]);
+  return { openers: { ...DEF_OPENERS, ...(v.openers ?? {}) }, angles: { ...DEF_ANGLES, ...(v.angles ?? {}) }, on: on.length ? on : ["advice"],
+    inmail: v.inmail ?? "Hey {first}, sent you a connection request a little while back. {opener_plain}\n\nI'm Reyansh, building SOVE7GN, a growth studio for funded B2B founders. Would love 15 minutes to hear how you're thinking about GTM at {company}. Open to a quick call?" };
+}
+function opener(sc: Scripts, l: Lead): string {
+  const li = l.fields?.li ?? {};
+  return (sc.openers[srcOf(l)] ?? sc.openers.outbound).replaceAll("{post_author}", li.post_author || "a founder");
+}
+function firstDM(sc: Scripts, l: Lead, angle: string): string {
+  return fill("Hey {first}, " + opener(sc, l) + "\n\n" + (sc.angles[angle] ?? sc.angles.advice), l);
+}
+// The angle with the fewest first messages so far (among those switched on), so A, B and C get an even test.
+async function nextAngle(sc: Scripts, leads: Lead[]): Promise<string> {
+  const n: Record<string, number> = {}; for (const a of sc.on) n[a] = 0;
+  for (const l of leads) { const a = l.fields?.li?.angle; if (a && n[a] != null) n[a]++; }
+  return sc.on.slice().sort((a, b) => n[a] - n[b])[0];
+}
+
+// ───────── their local time ─────────
+const CITY_TZ: [RegExp, string][] = [
+  [/san francisco|bay area|palo alto|mountain view|menlo park|san jose|oakland|berkeley|sunnyvale|santa clara|redwood|los angeles|\bla\b|san diego|seattle|portland|vancouver|las vegas|irvine|santa monica|sacramento/i, "America/Los_Angeles"],
+  [/denver|boulder|salt lake|phoenix|calgary/i, "America/Denver"],
+  [/chicago|austin|dallas|houston|minneapolis|st\.? louis|kansas city|nashville|new orleans|madison|milwaukee/i, "America/Chicago"],
+  [/new york|nyc|brooklyn|boston|cambridge|miami|atlanta|washington|\bdc\b|philadelphia|pittsburgh|toronto|montreal|ottawa|raleigh|durham|charlotte|baltimore|detroit|columbus|waterloo/i, "America/New_York"],
+  [/london|manchester|edinburgh|cambridge, uk|oxford|bristol|dublin|lisbon/i, "Europe/London"],
+  [/berlin|munich|paris|amsterdam|stockholm|copenhagen|oslo|zurich|geneva|vienna|madrid|barcelona|brussels|milan|rome|helsinki|prague|warsaw|luxembourg/i, "Europe/Berlin"],
+  [/tel aviv|jerusalem|haifa/i, "Asia/Jerusalem"], [/singapore/i, "Asia/Singapore"], [/tokyo/i, "Asia/Tokyo"], [/seoul/i, "Asia/Seoul"],
+  [/sydney|melbourne|brisbane/i, "Australia/Sydney"], [/auckland/i, "Pacific/Auckland"], [/dubai|abu dhabi/i, "Asia/Dubai"],
+  [/bengaluru|bangalore|mumbai|delhi|gurgaon|gurugram|noida|pune|hyderabad|chennai|kolkata|ahmedabad/i, "Asia/Kolkata"],
+];
+const COUNTRY_TZ: [RegExp, string][] = [[/united states|usa|america/i, "America/New_York"], [/canada/i, "America/Toronto"], [/united kingdom|uk|england|scotland|wales|ireland|portugal/i, "Europe/London"],
+  [/germany|france|netherlands|belgium|switzerland|austria|sweden|norway|denmark|finland|spain|italy|luxembourg|poland/i, "Europe/Berlin"], [/israel/i, "Asia/Jerusalem"], [/singapore/i, "Asia/Singapore"],
+  [/japan/i, "Asia/Tokyo"], [/korea/i, "Asia/Seoul"], [/australia/i, "Australia/Sydney"], [/new zealand/i, "Pacific/Auckland"], [/india/i, "Asia/Kolkata"], [/emirates|uae/i, "Asia/Dubai"]];
+function tzOf(l: any): string {
+  const ic = l.fields?.li_icp ?? {}, city = String(ic.hq_city ?? ""), country = String(ic.founder_country || ic.hq_country || l.fields?.gtm?.intel?.hq?.v || "");
+  if (city) for (const [re, tz] of CITY_TZ) if (re.test(city)) return tz;
+  if (country) for (const [re, tz] of COUNTRY_TZ) if (re.test(country)) return tz;
+  return "";
+}
+function localHour(tz: string): number | null {
+  if (!tz) return null;
+  try { const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "numeric", hour12: false }).formatToParts(new Date());
+    const h = +(p.find((x) => x.type === "hour")?.value ?? "0") % 24, m = +(p.find((x) => x.type === "minute")?.value ?? "0"); return h + m / 60; } catch { return null; }
+}
+// Messages land in their morning (8:00 to 12:00 their time); connection requests in their working day (8:00 to 20:00).
+function goodTime(l: any, kind: string): boolean {
+  const h = localHour(tzOf(l));
+  if (h == null) return true;
+  return kind === "invite" ? h >= 8 && h < 20 : h >= 8 && h < 12;
+}
+
+// ───────── language model (Composio's workbench), several prompts at once ─────────
+async function llmMany(items: { id: string; prompt: string }[]): Promise<Record<string, string>> {
+  if (!COMPOSIO || !items.length) return {};
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
+  const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
+    "items = json.loads(base64.b64decode('" + payload + "').decode())",
+    "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
+    "with ThreadPoolExecutor(8) as ex: res = dict(ex.map(one, items))", "print('@@' + json.dumps(res))"].join("\n");
+  const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write text for the CRM" });
+  return JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
+}
+const parseJson = (s: string) => { try { return JSON.parse(String(s ?? "").replace(/^```(json)?|```$/gm, "").trim()); } catch { return null; } };
+
+// ───────── people from the new sources ─────────
+// kind: viewed (profile views), inbound (sent us a request), tagged (we tagged them), niche (commented on a founder post we
+// commented on). Each person is judged once against the ICP (Exa, like social-sync); good fits become leads with their source.
+// People who are already leads get the touch added to their history (a profile view adds to their score).
+const keyOfP = (p: any) => p.urn ? "https://www.linkedin.com/in/" + String(p.urn).toLowerCase() : p.pid ? "https://www.linkedin.com/in/" + String(p.pid).toLowerCase() : "";
+async function people(b: any) {
+  const kind = String(b.kind ?? ""), list = (Array.isArray(b.people) ? b.people : []).filter((p: any) => p && (p.urn || p.pid)).slice(0, 80);
+  if (!SRC_LABEL[kind]) return { added: 0 };
+  if (!list.length) { await saveStatus({ ["last_" + kind]: now() }); return { added: 0, seen: 0 }; }
+  const { data: auto } = await db.from("crm_lead_settings").select("value").eq("key", "automation").maybeSingle();
+  const icp = (auto?.value as any)?.icp ?? "";
+  const meKeys = new Set([String(b.me?.urn ?? "").toLowerCase(), String(b.me?.pid ?? "").toLowerCase()].filter(Boolean));
+  const leads = (await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").eq("source", "LinkedIn").eq("archived", false).limit(4000)).data as Lead[] ?? [];
+  const byId = new Map<string, Lead>(); for (const l of leads) for (const k of idsOf(l)) byId.set(k, l);
+  let added = 0, touched = 0, judged = 0;
+  const at = now(), what = (p: any) => kind === "viewed" ? "Viewed your LinkedIn profile" : kind === "inbound" ? "Sent you a LinkedIn connection request" + (p.message ? ": “" + clip(p.message, 300) + "”" : "") :
+    kind === "tagged" ? "Tagged in your LinkedIn post" + (p.post_text ? ": “" + clip(p.post_text, 80) + "”" : "") : "Commented on " + (p.post_author || "a founder") + "'s post we commented on" + (p.said ? ": “" + clip(p.said, 200) + "”" : "");
+  for (const p of list) {
+    if (meKeys.has(String(p.urn ?? "").toLowerCase()) || meKeys.has(String(p.pid ?? "").toLowerCase())) continue;
+    const l = byId.get(String(p.urn ?? "").toLowerCase()) ?? byId.get(String(p.pid ?? "").toLowerCase());
+    if (l) {   // already a lead: note the touch once
+      const li = { ...(l.fields?.li ?? {}) }, flag = { viewed: "viewed", inbound: "inbound_at", tagged: "tagged", niche: "niche" }[kind as "viewed"]!;
+      if (li[flag]) continue;
+      li[flag] = at;
+      if (kind === "inbound" && !li.req && !li.acc && !li.dm) { li.src = "inbound"; li.inv = p.inv ?? null; li.said = p.message ?? ""; }
+      if (p.urn) li.urn = li.urn || p.urn; if (p.pid) li.pid = li.pid || p.pid;
+      await saveLi(l, li); await log(l.id, what(p), "note"); touched++; continue;
+    }
+    const key = keyOfP(p);
+    const { data: sp } = await db.from("crm_social_people").select("fit,judged_at,lead_id").eq("platform", "linkedin").eq("person_key", key).maybeSingle();
+    if (sp?.judged_at && sp.fit !== "hot") continue;                     // judged before and not a fit
+    let fit = sp?.fit ?? "", o: any = {};
+    if (!sp?.judged_at) {
+      if (judged >= 25) continue;                                        // the rest wait for the next run
+      await db.from("crm_social_people").upsert({ platform: "linkedin", person_key: key, name: p.name ?? "", headline: p.headline ?? "", profile_url: p.pid ? "https://www.linkedin.com/in/" + p.pid : "https://www.linkedin.com/in/" + p.urn, is_self: false, last_seen: at }, { onConflict: "platform,person_key" });
+      try { o = await judgeP({ name: p.name ?? "", headline: p.headline ?? "" }, p.said ?? p.message ?? "", icp); } catch (_) { o = {}; }
+      judged++;
+      fit = ["hot", "warm", "not a fit"].includes(o.fit) ? o.fit : "warm";
+      await db.from("crm_social_people").update({ fit, why: o.why ?? "", role: o.role ?? "", company: o.company ?? "", company_what: o.company_what ?? "", company_stage: o.company_stage ?? "", judged_at: at, fit_by: "auto" })
+        .eq("platform", "linkedin").eq("person_key", key);
+    }
+    if (fit !== "hot") continue;
+    const li: any = { src: kind, urn: p.urn || undefined, pid: p.pid || undefined, said: p.said ?? p.message ?? "", post_author: p.post_author ?? "", [kind === "inbound" ? "inbound_at" : kind]: at };
+    if (kind === "inbound") li.inv = p.inv ?? null;
+    const { data: lead, error } = await db.from("crm_leads").insert({ name: p.name ?? "", role: o.role || clip(p.headline ?? "", 120), company: o.company ?? "", linkedin: p.pid ? "https://www.linkedin.com/in/" + p.pid : "https://www.linkedin.com/in/" + p.urn,
+      direction: kind === "tagged" || kind === "niche" ? "Outbound" : "Inbound", source: "LinkedIn", source_detail: what(p), stage: "New", heat: "Hot",
+      notes: [o.why, o.company_what ? (o.company || "Their company") + ": " + o.company_what : "", o.company_stage && o.company_stage !== "unknown" ? "Stage: " + o.company_stage : ""].filter(Boolean).join("\n"),
+      origin_key: "li-src:" + kind + ":" + key, fields: { li }, created_by: "automation" }).select("id").single();
+    if (error || !lead) continue;
+    await db.from("crm_social_people").update({ lead_id: lead.id }).eq("platform", "linkedin").eq("person_key", key);
+    await db.from("crm_lead_events").insert({ lead_id: lead.id, kind: "note", text: "Found automatically: " + what(p) + ". " + (o.why ?? ""), by_email: "automation" });
+    added++;
+  }
+  await saveStatus({ ["last_" + kind]: at });
+  return { added, touched, judged };
+}
+async function judgeP(p: { name: string; headline: string }, said: string, icp: string) {
+  if (!EXA) throw new Error("EXA_API_KEY is missing.");
+  const schema = { type: "object", required: ["fit", "why"], properties: {
+    fit: { type: "string", enum: ["hot", "warm", "not a fit"] }, why: { type: "string", description: "One plain sentence a founder would understand" },
+    role: { type: "string" }, company: { type: "string" }, company_what: { type: "string" }, company_stage: { type: "string" } } };
+  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: (p.headline || p.name) + " company", numResults: 5, outputSchema: schema,
+      systemPrompt: "You judge one person as a sales lead. Their LinkedIn headline is: \"" + p.headline + "\". Name: " + p.name + "." + (said ? " They wrote: \"" + said.slice(0, 300) + "\"." : "") +
+        " Judge mainly from the headline; use the results only to learn about their company. Never say not a fit just because nothing was found. " + (icp || "Hot = a founder or senior decision maker at a startup that could buy from us.") }) });
+  if (!res.ok) throw new Error("Exa answered " + res.status);
+  return (await res.json()).output?.content ?? {};
+}
+
+// ───────── warm touch done (profile visited, latest post liked): the request goes out a few hours later ─────────
+async function warmed(b: any) {
+  const { data: t } = await db.from("crm_li_tasks").select("id,lead_id").eq("id", b.id).maybeSingle();
+  if (!t) return { ok: false };
+  const { data: l } = await db.from("crm_leads").select("id,fields").eq("id", t.lead_id).maybeSingle();
+  if (l) {
+    const li = { ...((l as any).fields?.li ?? {}), warm: now() };
+    await db.from("crm_leads").update({ fields: { ...((l as any).fields ?? {}), li } }).eq("id", t.lead_id);
+    await log(t.lead_id, "Visited their LinkedIn profile" + (b.liked ? " and liked their latest post" : "") + " before sending the request", "note");
+  }
+  await db.from("crm_li_tasks").update({ status: "ready" }).eq("id", t.id).eq("status", "sending");
+  return { ok: true };
+}
+
+// ───────── requests nobody accepted in 3 weeks, withdrawn by the extension ─────────
+async function withdrawn(b: any) {
+  const list = Array.isArray(b.people) ? b.people : [];
+  const leads = (await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").eq("source", "LinkedIn").eq("archived", false).limit(4000)).data as Lead[] ?? [];
+  const byId = new Map<string, Lead>(); for (const l of leads) for (const k of idsOf(l)) byId.set(k, l);
+  const byName = new Map<string, Lead>(); for (const l of leads) byName.set(String(l.name ?? "").toLowerCase().trim(), l);
+  let n = 0;
+  for (const p of list) {
+    const l = byId.get(String(p.urn ?? "").toLowerCase()) ?? byId.get(String(p.pid ?? "").toLowerCase()) ?? byName.get(String(p.name ?? "").toLowerCase().trim());
+    if (!l) continue;
+    const li = { ...(l.fields?.li ?? {}) };
+    if (li.acc || li.dm || li.replied) continue;
+    li.withdrawn = now(); li.stop = "withdrawn";
+    await saveLi(l, li, ACTIVE.test(l.stage) ? { stage: "Lost" } : {});
+    await log(l.id, "Withdrew our LinkedIn connection request: not accepted after " + (p.age || "3+ weeks") + ".", "note");
+    n++;
+  }
+  await saveStatus({ last_withdraw: now(), last_withdraw_n: list.length });
+  return { matched: n, withdrawn: list.length };
+}
+
+// ───────── replies: sorted, with an answer drafted ─────────
+async function sortReply(l: Lead, text: string): Promise<{ label: string; draft: string }> {
+  const li = l.fields?.li ?? {}, ic = l.fields?.li_icp ?? {};
+  const prompt = "You help Reyansh (founder of SOVE7GN, a done-for-you GTM growth studio for funded B2B founders) answer a LinkedIn reply from a lead.\n" +
+    "Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : "") + (ic.one_liner ? ". Company: " + ic.one_liner : "") + ".\n" +
+    "Our last message angle: " + (li.angle || "advice") + ". They wrote: \"" + clip(text, 800) + "\"\n" +
+    "Return JSON only: {\"label\": one of \"interested\" (wants to talk or asks for the call/ideas), \"question\" (asks something), \"not_now\" (busy, later, maybe next month), \"not_interested\" (no, not relevant, unsubscribe), \"other\"; " +
+    "\"draft\": a short, warm reply in plain words, no dashes, no hashtags, under 60 words. If interested or a question, answer and suggest a time or share https://cal.com/sove7gn-gtm/30min. If not_now, thank them and say you'll check back in a month. If not_interested, thank them politely and close.}";
+  const r = await llmMany([{ id: "r", prompt }]).catch(() => ({} as Record<string, string>));
+  const j = parseJson(r.r ?? "") ?? {};
+  const label = ["interested", "question", "not_now", "not_interested", "other"].includes(j.label) ? j.label : "other";
+  return { label, draft: String(j.draft ?? "").replace(/\s*[—–]\s*/g, ", ").slice(0, 600) };
+}
+
+// ───────── call brief: when a call is booked (any channel), research them and write the call plan and pitch ─────────
+async function briefs(b: any) {
+  const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key,notes,source,website").eq("archived", false)
+    .in("stage", ["Call booked"]).limit(200);
+  const todo = (data ?? []).filter((l: any) => !l.fields?.brief?.at || b.force_id === l.id).slice(0, +(b.limit ?? 3));
+  let made = 0;
+  for (const l of todo as any[]) {
+    const { data: ev } = await db.from("crm_lead_events").select("at,kind,text,by_email").eq("lead_id", l.id).order("at", { ascending: true }).limit(40);
+    const ic = l.fields?.li_icp ?? {}, I = l.fields?.gtm?.intel ?? {}, li = l.fields?.li ?? {}, v = (k: string) => I[k]?.v ?? "";
+    let co: any = {};
+    if (EXA && (l.company || ic.one_liner)) {
+      try {
+        const schema = { type: "object", properties: { product: { type: "string" }, customers: { type: "string", description: "who buys it" }, traction: { type: "string", description: "revenue, users, customers, growth if stated" },
+          recent_news: { type: "string" }, how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" }, team: { type: "string" },
+          competitors: { type: "string" }, founder_background: { type: "string" }, hiring: { type: "string", description: "open roles, especially sales, marketing, growth" } } };
+        const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " startup", numResults: 8, outputSchema: schema,
+            systemPrompt: "Research this startup for a sales call. Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " + (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only state facts from the results." }) });
+        if (res.ok) co = (await res.json()).output?.content ?? {};
+      } catch (_) { /* brief still gets written from what we have */ }
+    }
+    const src = srcOf(l as Lead), angle = li.angle || "";
+    const convo = (ev ?? []).filter((e: any) => ["message", "note", "meeting", "call", "engaged"].includes(e.kind)).map((e: any) => String(e.at).slice(0, 10) + " " + clip(String(e.text), 300)).join("\n");
+    const pitchLed = angle === "pitch" || /gtm|growth|service|pricing|proposal|pilot/i.test(convo);
+    const facts = ["Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : ""), ic.one_liner ? "What they build: " + ic.one_liner : (v("description") ? "What they build: " + v("description") : ""),
+      ic.funding ? "Latest round: " + ic.funding : "", v("employees") ? "Team size: " + v("employees") : "", [ic.hq_city, ic.hq_country].filter(Boolean).length ? "Based in: " + [ic.hq_city, ic.hq_country].filter(Boolean).join(", ") : "",
+      v("accelerator") ? "Accelerator: " + v("accelerator") : "", "How they found us: " + (SRC_LABEL[src] ?? src) + (l.source_detail ? " (" + l.source_detail + ")" : ""), angle ? "Message angle that got the call: " + (ANGLE_LABEL[angle] ?? angle) : "",
+      ...Object.entries(co).filter(([, x]) => x).map(([k, x]) => k.replace(/_/g, " ") + ": " + clip(String(x), 400)), convo ? "Conversation so far:\n" + convo : ""].filter(Boolean).join("\n");
+    const prompt = "Write a call brief for Reyansh, founder of SOVE7GN. SOVE7GN is a done-for-you GTM growth studio for funded B2B and B2B2C founders: founder content on LinkedIn and X, warm-signal outreach (people who engage), " +
+      "cold outbound, and booked sales calls. Retainers are $5,000 to $20,000 a month. Never invent numbers, clients or results we don't have.\n\n" +
+      "This call came from " + (pitchLed ? "a direct GTM pitch: they know we sell a GTM service, so after a short discovery, pitch the service and a pilot." :
+        "an advice ask: they think Reyansh wants advice. Run it as: thank them, explain in 2 lines what SOVE7GN is building, ask about their GTM (how they get customers today, what works, where it breaks), reflect their bottlenecks back, then offer a small paid pilot that fixes the biggest one.") + "\n\n" +
+      "Facts:\n" + facts + "\n\n" +
+      "Write plain text with these headings, short bullets, plain words, no dashes as punctuation, no hashtags:\n" +
+      "WHO THEY ARE\nTHE COMPANY\nWHY THEY TOOK THE CALL\nTHEIR LIKELY GTM BOTTLENECKS (3)\nCALL SCRIPT (minute by minute, with the exact opening line)\nTHE PITCH (what we'd do for them in the first 30 days, tied to their bottlenecks)\nPILOT OFFER AND NEXT STEP\nQUESTIONS TO ASK (5)\nOBJECTIONS AND ANSWERS (3)";
+    const r = await llmMany([{ id: "b", prompt }]).catch(() => ({} as Record<string, string>));
+    const text = String(r.b ?? "").replace(/\s*[—–]\s*/g, ", ").trim();
+    if (!text) continue;
+    await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), brief: { at: now(), text: text.slice(0, 12000), mode: pitchLed ? "pitch" : "advice", company: co } } }).eq("id", l.id);
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call brief ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Open the lead to read it.", by_email: "automation" });
+    made++;
+  }
+  return { made, waiting: (data ?? []).filter((l: any) => !l.fields?.brief?.at).length - made };
 }

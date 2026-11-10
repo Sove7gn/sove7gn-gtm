@@ -1194,6 +1194,14 @@ async function lbtRun(){
   catch(e){toast("Couldn't write messages: "+(e.message||e),true)}
   finally{LBT.running=false;await lbtLoad()}
 }
+// Call brief (11 Nov): li-bot researches the lead and writes the call plan and pitch (it also runs every 15 minutes on its own).
+async function liBrief(id){
+  if(!sb)return false;toast("Writing the call brief. About a minute.");
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"briefs",force_id:id,limit:1}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    toast(data&&data.made?"Call brief ready.":"Couldn't write it yet. It retries every 15 minutes.");leadsLoad();return true}
+  catch(e){toast("Couldn't write the brief: "+(e.message||e),true);return false}
+}
 /* Likers (10 Nov): X shows likes only to us, so they're pasted in from X's notifications; x-engage looks them up and writes the DM. */
 async function addLikers(text){
   const all=[...new Set(String(text||"").split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];
@@ -1533,7 +1541,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

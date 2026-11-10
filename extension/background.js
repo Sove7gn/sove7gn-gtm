@@ -124,6 +124,26 @@ async function pageComments(me, e) {
   return { posts: todo.length, added, err };
 }
 
+async function moreSources(me, h) {
+  const send = async (kind, people) => { if (!people.length) return; try { const r = await api("people", { kind, people, me }); if (r.added) await log(r.added + " new ICP leads from " + ({ viewed: "profile views", inbound: "requests sent to you", tagged: "people you tagged", niche: "founder posts you commented on" })[kind] + "."); } catch (e) { await log("Couldn't save " + kind + ": " + e.message, true); } };
+  if (h.do_invites) {
+    let p = []; try { p = (await op("invitesReceived")).people; } catch (_) { try { await go("https://www.linkedin.com/mynetwork/invitation-manager/received/"); p = (await op("domPeople", { me, messages: true })).people; await go("https://www.linkedin.com/feed/"); } catch (_) {} }
+    await send("inbound", p); if (!p.length) try { await api("people", { kind: "inbound", people: [], me }); } catch (_) {}
+  }
+  if (h.scan_engagers) { try { await send("tagged", (await op("tagged", { me, days: 30 })).people); } catch (e) { await log("Couldn't read who we tagged: " + e.message, true); } }
+  if (h.do_views) { try { await go("https://www.linkedin.com/me/profile-views/"); await sleep(2500); await send("viewed", (await op("domPeople", { me })).people); await go("https://www.linkedin.com/feed/"); } catch (e) { await log("Couldn't read profile views: " + e.message, true); } }
+  if (h.do_niche && (h.niche_posts || []).length) {
+    const all = [];
+    for (const p of h.niche_posts.slice(0, 5)) { try { await go(p.url); const r = await op("domComments", { me }); for (const c of r.list) all.push({ urn: c.id, pid: c.pid, name: c.name, headline: c.headline, said: c.text, post_author: p.author }); } catch (_) {} await sleep(rand(2000, 4000)); }
+    await go("https://www.linkedin.com/feed/"); await send("niche", all);
+  }
+  if (h.do_withdraw) {
+    try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); const r = await op("domWithdraw", { maxDays: 21, limit: 25 }); await go("https://www.linkedin.com/feed/");
+      await api("withdrawn", { people: r.withdrawn }); if (r.withdrawn.length) await log("Withdrew " + r.withdrawn.length + " requests nobody accepted in 3+ weeks (" + r.eligible + " were that old)."); }
+    catch (e) { await log("Couldn't withdraw old requests: " + e.message, true); }
+  }
+}
+
 async function sync(fromButton) {
   if (busy) return { busy: true };
   busy = true; const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
@@ -148,6 +168,8 @@ async function sync(fromButton) {
       summary.engagers = r;
       await log("Checked " + e.posts + " posts: " + e.items.filter((i) => i.type !== "post").length + " likes and comments. New ICP leads: " + (r.leads_added ?? 0) + (e.err ? ". Problem: " + e.err : ""), !!e.err);
     }
+    // 1b. New sources: requests sent to us, people we tagged, profile viewers, commenters on founder posts we commented on.
+    await moreSources(me, h);
     // 2. Accepts and replies.
     let conns = [], threads = [];
     try { conns = await op("connections"); } catch (e) { await log("Couldn't read your connections: " + e.message, true); }
@@ -203,10 +225,20 @@ async function tick() {
     if (!urn) { const L = await op("lookup", { urn, pid, profile: t.profile, want_email: false }); urn = L.urn; pid = L.pid; }
     if (!urn) { await api("done", { id: t.id, ok: false, error: "Couldn't find their LinkedIn id" }); return; }
     await sleep(rand(2000, 6000));
-    const r = t.kind === "invite" ? await op("invite", { urn, text: t.text }) : await op("message", { urn, text: t.text, me });
+    if (t.warm) {                                                       // warm touch now, the request a few hours later
+      await go("https://www.linkedin.com/in/" + (pid || urn) + "/"); await sleep(rand(4000, 9000));
+      const lk = await op("likeLatest", { urn }); await go("https://www.linkedin.com/feed/");
+      await api("warmed", { id: t.id, liked: !!lk.liked }); await log("Visited " + t.name + "'s profile" + (lk.liked ? " and liked their latest post" : "") + ". Their request goes out in a few hours."); return;
+    }
+    let r;
+    if (t.kind === "accept") {
+      let a = await op("acceptInvite", { inv: t.inv, urn, pid });
+      if (!a.ok) { await go("https://www.linkedin.com/mynetwork/invitation-manager/received/"); a = await op("acceptInvite", { urn, pid }); await go("https://www.linkedin.com/feed/"); }
+      r = a.ok ? (await sleep(rand(3000, 7000)), await op("message", { urn, text: t.text, me })) : a;
+    } else r = t.kind === "invite" ? await op("invite", { urn, text: t.text }) : await op("message", { urn, text: t.text, me });
     await api("done", { id: t.id, urn, pid, ...r });
     if (r.limit) { await store.set({ queue: queue.filter((q) => q.kind !== "invite") }); await log("LinkedIn says the weekly request limit is reached. Requests wait until it resets.", true); }
-    await log((r.ok ? "Sent " : r.already ? "Skipped (" + r.already + ") " : "Failed ") + ({ invite: "request", dm: "DM 1", followup: "follow-up " + t.step }[t.kind] || t.kind) + " to " + t.name + (r.error ? ": " + r.error : ""), !r.ok && !r.already);
+    await log((r.ok ? "Sent " : r.already ? "Skipped (" + r.already + ") " : "Failed ") + ({ invite: "request", dm: "first message", followup: "follow-up " + t.step, accept: "accept + first message" }[t.kind] || t.kind) + " to " + t.name + (r.error ? ": " + r.error : ""), !r.ok && !r.already);
     chrome.action.setBadgeText({ text: queue.length ? String(queue.length) : "" });
   } catch (e) {
     await log("Sending to " + t.name + " failed: " + e.message, true);
@@ -242,9 +274,20 @@ async function selfTestRun() {
         await go("https://www.linkedin.com/feed/"); }
     } catch (x) { domTest = { err: String(x.message || x) }; }
   }
+  const v2 = {};
+  if (me.signed_in) {
+    try { v2.invites = (await op("invitesReceived")).people.length; } catch (e) { v2.invites = "error: " + e.message; }
+    try { v2.tagged = (await op("tagged", { me, days: 30 })).people.length; } catch (e) { v2.tagged = "error: " + e.message; }
+    try { await go("https://www.linkedin.com/me/profile-views/"); await sleep(2500); const pv = await op("domPeople", { me }); v2.views = pv.people.length; v2.views_sample = pv.people.slice(0, 2).map((p) => ({ name: !!p.name, headline: !!p.headline, id: !!(p.urn || p.pid) })); } catch (e) { v2.views = "error: " + e.message; }
+    try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; } catch (e) { v2.sent_pending = "error: " + e.message; }
+    try { const c = (await op("connections"))[0]; if (c) { const lk = await op("likeLatest", { urn: c.urn, dry: true }); v2.like_check = lk.reason || (lk.post ? "found a post" : "?"); } } catch (e) { v2.like_check = "error: " + e.message; }
+    await go("https://www.linkedin.com/feed/");
+  }
   const d = await op("diagnose", { qid: q.qid, qids: [...new Set([...(q.qids || []), ...qids_seen])], extra_posts: h.extra_posts || [], cqid });
-  d.steps.page_comments = domTest; d.steps.post_page_calls = net;
+  d.steps.page_comments = domTest; d.steps.post_page_calls = net; d.steps.v2 = v2;
   const out = d.lines || [];
+  out.push("Requests sent to you: " + v2.invites + " · People you tagged (30 days): " + v2.tagged + " · Profile viewers read: " + v2.views);
+  out.push("Your pending requests: " + v2.sent_pending + " (" + v2.older_than_3_weeks + " older than 3 weeks, to withdraw)");
   if (domTest) out.splice(3, 0, "Comments on a post with known comments (read from the page): " + (domTest.err ? "problem: " + domTest.err : domTest.read + " read"));
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
   if (d.qid) await store.set({ qid: d.qid });
