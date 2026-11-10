@@ -135,6 +135,16 @@ function notFit(l: Lead): string {
   if (v("model") === "Services / agency") return "Agency or services business";
   if (+v("employees") > 100) return "Too big (" + v("employees") + " people)";
   if (v("round") === "Series D+") return "Later than Series C";
+  return whereFit(l);
+}
+// Founders living in the US, Canada, the UK or another tier-1 country, at tech companies (from the research step).
+const TIER1 = /\b(united states|usa|u\.s\.|america|canada|united kingdom|uk|england|scotland|wales|britain|ireland|australia|new zealand|germany|france|netherlands|belgium|luxembourg|switzerland|austria|sweden|norway|denmark|finland|iceland|spain|portugal|italy|singapore|israel|japan|south korea|korea)\b/i;
+function whereFit(l: Lead): string {
+  const ic = l.fields?.li_icp ?? {}, hq = String(l.fields?.gtm?.intel?.hq?.v ?? ic.hq_country ?? "").trim(), lives = String(ic.founder_country ?? "").trim();
+  const known = (x: string) => x && !/^(unknown|n\/a|none|remote)$/i.test(x);
+  if (known(lives) && !TIER1.test(lives)) return "Founder based in " + lives;
+  if (!known(lives) && known(hq) && !TIER1.test(hq)) return "Company based in " + hq;
+  if (ic.is_tech === false) return "Not a tech company" + (ic.kind ? " (" + ic.kind + ")" : "");
   return "";
 }
 async function saveLi(l: Lead, li: any, extra: Record<string, unknown> = {}) {
@@ -473,16 +483,22 @@ async function enrich(b: any) {
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,fields,notes")
     .eq("source", "LinkedIn").eq("archived", false).like("origin_key", "li-person:%").in("heat", ["Hot", "Warm"]).limit(2000);
   if (error) throw error;
-  const todo = (data ?? []).filter((l: any) => (!l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3))).sort((a: any, c: any) => (a.fields?.li?.req ? 1 : 0) - (c.fields?.li?.req ? 1 : 0)).slice(0, limit);
+  const due = (l: any) => !l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3) || !l.fields?.li_icp?.geo2;
+  const todo = (data ?? []).filter(due).sort((a: any, c: any) => (a.fields?.li?.req ? 1 : 0) - (c.fields?.li?.req ? 1 : 0)).slice(0, limit);
   let done = 0, cost = 0;
   for (let i = 0; i < todo.length; i += 4) {
-    const out = await Promise.all(todo.slice(i, i + 4).map((l: any) => lookUp(l).catch((e) => ({ error: String(e) }))));
+    const out = await Promise.all(todo.slice(i, i + 4).map(async (l: any) => {
+      const fresh = !l.fields?.li_icp?.at || l.fields?.li_icp?.err;
+      const [a, g] = await Promise.all([fresh ? lookUp(l).catch((e) => ({ error: String(e) })) : Promise.resolve(null), whereLookUp(l).catch(() => null)]);
+      return { a, g };
+    }));
     for (let j = 0; j < out.length; j++) {
-      const l: any = todo[i + j], o: any = out[j];
-      cost += o.cost ?? 0;
+      const l: any = todo[i + j], o: any = out[j].a, g: any = out[j].g;
+      cost += (o?.cost ?? 0) + (g?.cost ?? 0);
       const f = { ...(l.fields ?? {}) };
       const now = new Date().toISOString(), day = now.slice(0, 10);
-      if (o.error) { f.li_icp = { at: now, err: String(o.error).slice(0, 200) }; }
+      if (!o) { /* researched before: only the location / tech lookup is new */ }
+      else if (o.error) { f.li_icp = { at: now, err: String(o.error).slice(0, 200) }; }
       else {
         const src = /^https?:\/\//.test(o.source_url ?? "") ? o.source_url : "";
         const g = { ...(f.gtm ?? {}) }, I = { ...(g.intel ?? {}) };
@@ -498,7 +514,7 @@ async function enrich(b: any) {
           if (d && Date.parse(d[1] + "-" + d[2] + "-" + (d[3] ?? "01")) <= Date.now()) put("date", d[1] + "-" + d[2] + "-" + (d[3] ?? "01"));
           if (+o.total_raised_usd > 0) put("total", Math.round(+o.total_raised_usd));
           if (o.investors) put("investors", String(o.investors).slice(0, 120));
-          if (o.accelerator) put("accelerator", String(o.accelerator).slice(0, 40));
+          if (o.accelerator && !/^(none|no|n\/a|unknown|empty.*|-)$/i.test(String(o.accelerator).trim())) put("accelerator", String(o.accelerator).slice(0, 40));
           if (o.hiring_growth_roles) put("hiring", String(o.hiring_growth_roles).slice(0, 120));
           if (/^https?:\/\//.test(o.website ?? "")) put("website", o.website);
         }
@@ -506,11 +522,25 @@ async function enrich(b: any) {
         g.intel = I; g.v = 1; g.at = now; f.gtm = g;
         f.li_icp = { at: now, one_liner: o.about_this_company ? String(o.one_liner ?? "").slice(0, 160) : "", funding: o.about_this_company ? fundingLine(o) : "", src };
       }
+      if (f.li_icp && !f.li_icp.err) {
+        const ic = { ...f.li_icp, geo_at: now, geo2: now };
+        if (g && g.about_this_person) {
+          const clean = (x: unknown) => String(x ?? "").trim().replace(/^the\s+/i, "").slice(0, 60);
+          if (clean(g.company_hq_country) && !/unknown/i.test(String(g.company_hq_country))) ic.hq_country = clean(g.company_hq_country);
+          if (clean(g.founder_lives_in_country) && !/unknown/i.test(String(g.founder_lives_in_country))) ic.founder_country = clean(g.founder_lives_in_country);
+          if (clean(g.company_hq_city) && !/unknown/i.test(String(g.company_hq_city))) ic.hq_city = clean(g.company_hq_city);
+          if (typeof g.is_tech_company === "boolean") ic.is_tech = g.is_tech_company;
+          if (g.what_kind_of_company) ic.kind = String(g.what_kind_of_company).slice(0, 60);
+          const gi = { ...(f.gtm?.intel ?? {}) };
+          if (ic.hq_country && !gi.hq) { gi.hq = { v: ic.hq_country, src: /^https?:\/\//.test(g.source_url ?? "") ? g.source_url : "", at: day, by: "li-bot" }; f.gtm = { ...(f.gtm ?? {}), intel: gi }; }
+        }
+        f.li_icp = ic;
+      }
       const { error: e2 } = await db.from("crm_leads").update({ fields: f }).eq("id", l.id);
       if (!e2) done++;
     }
   }
-  return { enriched: done, left: (data ?? []).filter((l: any) => !l.fields?.li_icp?.at).length - done, cost_exa: Math.round(cost * 1000) / 1000 };
+  return { enriched: done, left: (data ?? []).filter(due).length - done, cost_exa: Math.round(cost * 1000) / 1000 };
 }
 const money = (n: number) => n >= 1e9 ? "$" + (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B" : n >= 1e6 ? "$" + (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? "$" + Math.round(n / 1e3) + "K" : "$" + n;
 function fundingLine(o: any) {
@@ -534,6 +564,25 @@ async function lookUp(l: any) {
     body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
       systemPrompt: "Research one startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
         "Find what their company builds and its most recent funding round. Only use facts the results state; never guess. If the results are about a different person or company, set about_this_company=false." }) });
+  if (!res.ok) throw new Error("Exa answered " + res.status);
+  const j = await res.json();
+  return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
+}
+// Where the founder lives, where the company is based, and whether it's a tech company (the filter's second half).
+async function whereLookUp(l: any) {
+  const schema = { type: "object", required: ["about_this_person"], properties: {
+    about_this_person: { type: "boolean", description: "true only if the results are about this person or their current company" },
+    founder_lives_in_country: { type: "string", description: "country where this person lives or works now, e.g. United States, India, United Kingdom; 'unknown' if not stated" },
+    company_hq_country: { type: "string", description: "country of the company's headquarters; 'unknown' if not stated" },
+    company_hq_city: { type: "string", description: "city of the company's headquarters, e.g. San Francisco, New York, London, Bengaluru; 'unknown' if not stated" },
+    is_tech_company: { type: "boolean", description: "true if the company builds software, AI, hardware, deep tech, biotech, fintech or another technology product; false for food, restaurants, retail, consumer goods, agencies, consulting, real estate and similar" },
+    what_kind_of_company: { type: "string", description: "two to four words, e.g. B2B AI software, food delivery, marketing agency" },
+    source_url: { type: "string" } } };
+  const q = [l.name, l.company && !/^unknown$/i.test(l.company) ? l.company : "", "founder location headquarters"].filter(Boolean).join(" ");
+  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
+      systemPrompt: "One startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
+        "Say where this person lives and where the company is based, only from what the results state (a LinkedIn profile location counts). Never guess from a name. Say if the company is a technology company." }) });
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };

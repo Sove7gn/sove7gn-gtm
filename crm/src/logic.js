@@ -1309,7 +1309,12 @@ class Component extends DCLogic {
   liNotFit(l){const role=String(l.role||'').trim();const I=((l.fields||{}).gtm||{}).intel||{};const v=k=>I[k]&&I[k].v;
     if(role&&!/^unknown$/i.test(role)&&!/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role))return 'Not a decision maker ('+clip(role,40)+')';
     if(v('model')==='B2C')return 'Sells to consumers (B2C)';if(v('model')==='Services / agency')return 'Agency or services business';
-    if(+v('employees')>100)return 'Too big ('+v('employees')+' people)';if(v('round')==='Series D+')return 'Later than Series C';return '';}
+    if(+v('employees')>100)return 'Too big ('+v('employees')+' people)';if(v('round')==='Series D+')return 'Later than Series C';
+    // Founders in the US, Canada, the UK or another tier-1 country, at tech companies (same rule as the li-bot function).
+    const ic=(l.fields||{}).li_icp||{},hq=String(v('hq')||ic.hq_country||'').trim(),lives=String(ic.founder_country||'').trim(),known=x=>x&&!/^(unknown|n\/a|none|remote)$/i.test(x);
+    const T1=/\b(united states|usa|u\.s\.|america|canada|united kingdom|uk|england|scotland|wales|britain|ireland|australia|new zealand|germany|france|netherlands|belgium|luxembourg|switzerland|austria|sweden|norway|denmark|finland|iceland|spain|portugal|italy|singapore|israel|japan|south korea|korea)\b/i;
+    if(known(lives)&&!T1.test(lives))return 'Founder based in '+lives;if(!known(lives)&&known(hq)&&!T1.test(hq))return 'Company based in '+hq;
+    if(ic.is_tech===false)return 'Not a tech company'+(ic.kind?' ('+ic.kind+')':'');return '';}
   liMove(l,stage){if(!AK.canEdit())return;const f=l.fields||{},li={...(f.li||{})};li.stop=stage==='In talks'?'in talks':String(stage).toLowerCase();if(stage==='In talks'&&!li.replied)li.talks=new Date().toISOString();
     const ids=AK.LBT.rows.filter(t=>t.lead_id===l.id&&['review','ready','sending','failed'].includes(t.status)).map(t=>t.id);
     AK.leadSave(l.id,{stage,fields:{...f,li}}).then(ok=>{if(!ok)return;if(ids.length)AK.lbtSet(ids,{status:'skipped'});this.toast((l.name||'They')+' moved to '+stage+'. The bot won’t message them any more.');});}
@@ -1351,13 +1356,18 @@ class Component extends DCLogic {
         col==='found'?(ic.at?'Writing the request…':'Looking them up…'):col==='req'?(x.acc?'Accepted '+this.since(x.acc):'Request sent '+this.since(x.req)):
         col==='dm'||col.startsWith('fu')?'Last message '+this.since(x.last||x.dm):col==='talks'?'In talks since '+this.since(x.replied||x.talks||l.stage_at):
         col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':'Lost '+this.since(l.stage_at)):l.stage+' '+this.since(l.stage_at);
-      const details=[l.name+(l.role?' — '+l.role:''),l.company&&!/^unknown$/i.test(l.company)?'Company: '+l.company:'',one?'Builds: '+one:'',fund?'Funding: '+fund:'Funding: not found',
+      const SHORT={'united states':'USA','united states of america':'USA','usa':'USA','united kingdom':'UK','united arab emirates':'UAE'};const cty=c=>SHORT[String(c||'').toLowerCase()]||c||'';
+      const hqC=(iv.hq&&iv.hq.v)||ic.hq_country||'';const loc=[ic.hq_city,cty(hqC)].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
+      const accRaw=iv.accelerator&&iv.accelerator.v;const acc=accRaw&&!/^(none|no|n\/a|unknown|empty.*|-)$/i.test(String(accRaw).trim())?String(accRaw):'';
+      const where=[ic.founder_country?'Lives in '+ic.founder_country:'',(iv.hq&&iv.hq.v)||ic.hq_country?'Company in '+((iv.hq&&iv.hq.v)||ic.hq_country):''].filter(Boolean).join(' · ');
+      const details=[l.name+(l.role?' — '+l.role:''),l.company&&!/^unknown$/i.test(l.company)?'Company: '+l.company+(ic.kind?' ('+ic.kind+')':''):'',where,one?'Builds: '+one:'',fund?'Funding: '+fund:'Funding: not found',
         'Score '+S.n+'/10 ('+S.sc.score+' of 100). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'),S.sc.gaps.length?'Not known yet: '+S.sc.gaps.slice(0,4).join(', '):'',
         l.source_detail?'How we met: '+l.source_detail:'',out?'Filtered out: '+out:''].filter(Boolean).join('\n');
       const moves=col==='talks'?[['Call booked','Call booked'],['Lost','Lost']]:col==='booked'?[['Won','Won'],['Lost','Lost']]:col==='won'||col==='lost'?[]:[['In talks','In talks'],['Lost','Lost']];
       const tx=t?(ed!=null?ed:t.text):'';const editing=!!(s.lpEdit||{})[l.id]||!!s.lpExp;
       return{id:l.id,...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company&&!/^unknown$/i.test(l.company)?l.company:''].filter(Boolean).join(' · '),
         score:String(S.n),sBg:tn.bg,sFg:tn.fg,one:one||'Not looked up yet',oneC:one?'var(--ink-2)':'var(--ink-4)',fund:fund||'Funding not found',fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
+        loc:loc?'\ud83d\udccd '+loc:'\ud83d\udccd Location not found',locC:loc?'var(--ink-2)':'var(--ink-4)',acc,hasAcc:!!acc,
         details,status,stC:out||(t&&t.status==='failed')?'var(--bad)':waiting?'#0a66c2':'var(--ink-3)',
         hasMsg:!!waiting,msg:tx,msgKind:t?kindLabel(t):'',chars:t&&t.kind==='invite'?tx.length+'/300':'',editing,preview:!editing,
         edit:e=>{e&&e.stopPropagation&&e.stopPropagation();this.setState(z=>({lpEdit:{...(z.lpEdit||{}),[l.id]:true}}));},
@@ -1389,7 +1399,7 @@ class Component extends DCLogic {
       min:String(s.lpMin||0),onMin:e=>this.setState({lpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5+'},{v:'7',l:'Score 7+'},{v:'8',l:'Score 8+'}],
       outLabel:showOut?'Hide filtered out ('+outN+')':'Show filtered out ('+outN+')',toggleOut:()=>this.setState({lpOut:!showOut}),hasOut:outN>0,
       total:String(pool.length-(showOut?0:outN)),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
-      scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero. Filtered out = not a decision maker, sells to consumers, an agency, over 100 people, or later than Series C.'};}
+      scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero. Filtered out = not a decision maker, founder or company outside the US, Canada, UK or another tier-1 country, not a tech company, sells to consumers, an agency, over 100 people, or later than Series C.'};}
   /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
   liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};
