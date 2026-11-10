@@ -190,7 +190,7 @@ class Component extends DCLogic {
     const dow=(new Date().getDay()+6)%7;
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,geTab:'new',geQ:'',geDraft:{},geAdd:{lead:'',url:'',at:'',text:'',draft:''},geMore:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:'',rel:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
-    pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,lisEd:{},inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
+    pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
@@ -232,7 +232,9 @@ class Component extends DCLogic {
   canSend(p){return p.sendable||!!this.state.anyway[p.id];}
   lists(P){const B=id=>AK.bucket(id);
     if(AK.dmsPaused())P=P.filter(p=>p.stage==='Replied'||p.stage==='Call booked'||p.act==='Reply now');
-    return {fu:P.filter(p=>p.due),ts:P.filter(p=>B('send').test(p.act)&&this.canSend(p)).sort(byPri),skip:P.filter(p=>B('send').test(p.act)&&!this.canSend(p)).sort(byPri),
+    const inEng=new Set(this.engagers().filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').map(e=>String(e.Handle||'').replace(/^@/,'').toLowerCase()));
+    const waitsInEng=p=>!!p.handle&&inEng.has(String(p.handle).replace(/^@/,'').toLowerCase());
+    return {fu:P.filter(p=>p.due),ts:P.filter(p=>B('send').test(p.act)&&this.canSend(p)&&!waitsInEng(p)).sort(byPri),skip:P.filter(p=>B('send').test(p.act)&&!this.canSend(p)).sort(byPri),
       find:P.filter(p=>B('research').test(p.act)).sort(byPri),noreply:P.filter(p=>B('noreply').test(p.act)).sort(byPri),
       rep:P.filter(p=>p.stage==='Replied'||p.act==='Reply now').sort(byPri),calls:P.filter(p=>p.stage==='Call booked').sort(byPri)};}
   fundPill(p){if(p.fund==='early')return pill(p.funding,'neutral');if(p.fund==='unknown')return pill('Funding unknown','ghost');if(p.fund==='none')return pill('Funding not checked','ghost');return pill(p.funding,'neutral');}
@@ -576,7 +578,8 @@ class Component extends DCLogic {
       const reply=e['Our reply']||'',dm=e['DM ready']||'';const v=verdictOf(e);const kr=e._key+'r',kd=e._key+'d';const busy=AK.S.busy.has(e._key);
       const cr=this.copyBtn(kr,'Copy reply'),cd=this.copyBtn(kd,'Copy DM');
       return{...avatar(name),name,sub:'@'+h+(num(e.Followers)!=null?' · '+fmtK(num(e.Followers))+' followers':''),why:e.Why||'',fit:pill(v==='DM + reply'?'Good fit':v==='Reply only'?'Worth a reply':v,v==='DM + reply'?'solid':'mid'),
-        how:(e.How||'Replied')+' '+(AK.dayWord(AK.parseDate(e['Found on']))||e['Found on']||'').toLowerCase(),said:clip(said,280),hasSaid:!!said,
+        how:(()=>{const d=(AK.dayWord(AK.parseDate(e['Found on']))||e['Found on']||'').toLowerCase();const H=e.How||'Replied';
+          return H==='Tagged'?'We tagged them in this post '+d:H==='Liked'?'They liked your post '+d:'They '+H.toLowerCase()+' '+d;})(),said:clip(said||(/^(Tagged|Liked)$/.test(e.How||'')?String(e['Our post']||''):''),280),hasSaid:!!(said||/^(Tagged|Liked)$/.test(e.How||'')&&e['Our post']),
         reply,hasReply:!!reply,dm,hasDm:!!dm&&v==='DM + reply',todo:isTodo,view:!isTodo,doneNote:'In the Pipeline'+(e['Messaged on']?' since '+e['Messaged on']:''),
         copyReply:()=>this.copy(reply,kr,'Reply for '+name.split(' ')[0]+' copied'),rLabel:cr.label,rbg:cr.bg,rfg:cr.fg,rsh:cr.sh,
         copyDm:()=>this.copy(dm,kd,'DM for '+name.split(' ')[0]+' copied'),dLabel:cd.label,dbg:cd.bg,dfg:cd.fg,dsh:cd.sh,
@@ -585,7 +588,10 @@ class Component extends DCLogic {
     const pRow=(p,kind)=>({...avatar(p.name),name:p.name,sub:(p.role?p.role+' · ':'')+p.company,note:kind==='call'?(p.call?'Call '+p.call:'Call booked'):(p.result?clip(p.result,140):'Replied to your DM'),
       open:()=>this.openC(p.id),openX:()=>xDm(p.xid,p.handle,''),xLabel:p.xid?'Open DM':'Open X',cta:kind==='call'?'Prep the call':'Open and reply'});
     const tab=(id,label,c)=>{const on=(id==='done')!==isTodo;return{label,count:String(c),go:()=>this.setState({engTab:id}),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};};
-    return{tabs:[tab('todo','To do',todo.length),tab('done','Done',done.length)],replies:L.rep.map(p=>pRow(p,'reply')),hasReplies:L.rep.length>0&&isTodo,calls:L.calls.map(p=>pRow(p,'call')),hasCalls:L.calls.length>0&&isTodo,
+    const lk={text:s.likersTxt||'',onText:e=>this.setState({likersTxt:e.target.value}),busy:AK.XJ.running['x-engage'],
+      label:AK.XJ.running['x-engage']?'Looking them up\u2026 about a minute':'Add and write their DMs',
+      add:async()=>{const t=this.state.likersTxt||'';if(!t.trim()||AK.XJ.running['x-engage']||!AK.canEdit())return;const ok=await AK.addLikers(t);if(ok)this.setState({likersTxt:''});}};
+    return{lk,isTodo,tabs:[tab('todo','To do',todo.length),tab('done','Done',done.length)],replies:L.rep.map(p=>pRow(p,'reply')),hasReplies:L.rep.length>0&&isTodo,calls:L.calls.map(p=>pRow(p,'call')),hasCalls:L.calls.length>0&&isTodo,
       cards:list.slice(0,n).map(card),hasCards:list.length>0,none:!list.length&&!(isTodo&&(L.rep.length||L.calls.length)),
       noneText:isTodo?'Nobody to answer right now. Replies, quotes and mentions on your X posts are checked every 6 hours.':'Nobody marked done yet.',
       hasMore:list.length>n,more:()=>this.setState(st=>({more:{...st.more,eng:n+20}})),moreN:String(Math.min(20,list.length-n))};}

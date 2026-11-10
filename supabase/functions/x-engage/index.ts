@@ -40,7 +40,8 @@ Deno.serve(async (req) => {
     .eq("platform", "x").is("finished_at", null).lt("started_at", new Date(Date.now() - 5 * 60e3).toISOString());
   // A manual Refresh within 20 minutes of the last check just says so (Apify isn't paid twice for the same numbers).
   const { data: last } = await db.from("crm_sync_runs").select("started_at").eq("platform", "x").eq("ok", true).order("started_at", { ascending: false }).limit(1);
-  if (!req.headers.get("x-cron-secret") && last?.[0] && Date.now() - new Date(last[0].started_at).getTime() < 20 * 60e3) return json({ skipped: "Checked X less than 20 minutes ago." });
+  const body = await req.json().catch(() => ({}));
+  if (!req.headers.get("x-cron-secret") && !body?.likers && last?.[0] && Date.now() - new Date(last[0].started_at).getTime() < 20 * 60e3) return json({ skipped: "Checked X less than 20 minutes ago." });
   const { data: run, error: busy } = await db.from("crm_sync_runs").insert({ platform: "x" }).select("id").single();
   if (busy) return json({ skipped: "A check is already running." });
   try {
@@ -137,7 +138,7 @@ async function syncX() {
   }
 
   // 2. Who replied, quoted or mentioned us.
-  const { data: pe } = await db.from("crm_sheet").select("cells").eq("tab", "Post Engagers").gte("row", 4);
+  const { data: pe } = await db.from("crm_sheet").select("row,cells").eq("tab", "Post Engagers").gte("row", 4);
   const have = new Set((pe ?? []).map((r) => String(r.cells?.[11] || "").toLowerCase().replace(/^.*\/status\//, "")).filter(Boolean));
   const fresh = mentions.filter((t) => String(t.author.userName).toLowerCase() !== HANDLE.toLowerCase() && !have.has(String(t.id)))
     .map((t) => {
@@ -169,9 +170,63 @@ async function syncX() {
     }
   }
 
+  // 3. People we tagged in our "founders to watch" posts and threads (10 Nov): a short DM about the post. Their X number comes
+  //    with the mention, so Open DM works straight away. Our replies to other people's posts don't count.
+  const { data: pl } = await db.from("crm_sheet").select("cells").eq("tab", "DM Pipeline").gte("row", 4);
+  const leadOf = new Map((pl ?? []).map((r) => [String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase(), { name: String(r.cells?.[2] || ""), company: String(r.cells?.[3] || ""), status: String(r.cells?.[18] || "") }]));
+  const haveTag = new Set((pe ?? []).map((r) => String(r.cells?.[2] || "").toLowerCase() + "|" + String(r.cells?.[5] || "").toLowerCase()));
+  let tagged = 0;
+  for (const t of mine) {
+    if ((t.isReply || t.inReplyToId) && String(t.inReplyToUsername || "").toLowerCase() !== HANDLE.toLowerCase()) continue;
+    const root = byId.get(String(t.conversationId || t.id)) ?? t;
+    if (!/\bfounders?\b/i.test(String(root.text || ""))) continue;
+    const L = link(root);
+    for (const m of (t.entities?.user_mentions ?? [])) {
+      const h = String(m.screen_name || "").toLowerCase();
+      if (!h || h === HANDLE.toLowerCase() || haveTag.has(L.toLowerCase() + "|" + h)) continue;
+      haveTag.add(L.toLowerCase() + "|" + h);
+      const info = leadOf.get(h) ?? { name: String(m.name || ""), company: "", status: "" };
+      if (info.status && info.status !== "To send") continue;   // already messaged from Send today: no second DM
+      const first = (info.name || m.name || h).split(/\s+/)[0];
+      const dm = "Hey " + first + ", I put you in a post about founders to watch this week: " + L + " Curious how GTM is going" +
+        (info.company && !/^unknown$/i.test(info.company) ? " at " + info.company : "") + " so far. Are you still running sales yourself?";
+      engagers.push([istStamp(new Date(t.createdAt || now)), ACCOUNT, L, clip(root.text || "", 200), "Tagged", m.screen_name, info.name || m.name || "", "", "", "", "", "",
+        "Good fit", ACCOUNT, dm, "To message", "", "", "DM + reply", "We tagged them in our post" + (info.company ? " (" + info.company + ")" : ""), String(m.id_str || "")]);
+      tagged++;
+    }
+  }
+
+  // 4. Likers pasted in from X's notifications (How "Liked", no verdict yet): look each one up on X, judge the fit, write the DM.
+  const pending = (pe ?? []).filter((r) => r.cells?.[4] === "Liked" && !r.cells?.[18]).slice(0, 25);
+  let likers = 0;
+  if (pending.length) {
+    const hs = [...new Set(pending.map((r) => String(r.cells[5]).toLowerCase()))];
+    const prof = new Map<string, any>();
+    for (let i = 0; i < hs.length; i += 6) {
+      const items = await xSearch("(" + hs.slice(i, i + 6).map((h) => "from:" + h).join(" OR ") + ")", 40).catch(() => []);
+      for (const it of items) prof.set(String(it.author.userName).toLowerCase(), it.author);
+    }
+    for (const h of hs.filter((h) => !prof.has(h)).slice(0, 8)) {
+      const items = await xSearch("from:" + h, 5).catch(() => []);
+      if (items[0]) prof.set(h, items[0].author);
+    }
+    const ourText = new Map(posts.map((t) => [link(t).toLowerCase(), t.text || ""]));
+    const out = await Promise.all(pending.map((r) => { const a = prof.get(String(r.cells[5]).toLowerCase());
+      return a ? judge(a, "", ourText.get(String(r.cells[2] || "").toLowerCase()) || "", "Liked").catch(() => null) : Promise.resolve(null); }));
+    for (let j = 0; j < pending.length; j++) {
+      const r = pending[j], a = prof.get(String(r.cells[5]).toLowerCase()), o: any = out[j];
+      const cells: Record<string, string> = a ? { 7: a.name || "", 8: clip(String(a.profile_bio?.description || a.description || ""), 200), 9: String(a.followers ?? ""), 21: String(a.id || "") } : {};
+      if (o) { cost += o.cost ?? 0; Object.assign(cells, { 13: o.fit || "", 15: noDash(o.dm || ""), 19: o.verdict || "Skip", 20: noDash(o.why || ""), ...(o.verdict === "Skip" ? { 16: "Dismissed" } : {}) }); }
+      else Object.assign(cells, { 19: "DM + reply", 20: a ? "Couldn't judge them automatically. Have a look at their profile." : "Couldn't find them on X. Check the handle.",
+        15: "Hey " + String(a?.name || r.cells[5]).split(/\s+/)[0] + ", thanks for the like on my post. Curious what made it land for you?" });
+      const { data: f } = await db.rpc("crm_call", { body: { action: "engagerFill", row: r.row, handle: r.cells[5], cells } });
+      if (String(f).startsWith("ok")) likers++;
+    }
+  }
+
   const { data: res, error } = await db.rpc("crm_call", { body: { action: "track", posts: trackPosts, snapshots, newPosts, engagers } });
   if (error) throw error;
   if (people.length) await db.from("crm_x_people").upsert(people, { onConflict: "handle" });
   return { posts: posts.length, matched: trackPosts.length, new_posts: newPosts.length, mentions: mentions.length, new_people: engagers.length,
-    dm_and_reply: engagers.filter((e) => e[18] === "DM + reply").length, saved: String(res), cost_exa: Math.round(cost * 1000) / 1000 };
+    dm_and_reply: engagers.filter((e) => e[18] === "DM + reply").length, tagged, likers_looked_up: likers, saved: String(res), cost_exa: Math.round(cost * 1000) / 1000 };
 }

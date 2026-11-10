@@ -1156,10 +1156,20 @@ async function lisRun(){
   catch(e){toast("Couldn't find posts: "+(e.message||e),true)}
   finally{LIS.running=false;await lisLoad()}
 }
-async function xRun(slug,quiet){
+/* Likers (10 Nov): X shows likes only to us, so they're pasted in from X's notifications; x-engage looks them up and writes the DM. */
+async function addLikers(text){
+  const handles=[...new Set(String(text||"").split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];
+  if(!handles.length)return false;
+  try{const r=await scriptCall({action:"addLikers",handles});const n=+String(r).split(" ")[1]||0;
+    if(!n){toast("They're all on the list already.");return true}
+    toast("Added "+n+(n===1?" person":" people")+". Looking them up and writing their DMs…");}
+  catch(e){toast("Couldn't add them: "+(e&&e.message||e),true);return false}
+  await publicLoad();xRun("x-engage",true,{likers:true});return true;
+}
+async function xRun(slug,quiet,body){
   if(!sb||XJ.running[slug])return null;
   XJ.running[slug]=true;emit();
-  try{const {data,error}=await sb.functions.invoke(slug,{body:slug==="x-leads"?{force:true}:{}});
+  try{const {data,error}=await sb.functions.invoke(slug,{body:body||(slug==="x-leads"?{force:true}:{})});
     if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
     if(data&&data.skipped){if(!quiet)toast(data.skipped)}
     else if(data&&slug==="x-leads")toast("Added "+data.added+" new "+(data.added===1?"person":"people")+" to DM. "+data.added_today+" today so far.");
@@ -1482,7 +1492,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,LIS,lisSet,lisRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,addLikers,LIS,lisSet,lisRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
