@@ -11,6 +11,7 @@ const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const APIFY = Deno.env.get("APIFY_TOKEN") ?? "";
+const TWAPI = Deno.env.get("TWITTERAPI_KEY") ?? "";   // when set, X is read through twitterapi.io instead of Apify
 const EXA = Deno.env.get("EXA_API_KEY") ?? "";
 const CRON = Deno.env.get("CRON_SECRET") ?? "";
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
@@ -64,6 +65,20 @@ const istStamp = (d: Date) => { const x = ist(d); return x.getUTCDate() + " " + 
 const istDay = (d: Date) => ist(d).toISOString().slice(0, 10);
 
 async function xSearch(query: string, maxItems: number): Promise<any[]> {
+  if (TWAPI) {   // twitterapi.io (10 Nov): same data as the Apify scraper, about $0.15 per 1,000 posts, 20 a page
+    const out: any[] = [];
+    let cursor = "";
+    for (let page = 0; page < Math.ceil(maxItems / 20) + 1 && out.length < maxItems; page++) {
+      const r = await fetch("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor),
+        { headers: { "X-API-Key": TWAPI } });
+      if (!r.ok) throw new Error("twitterapi.io answered " + r.status + ": " + (await r.text()).slice(0, 160));
+      const j = await r.json();
+      out.push(...(j.tweets ?? []));
+      if (!j.has_next_page || !j.next_cursor) break;
+      cursor = j.next_cursor;
+    }
+    return out.slice(0, maxItems).filter((i) => i && i.id && i.author?.userName);
+  }
   const cap = Math.round((maxItems * 0.25 / 1000 + 0.02) * 100) / 100;
   const r = await fetch(`https://api.apify.com/v2/acts/${ACTOR}/run-sync-get-dataset-items?timeout=90&maxTotalChargeUsd=${cap}`, {
     method: "POST", headers: { Authorization: "Bearer " + APIFY, "Content-Type": "application/json" },
@@ -137,7 +152,7 @@ function hookFor(seg: string, stage: string, text: string) {
 // ---------- the run ----------
 async function findLeads(force: boolean) {
   const t0 = Date.now();
-  if (!APIFY || !EXA) throw new Error("APIFY_TOKEN or EXA_API_KEY is missing.");
+  if ((!APIFY && !TWAPI) || !EXA) throw new Error("No X key (TWITTERAPI_KEY or APIFY_TOKEN) or EXA_API_KEY is missing.");
   const { data: st } = await db.from("crm_state").select("key,value").in("key", ["x_leads", "x_leads_day"]);
   const set = JSON.parse(st?.find((r) => r.key === "x_leads")?.value || "{}");
   if (set.enabled === false && !force) return { skipped: "Lead finding is switched off." };

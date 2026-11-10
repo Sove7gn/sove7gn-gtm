@@ -17,9 +17,9 @@ const ref = env.NEXT_PUBLIC_SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\.supabase\
 const api = (path, init = {}) => fetch("https://api.supabase.com/v1/projects/" + ref + path, { ...init, headers: { Authorization: "Bearer " + env.SUPABASE_ACCESS_TOKEN, ...(init.headers || {}) } });
 
 let r = await api("/secrets", { method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(["APIFY_TOKEN", "EXA_API_KEY", "CRON_SECRET", "COMPOSIO_API_KEY"].map((name) => ({ name, value: env[name] }))) });
+  body: JSON.stringify(["APIFY_TOKEN", "EXA_API_KEY", "CRON_SECRET", "COMPOSIO_API_KEY", ...(env.TWITTERAPI_KEY ? ["TWITTERAPI_KEY"] : [])].map((name) => ({ name, value: env[name] }))) });
 if (!r.ok) throw new Error("Saving secrets failed: " + r.status);
-console.log("secrets: APIFY_TOKEN, EXA_API_KEY, CRON_SECRET, COMPOSIO_API_KEY saved");
+console.log("secrets: APIFY_TOKEN, EXA_API_KEY, CRON_SECRET, COMPOSIO_API_KEY" + (env.TWITTERAPI_KEY ? ", TWITTERAPI_KEY (X now reads through twitterapi.io)" : "") + " saved");
 
 const JOBS = [
   { slug: "x-leads", cron: "0 2,7 * * *", when: "7:30 and 12:30 IST" },     // 02:00 and 07:00 UTC
