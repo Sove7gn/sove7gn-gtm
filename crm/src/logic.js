@@ -305,7 +305,7 @@ class Component extends DCLogic {
   engagers(){return AK.M.engagers.filter(e=>this.own(e.Account));}
   counts(P){const L=this.lists(P);return{send:L.ts.length+L.fu.length,inbox:L.rep.length+L.calls.length+this.postReplies().length,pdm:this.pdmCards().filter(p=>p.status==='To message').length};}
   navVals(c){const s=this.state;const badges={send:c.send,inbox:c.inbox,pdm:c.pdm};
-    return secsFor(s.plat).map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;const info=infoFor(id,s.plat);return{label:PAGES[id].label,info,hasInfo:!!info,tipOn:s.navTip===id,tipShow:stop(()=>this.setState({navTip:id})),tipHide:()=>{if(this.state.navTip===id)this.setState({navTip:null});},go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
+    return secsFor(s.plat).map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;const info=infoFor(id,s.plat);return{label:PAGES[id].label,info,hasInfo:!!info,tipOn:s.navTip===id,tipShow:stop(e=>{const r=e&&e.currentTarget&&e.currentTarget.getBoundingClientRect?e.currentTarget.getBoundingClientRect():null;this.setState({navTip:id,navTipUp:!!r&&r.top>window.innerHeight*0.55});}),tipTop:s.navTipUp?'auto':'22px',tipBottom:s.navTipUp?'22px':'auto',tipHide:()=>{if(this.state.navTip===id)this.setState({navTip:null});},go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
   ownerVals(){return OWNERS.map(o=>{const on=this.state.owner===o;const a=o==='Everyone'?{avBg:'var(--n-soft-2)',avFg:'var(--ink-2)',ini:'∗'}:avatar(avName(o));return{label:o,...a,pick:()=>this.setOwner(o),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setOwner(o){if(o===this.state.owner)return;this.setState({owner:o});if(this.ready)this.load(320);}
   platVals(){return PLATS.map(x=>{const on=this.state.plat===x;return{label:x,ini:x==='X'?'𝕏':x==='LinkedIn'?'in':'◎',avBg:x==='X'?'var(--ink)':x==='LinkedIn'?'#0a66c2':'var(--out)',avFg:'#fff',pick:()=>this.setPlat(x),
@@ -1299,72 +1299,97 @@ class Component extends DCLogic {
         open:()=>this.openLead(l.id,'details'),merge:async()=>{if(await AK.gtm.merge(keep.id,l.id))this.toast('Merged '+(l.name||'the duplicate')+' into '+(keep.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));}}))};});
     return{groups,hasGroups:groups.length>0,noGroups:!groups.length};}
   // LinkedIn Outreach: today's numbers against LinkedIn's limits (approximate; LinkedIn changes them without notice).
-  /* LinkedIn pipeline (11 Nov): every ICP person who engaged with our posts, by where they are in the LinkedIn sequence.
-     Cards show what they build, their latest round and a 1 to 10 score (the ICP score out of 100, divided by 10). Messages
-     the bot wrote wait on the card for Approve. Columns come from fields.li (written by the bot) and the lead's stage. */
+  /* LinkedIn pipeline (11 Nov): ICP people who engaged with our posts (plus anyone we already reached on LinkedIn), from found
+     to won. Non-fits are filtered out first (liNotFit, same rule as the li-bot function). Approve / Skip / a move button
+     moves the card at once; the bot does the sending in the background. Columns come from the lead's stage, fields.li
+     (written by the bot) and approved messages waiting to send. */
   liPipeScore(l){const v=AK.version();if(this._lpV!==v){this._lpV=v;this._lpS=new Map();}
     if(!this._lpS.has(l.id)){const sc=GTM.score(l,AK.gtm.cfg());this._lpS.set(l.id,{n:Math.max(1,Math.min(10,Math.round(sc.score/10))),sc});}
     return this._lpS.get(l.id);}
+  liNotFit(l){const role=String(l.role||'').trim();const I=((l.fields||{}).gtm||{}).intel||{};const v=k=>I[k]&&I[k].v;
+    if(role&&!/^unknown$/i.test(role)&&!/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role))return 'Not a decision maker ('+clip(role,40)+')';
+    if(v('model')==='B2C')return 'Sells to consumers (B2C)';if(v('model')==='Services / agency')return 'Agency or services business';
+    if(+v('employees')>100)return 'Too big ('+v('employees')+' people)';if(v('round')==='Series D+')return 'Later than Series C';return '';}
+  liMove(l,stage){if(!AK.canEdit())return;const f=l.fields||{},li={...(f.li||{})};li.stop=stage==='In talks'?'in talks':String(stage).toLowerCase();if(stage==='In talks'&&!li.replied)li.talks=new Date().toISOString();
+    const ids=AK.LBT.rows.filter(t=>t.lead_id===l.id&&['review','ready','sending','failed'].includes(t.status)).map(t=>t.id);
+    AK.leadSave(l.id,{stage,fields:{...f,li}}).then(ok=>{if(!ok)return;if(ids.length)AK.lbtSet(ids,{status:'skipped'});this.toast((l.name||'They')+' moved to '+stage+'. The bot won’t message them any more.');});}
   liPipeVals(){const s=this.state;const set=AK.LD.settings.li_bot||{};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const LI=l=>(l.fields||{}).li||{};const ICP=l=>(l.fields||{}).li_icp||{};const I=l=>((l.fields||{}).gtm||{}).intel||{};
-    const open=new Map();for(const t of T)if(['review','ready','sending','failed'].includes(t.status))open.set(t.lead_id,t);
-    const COLS=[['found','Leads found','ICP people who liked or commented on our posts. Approve a request to send it.','var(--ink-4)'],
-      ['req','Request sent','Waiting for them to accept. When they do, the first message is written for you to approve.','var(--out)'],
-      ['dm','First message sent','They accepted. The bot sent the first message.','oklch(0.6 0.13 250)'],
-      ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,n===1?'No reply yet. One follow-up a day until they reply.':'No reply yet.','oklch(0.72 0.15 65)']),
-      ['replied','Replied','They answered. The bot stopped; reply to them yourself.','var(--mid)'],
+    const open=new Map(),skipped=new Set();for(const t of T){if(['review','ready','sending','failed'].includes(t.status))open.set(t.lead_id,t);else if(t.status==='skipped'&&(t.kind==='invite'||t.kind==='dm')&&!/already done by hand|they replied|stopped before|not a fit|same person|booked|moved to/i.test(t.error||''))skipped.add(t.lead_id);}
+    const COLS=[['found','Leads found','People who engaged with our posts and fit our ICP. Approve to send the connection request.','var(--ink-4)'],
+      ['req','Request sent','Waiting for them to accept.','var(--out)'],
+      ['dm','First message sent','They accepted and got our first message.','oklch(0.6 0.13 250)'],
+      ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,'No reply yet.','oklch(0.72 0.15 65)']),
+      ['talks','In talks','Talking on LinkedIn, no call yet. The bot has stopped.','var(--mid)'],
       ['booked','Call booked','A call is on the calendar.','var(--in)'],
       ['won','Won','They became a client.','var(--ok)'],
       ['lost','Lost','Not interested, or no reply after follow-up 7.','var(--bad)']];
-    const colOf=l=>{const g=String(l.stage||'').toLowerCase(),x=LI(l);
+    const NAME=Object.fromEntries(COLS.map(c=>[c[0],c[1]]));
+    const colOf=l=>{const g=String(l.stage||'').toLowerCase(),x=LI(l),t=open.get(l.id),go=t&&(t.status==='ready'||t.status==='sending');
       if(g==='won')return 'won';if(g==='lost'||g==='cold lead'||x.stop==='no reply')return 'lost';if(g==='call booked'||g==='proposal sent')return 'booked';
-      if(x.replied||g==='in talks')return 'replied';if(x.dm){const f=+x.fu||0;return f>0?'fu'+Math.min(7,f):'dm';}
-      if(x.req||x.acc)return 'req';return 'found';};
-    const q=String(s.lpQ||'').trim().toLowerCase(),min=+s.lpMin||0;
-    const pool=this.leadsAll().filter(l=>l.source==='LinkedIn'&&String(l.origin_key||'').startsWith('li-person:')&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm')||/^(won|lost|call booked|proposal sent|in talks)$/i.test(l.stage))&&LI(l).stop!=='skipped');
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request'):t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
-    const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b',w:'Hot'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00',w:'Warm'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)',w:'Cool'};
-    const card=(l,col)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
+      if(x.replied||g==='in talks')return 'talks';
+      if(go&&t.kind==='followup')return 'fu'+Math.min(7,t.step);if(go&&t.kind==='dm')return 'dm';
+      if(x.dm){const f=+x.fu||0;return f>0?'fu'+Math.min(7,f):'dm';}
+      if(x.req||x.acc||(go&&t.kind==='invite'))return 'req';return 'found';};
+    const q=String(s.lpQ||'').trim().toLowerCase(),min=+s.lpMin||0,showOut=!!s.lpOut;
+    const pool=this.leadsAll().filter(l=>{if(l.source!=='LinkedIn')return false;const x=LI(l);
+      if(x.stop==='skipped'||(skipped.has(l.id)&&!x.req&&!x.dm&&!x.stop))return false;
+      const eng=String(l.origin_key||'').startsWith('li-person:')&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm'));
+      return eng||!!(x.req||x.dm||x.acc||x.replied)||/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)&&eng;});
+    // The same person can be in Leads twice (once from our posts, once from outreach done by hand): show the one furthest along.
+    {const rank=l=>{const x=LI(l);return(/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)?16:0)+(x.replied?8:0)+(x.dm?4:0)+(x.acc?2:0)+(x.req?1:0);};
+      const best=new Map();for(const l of pool){const k=GTM.normName(l.name)||l.id;const b=best.get(k);if(!b||rank(l)>rank(b))best.set(k,l);}
+      const keep=new Set([...best.values()].map(l=>l.id));for(let i=pool.length-1;i>=0;i--)if(!keep.has(pool[i].id))pool.splice(i,1);}
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
+    const btn=(label,fn)=>({label,go:e=>{e&&e.stopPropagation&&e.stopPropagation();fn();}});
+    const card=(l,col,out)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
       const one=ic.one_liner||(iv.description&&iv.description.v)||'';
       const fund=ic.funding||[iv.round&&iv.round.v,iv.amount&&iv.amount.v?GTM.fmtMoney(iv.amount.v):'',iv.date&&iv.date.v?String(iv.date.v).slice(0,7):''].filter(Boolean).join(' · ');
-      const status=col==='found'?(t?(t.status==='review'?'Request written. Waiting for your OK.':t.status==='failed'?'Didn’t go through: '+(t.error||'unknown problem'):'Approved. Sends soon.'):(ic.at?'Writing the request…':'Looking them up…')):
-        col==='req'?(x.acc?'Accepted '+this.since(x.acc)+(t&&t.kind==='dm'&&t.status==='review'?'. First message waiting for your OK.':''):'Request sent '+this.since(x.req)):
-        col==='dm'||col.startsWith('fu')?'Last message '+this.since(x.last||x.dm)+(t&&t.status==='review'?'. Next one waiting for your OK.':t&&t.status!=='failed'?'. Next one sends soon.':''):
-        col==='replied'?'Replied '+this.since(x.replied||l.stage_at):col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':'Lost '+this.since(l.stage_at)):l.stage+' '+this.since(l.stage_at);
-      const tx=t?(ed!=null?ed:t.text):'';
-      return{id:l.id,...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company&&!/^unknown$/i.test(l.company)?l.company:''].filter(Boolean).join(' · ').slice(0,90),
-        score:S.n+'/10',sBg:tn.bg,sFg:tn.fg,sWord:tn.w,why:S.sc.reasons.slice(0,3).join(' · ')||'Not enough known about them yet',
-        whyTitle:'Score '+S.n+' of 10 ('+S.sc.score+' of 100). '+S.sc.explain,
-        one:one||'What they build: not found yet',oneC:one?'var(--ink)':'var(--ink-4)',fund:fund||'Funding: not found',fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
-        did:clip(String(l.source_detail||'').replace(/^Commented on your post/i,'Commented on our post').replace(/^Liked your post/i,'Liked our post'),90),status,
-        hasMsg:!!t&&t.status==='review',msgKind:t?kindLabel(t):'',msg:tx,chars:t&&t.kind==='invite'?tx.length+' / 300':'',
+      const waiting=t&&t.status==='review',going=t&&(t.status==='ready'||t.status==='sending');
+      const status=out?'Filtered out: '+out:t&&t.status==='failed'?'Didn’t go through: '+(t.error||'unknown problem'):waiting?kindLabel(t)+' waiting for your OK':going?kindLabel(t)+' approved, sending soon':
+        col==='found'?(ic.at?'Writing the request…':'Looking them up…'):col==='req'?(x.acc?'Accepted '+this.since(x.acc):'Request sent '+this.since(x.req)):
+        col==='dm'||col.startsWith('fu')?'Last message '+this.since(x.last||x.dm):col==='talks'?'In talks since '+this.since(x.replied||x.talks||l.stage_at):
+        col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':'Lost '+this.since(l.stage_at)):l.stage+' '+this.since(l.stage_at);
+      const details=[l.name+(l.role?' — '+l.role:''),l.company&&!/^unknown$/i.test(l.company)?'Company: '+l.company:'',one?'Builds: '+one:'',fund?'Funding: '+fund:'Funding: not found',
+        'Score '+S.n+'/10 ('+S.sc.score+' of 100). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'),S.sc.gaps.length?'Not known yet: '+S.sc.gaps.slice(0,4).join(', '):'',
+        l.source_detail?'How we met: '+l.source_detail:'',out?'Filtered out: '+out:''].filter(Boolean).join('\n');
+      const moves=col==='talks'?[['Call booked','Call booked'],['Lost','Lost']]:col==='booked'?[['Won','Won'],['Lost','Lost']]:col==='won'||col==='lost'?[]:[['In talks','In talks'],['Lost','Lost']];
+      const tx=t?(ed!=null?ed:t.text):'';const editing=!!(s.lpEdit||{})[l.id]||!!s.lpExp;
+      return{id:l.id,...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company&&!/^unknown$/i.test(l.company)?l.company:''].filter(Boolean).join(' · '),
+        score:String(S.n),sBg:tn.bg,sFg:tn.fg,one:one||'Not looked up yet',oneC:one?'var(--ink-2)':'var(--ink-4)',fund:fund||'Funding not found',fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
+        details,status,stC:out||(t&&t.status==='failed')?'var(--bad)':waiting?'#0a66c2':'var(--ink-3)',
+        hasMsg:!!waiting,msg:tx,msgKind:t?kindLabel(t):'',chars:t&&t.kind==='invite'?tx.length+'/300':'',editing,preview:!editing,
+        edit:e=>{e&&e.stopPropagation&&e.stopPropagation();this.setState(z=>({lpEdit:{...(z.lpEdit||{}),[l.id]:true}}));},
         onMsg:e=>{const v=e.target.value;this.setState(z=>({lbtEd:{...(z.lbtEd||{}),[t.id]:v}}));},
         saveMsg:()=>{const v=(this.state.lbtEd||{})[t&&t.id];if(!t||v==null||v===t.text)return;if(t.kind==='invite'&&v.length>300){this.toast('A connection note can be 300 characters at most.',true);return;}AK.lbtSet(t.id,{text:v});},
-        approve:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'ready'}).then(ok=>ok&&this.toast('Approved for '+(l.name||'them')+'. The bot sends it a few minutes from now.'));},
+        approve:e=>{e&&e.stopPropagation&&e.stopPropagation();if(!t||!AK.canEdit())return;const v=(this.state.lbtEd||{})[t.id];const p={status:'ready'};if(v!=null&&v!==t.text&&!(t.kind==='invite'&&v.length>300))p.text=v;
+          AK.lbtSet(t.id,p).then(ok=>ok&&this.toast((l.name||'They')+' moved to '+NAME[t.kind==='invite'?'req':t.kind==='dm'?'dm':'fu'+t.step]+'. The bot sends it in the next few minutes.'));},
         skip:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'skipped'}).then(ok=>ok&&this.toast('Skipped '+(l.name||'them')+'. The bot won’t message them.'));},
-        stop:e=>{e&&e.stopPropagation&&e.stopPropagation();},
         isFailed:!!t&&t.status==='failed',retry:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t)AK.lbtSet(t.id,{status:'ready'});},
+        moves:moves.map(([label,stage])=>btn(label,()=>this.liMove(l,stage))),hasMoves:moves.length>0&&!out,stop:e=>{e&&e.stopPropagation&&e.stopPropagation();},
         open:()=>this.openLead(l.id),profile:e=>{e&&e.stopPropagation&&e.stopPropagation();if(l.linkedin)window.open(l.linkedin,'_blank','noopener');},hasProfile:!!l.linkedin,
-        _n:S.n,_t:Date.parse(x.last||x.req||l.created_at||0)||0};};
-    const by=new Map(COLS.map(c=>[c[0],[]]));
-    for(const l of pool){const c=colOf(l);const k=card(l,c);if(min&&k._n<min&&!['replied','booked','won','lost'].includes(c))continue;
+        op:out?'.6':'1',_n:S.n,_t:Date.parse(x.last||x.req||l.created_at||0)||0,_w:!!waiting};};
+    const by=new Map(COLS.map(c=>[c[0],[]]));let outN=0;
+    for(const l of pool){const c=colOf(l);const out=c==='found'?this.liNotFit(l):'';if(out){outN++;if(!showOut)continue;}
+      const k=card(l,c,out);if(min&&k._n<min&&['found','req','dm'].includes(c))continue;
       if(q&&![l.name,l.company,l.role,k.one,k.fund].join(' ').toLowerCase().includes(q))continue;by.get(c).push(k);}
-    const lim=s.lpLim||{};
-    const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>b._n-a._n||b._t-a._t);const n=lim[id]||30;
-      const ready=list.filter(k=>k.hasMsg);const good=ready.filter(k=>k._n>=7);
-      return{id,name,hint,dot,n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({lpLim:{...(z.lpLim||{}),[id]:n+40}})),
-        hasBulk:good.length>0,bulkLabel:'Approve all scored 7+ ('+good.length+')',
-        bulk:()=>{if(!AK.canEdit())return;const ids=good.map(k=>open.get(k.id).id);AK.lbtSet(ids,{status:'ready'}).then(ok=>ok&&this.toast('Approved '+ids.length+'. The bot sends them a few at a time.'));},
-        empty:!list.length};});
-    const waiting=T.filter(t=>t.status==='review').length;
-    const seenMin=st.seen?(Date.now()-Date.parse(st.seen))/6e4:null;
-    const bot=!st.seen?'The Chrome extension hasn’t connected yet.':st.signed_in===false?'Chrome is signed out of LinkedIn, so the bot is waiting.':
-      seenMin>45?'The bot last checked LinkedIn '+this.since(st.seen)+'. It runs while Chrome is open.':'The bot checked LinkedIn '+this.since(st.seen)+(set.paused?' (paused)':'')+'.';
+    const exp=s.lpExp||'';
+    const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>(b._w-a._w)||b._n-a._n||b._t-a._t);const n=(s.lpLim||{})[id]||(exp?400:25);
+      const good=list.filter(k=>k._w&&k._n>=7),allW=list.filter(k=>k._w);
+      const bulkGo=L=>()=>{if(!AK.canEdit())return;const ids=L.map(k=>open.get(k.id).id);AK.lbtSet(ids,{status:'ready'}).then(ok=>ok&&this.toast('Approved '+ids.length+'. They move on now; the bot sends them a few at a time.'));};
+      return{id,name,hint,dot,n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({lpLim:{...(z.lpLim||{}),[id]:n+50}})),
+        hasBulk:good.length>0,bulkLabel:'Approve all 7+ ('+good.length+')',bulk:bulkGo(good),hasAll:allW.length>0,allLabel:'Approve all '+allW.length,all:bulkGo(allW),
+        expand:()=>this.setState({lpExp:id}),empty:!list.length};});
+    const waiting=T.filter(t=>t.status==='review').length;const seenMin=st.seen?(Date.now()-Date.parse(st.seen))/6e4:null;
+    const bot=!st.seen?'Bot not connected yet':st.signed_in===false?'Bot waiting: Chrome is signed out of LinkedIn':seenMin>45?'Bot last checked '+this.since(st.seen)+' (runs while Chrome is open)':'Bot checked '+this.since(st.seen)+(set.paused?' · paused':'');
     const el=()=>document.getElementById('li-board');const step=d=>{const b=el();if(b)b.scrollBy({left:d*300*2,behavior:'smooth'});};
-    return{cols,bot,waiting:String(waiting),hasWaiting:waiting>0,q:s.lpQ||'',onQ:e=>this.setState({lpQ:e.target.value}),
-      min:String(s.lpMin||0),onMin:e=>this.setState({lpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5 and up'},{v:'7',l:'Score 7 and up'},{v:'8',l:'Score 8 and up'}],
-      total:String(pool.length),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
-      scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero, so a low score can mean "not looked up yet".'};}
+    const ex=cols.find(c=>c.id===exp);
+    return{cols,board:!ex,expanded:!!ex,ex:ex||{cards:[]},back:()=>this.setState({lpExp:''}),bot,waiting:String(waiting),hasWaiting:waiting>0,q:s.lpQ||'',onQ:e=>this.setState({lpQ:e.target.value}),
+      min:String(s.lpMin||0),onMin:e=>this.setState({lpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5+'},{v:'7',l:'Score 7+'},{v:'8',l:'Score 8+'}],
+      outLabel:showOut?'Hide filtered out ('+outN+')':'Show filtered out ('+outN+')',toggleOut:()=>this.setState({lpOut:!showOut}),hasOut:outN>0,
+      total:String(pool.length-(showOut?0:outN)),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
+      scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero. Filtered out = not a decision maker, sells to consumers, an agency, over 100 people, or later than Series C.'};}
   /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
   liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};

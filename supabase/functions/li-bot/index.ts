@@ -117,12 +117,25 @@ const idsOf = (l: Lead) => {
 };
 const urnOf = (l: Lead) => { const li = l.fields?.li ?? {}; if (li.urn) return li.urn; const m = String(l.linkedin || "").match(/\/in\/(ACoA[\w-]+)/); return m ? m[1] : ""; };
 const pidOf = (l: Lead) => { const li = l.fields?.li ?? {}; if (li.pid) return li.pid; const m = String(l.linkedin || "").match(/\/in\/([^/?#]+)/i); return m && !/^ACoA/.test(m[1]) ? decodeURIComponent(m[1]) : ""; };
+// Post engagers who fit (Hot, or Warm when that's switched on), plus anyone we already reached on LinkedIn (by hand before the
+// bot, or by the bot), so their follow-ups keep going.
 async function pool(set?: Bot): Promise<Lead[]> {
   const heats = set?.include_warm ? ["Hot", "Warm"] : ["Hot"];
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key")
-    .eq("source", "LinkedIn").eq("archived", false).like("origin_key", "li-person:%").in("heat", heats).limit(2000);
+    .eq("source", "LinkedIn").eq("archived", false).limit(3000);
   if (error) throw error;
-  return (data ?? []) as Lead[];
+  return ((data ?? []) as Lead[]).filter((l) => (isEngager(l) && heats.includes(l.heat)) || !!(l.fields?.li?.req || l.fields?.li?.dm || l.fields?.li?.acc));
+}
+const isEngager = (l: Lead) => String(l.origin_key ?? "").startsWith("li-person:");
+// Who we never message, from what we know (same rule as the CRM's Pipeline): unknown never rules anyone out.
+function notFit(l: Lead): string {
+  const role = String(l.role ?? "").trim(), I = l.fields?.gtm?.intel ?? {}, v = (k: string) => I[k]?.v;
+  if (role && !/^unknown$/i.test(role) && !/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role)) return "Not a decision maker";
+  if (v("model") === "B2C") return "Sells to consumers (B2C)";
+  if (v("model") === "Services / agency") return "Agency or services business";
+  if (+v("employees") > 100) return "Too big (" + v("employees") + " people)";
+  if (v("round") === "Series D+") return "Later than Series C";
+  return "";
 }
 async function saveLi(l: Lead, li: any, extra: Record<string, unknown> = {}) {
   l.fields = { ...(l.fields ?? {}), li };
@@ -190,6 +203,15 @@ async function plan(_b: any) {
   const { count: notesUsed } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").neq("text", "").gte("sent_at", m0.toISOString());
   let notesLeft = set.notes_month - (notesUsed ?? 0);
   const newRows: any[] = [], needHook: Lead[] = [];
+  // The same person can be in Leads twice (from our posts and from outreach done by hand). Never message a copy of someone
+  // the other copy already reached.
+  const nameKey = (l: Lead) => String(l.name ?? "").toLowerCase().normalize("NFD").replace(/[^a-z]+/g, "");
+  const reached = new Map<string, { req: boolean; dm: boolean; id: string }>();
+  for (const l of leads) { const x = l.fields?.li ?? {}; const k = nameKey(l); if (!k || !(x.req || x.acc || x.dm || x.replied)) continue;
+    const r = reached.get(k) ?? { req: false, dm: false, id: l.id }; r.req = r.req || !!(x.req || x.acc); r.dm = r.dm || !!x.dm || !!x.replied; reached.set(k, r); }
+  const twin = (l: Lead, what: "req" | "dm") => { const r = reached.get(nameKey(l)); return !!r && r[what] && !((l.fields?.li ?? {})[what]); };
+  const twins = leads.filter((l) => twin(l, "req") || twin(l, "dm")).map((l) => l.id);
+  if (twins.length) await db.from("crm_li_tasks").update({ status: "skipped", error: "Same person as another lead we already reached" }).in("status", ["review", "ready"]).in("kind", ["invite", "dm"]).in("lead_id", twins);
   let finished = 0;
   for (const l of leads) {
     const li = { ...(l.fields?.li ?? {}) };
@@ -198,6 +220,7 @@ async function plan(_b: any) {
     if (ts.some((t) => ["review", "ready", "sending"].includes(t.status))) continue;
     const had = (kind: string, step = 0) => ts.find((t) => t.kind === kind && t.step === step);
     if (!li.req && !li.acc) {
+      if (!isEngager(l) || notFit(l) || twin(l, "req")) continue;           // only post engagers who fit get a request
       const t = had("invite");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
       if (t?.status === "failed") continue;                                // shown on Outreach with Retry
@@ -205,6 +228,7 @@ async function plan(_b: any) {
       continue;
     }
     if (li.acc && !li.dm) {
+      if (!isEngager(l) || twin(l, "dm")) continue;                         // DM 1 says "saw you engage with my post"
       const t = had("dm");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
       if (!t) newRows.push({ lead_id: l.id, kind: "dm", step: 0, text: fill(set.dm1, l), status });
@@ -237,6 +261,9 @@ async function plan(_b: any) {
       newRows.push({ lead_id: l.id, kind: "invite", step: 0, text, status });
     }
   }
+  // Requests already written for people who turned out not to fit (after their research came in) are taken back.
+  const unfit = leads.filter((l) => !l.fields?.li?.req && notFit(l)).map((l) => l.id);
+  if (unfit.length) await db.from("crm_li_tasks").update({ status: "skipped", error: "Not a fit for our ICP" }).eq("kind", "invite").in("status", ["review", "ready"]).in("lead_id", unfit);
   if (newRows.length) {
     const { error } = await db.from("crm_li_tasks").upsert(newRows, { onConflict: "lead_id,kind,step", ignoreDuplicates: true });
     if (error) throw error;

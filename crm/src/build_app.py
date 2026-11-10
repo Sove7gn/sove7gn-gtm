@@ -75,7 +75,7 @@ rep('<span style="flex:1;">{{ pg.label }}</span>',
     '<span style="flex:1;">{{ pg.label }}</span>'
     '<sc-if value="{{ pg.hasInfo }}"><span onMouseEnter="{{ pg.tipShow }}" onMouseLeave="{{ pg.tipHide }}" onClick="{{ pg.tipShow }}" aria-label="{{ pg.info }}" '
     'style="position:relative; flex:0 0 16px; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-family:var(--font-mono); font-size:9.5px; font-weight:600; color:var(--ink-4); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i'
-    '<sc-if value="{{ pg.tipOn }}"><span role="tooltip" style="position:absolute; right:-4px; top:22px; z-index:60; width:196px; padding:10px 12px; border-radius:10px; background:var(--ink); color:#fff; '
+    '<sc-if value="{{ pg.tipOn }}"><span role="tooltip" style="position:absolute; right:-4px; top:{{ pg.tipTop }}; bottom:{{ pg.tipBottom }}; z-index:200; width:196px; padding:10px 12px; border-radius:10px; background:var(--ink); color:#fff; '
     'font-family:var(--font-sans, inherit); font-size:12px; font-weight:400; line-height:1.45; text-align:left; white-space:normal; box-shadow:0 10px 30px -10px rgba(0,0,0,.45); pointer-events:none;">{{ pg.info }}</span></sc-if></span></sc-if>')
 
 rep('<span>10:42</span>', '<span>{{ phoneTime }}</span>')
