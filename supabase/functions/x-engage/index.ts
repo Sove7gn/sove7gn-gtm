@@ -120,8 +120,8 @@ async function judge(author: any, said: string, ourPost: string, how: string) {
     fit: { type: "string", enum: ["Core buyer", "Good fit", "Related", "Investor", "Other", "Not a buyer"] },
     why: { type: "string", description: "One plain sentence: who they are and why this verdict" },
     company: { type: "string" },
-    reply: { type: "string", description: "Our public reply under their post, as Reyansh: max 200 characters, specific to what they said, friendly, no pitch, no links, no hashtags, no em dashes, no 'Great point'." },
-    dm: { type: "string", description: "Only for DM + reply: a DM from Reyansh, max 300 characters, that mentions what they said, adds one useful thought, and ends with a light question, or, for a founder who fits well, a low-pressure offer of a quick 15-minute call. Sounds like a person typed it. No pitch in the first line, no links, no em dashes. Empty otherwise." } } };
+    reply: { type: "string", description: "Our public reply under their post, as Reyansh (20, building in GTM): max 220 characters. Thank them or answer them in one specific line, then say we'd love their advice on something related and ask if we can DM them (e.g. 'Would love your advice on how you got your first customers, mind if I DM you?'). Friendly, human, no pitch, no links, no hashtags, no em dashes, no 'Great point'." },
+    dm: { type: "string", description: "A DM from Reyansh, max 320 characters, sent after the public reply: mention what they said or the post, say he's building in GTM and would really value their advice on one specific thing (e.g. how they got their first customers, or how they run sales this early), and ask for a quick 15-minute call or a few lines here. Humble, plain words, no pitch of our service, no links, no em dashes. Write it for everyone except bots and spam." } } };
   const res = await fetch("https://api.exa.ai/search", {
     method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " company", numResults: 3, outputSchema: schema,
@@ -241,7 +241,7 @@ async function syncX() {
     const out = await Promise.all(batch.map((x) => {
       if (judged >= MAX_JUDGED) return Promise.resolve(null);
       const list = /founders?/i.test(String(x.parent?.text || ""));
-      const ctx = list ? "(This is our 'founders to watch' list post. They are one of the founders we featured, or know them. Reply: short and warm, thank them and say one specific thing about their company or what they said. DM: mention the list, congratulate them, ask how GTM is going after the raise, and offer a quick 15-minute call.) " : "";
+      const ctx = list ? "(This is our 'founders to watch' list post. They are one of the founders we featured, or know them. Reply: thank them, one specific line about their company or what they said, then ask for their advice and if we can DM them. DM: mention the list, congratulate them, and ask for their advice on one specific GTM thing over a quick 15-minute call.) " : "";
       return judge(x.t.author, x.t.text || "", ctx + (x.parent?.text || ""), x.how).catch((e) => ({ error: String(e) }));
     }));
     for (let j = 0; j < batch.length; j++) {
@@ -276,8 +276,7 @@ async function syncX() {
       const info = leadOf.get(h) ?? { name: String(m.name || ""), company: "", status: "" };
       if (info.status && info.status !== "To send") continue;   // already messaged from Send today: no second DM
       const first = (info.name || m.name || h).split(/\s+/)[0];
-      const dm = "Hey " + first + ", I put you in a post about founders to watch this week: " + L + " Curious how GTM is going" +
-        (info.company && !/^unknown$/i.test(info.company) ? " at " + info.company : "") + " so far. Are you still running sales yourself?";
+      const dm = "Hey " + first + ", I put you in a post about founders to watch this week: " + L + " I'm building in GTM and would really value your advice on how you're getting customers" + (info.company && !/^unknown$/i.test(info.company) ? " at " + info.company : "") + " this early. Open to a quick 15-min call?";
       engagers.push([istStamp(new Date(t.createdAt || now)), ACCOUNT, L, clip(root.text || "", 200), "Tagged", m.screen_name, info.name || m.name || "", "", "", "", "", "",
         "Good fit", ACCOUNT, dm, "To message", "", "", "DM + reply", "We tagged them in our post" + (info.company ? " (" + info.company + ")" : ""), String(m.id_str || "")]);
       tagged++;

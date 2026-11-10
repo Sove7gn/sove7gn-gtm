@@ -1084,6 +1084,18 @@ async function leadSave(id,patch){
 }
 // Archive, not delete: Undo brings it back.
 async function leadArchive(id,on=true){return leadSave(id,{archived:on})}
+/* LinkedIn steps (10 Nov): LinkedIn's API doesn't share invites or messages, so each step is one click on the lead card,
+   kept in fields.li (req, note, acc, dm, inmail = when). A DM or InMail moves a New lead to Contacted. */
+async function liStep(id,step){
+  const l=LD.rows.find(r=>r.id===id);if(!l)return false;const now=new Date().toISOString();
+  const li={...((l.fields||{}).li||{})};
+  if(step==="req"||step==="reqNote"){li.req=now;li.note=step==="reqNote"}else li[step]=now;
+  const patch={fields:{...(l.fields||{}),li},last_touch:now};
+  if((step==="dm"||step==="inmail")&&/^new$/i.test(l.stage))patch.stage="Contacted";
+  const ok=await leadSave(id,patch);
+  if(ok)leadNote(id,"message",{req:"LinkedIn connection request sent",reqNote:"LinkedIn connection request sent, with a note",acc:"Accepted our LinkedIn request",dm:"Sent a LinkedIn DM",inmail:"Sent a LinkedIn InMail"}[step]);
+  return ok;
+}
 async function leadNote(id,kind,text){
   text=String(text||"").trim();if(!text)return false;
   const ev={lead_id:id,kind:kind||"note",text};
@@ -1494,7 +1506,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,addLikers,LIS,lisSet,lisRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

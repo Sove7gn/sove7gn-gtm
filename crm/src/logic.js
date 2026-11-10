@@ -917,7 +917,11 @@ class Component extends DCLogic {
     const igH=String(l.instagram||'').trim().replace(/^@/,'').replace(/^https?:\/\/(www\.)?instagram\.com\//i,'').replace(/[/?#].*$/,'');
     const liUrl=String(l.linkedin||'').trim();const liId=(liUrl.match(/\/in\/(ACoA[\w-]+)/i)||[])[1];
     const liChat=liId?'https://www.linkedin.com/messaging/compose/?recipient='+liId:liUrl;
-    return{isLi:l.source==='LinkedIn',hasLiChat:!!liChat&&l.source==='LinkedIn',liChatTitle:liId?'Open your LinkedIn chat with '+(l.name||'them'):'Open their LinkedIn profile, then press Message',
+    const LI=(l.fields||{}).li||{};const dd=x=>x?this.since(x):'';const conn=!!LI.acc||/linkedin connection/i.test(l.source_detail||'');
+    const liStatus=LI.dm?'DMed '+dd(LI.dm):LI.inmail?'InMail sent '+dd(LI.inmail):conn?'Connected'+(LI.acc?' '+dd(LI.acc):''):LI.req?'Request sent'+(LI.note?' with a note ':' ')+dd(LI.req):'Not contacted on LinkedIn yet';
+    const step=(k,label)=>({label,go:stop(()=>{this.setState({ldTip:null});AK.liStep(l.id,k).then(ok=>ok&&this.toast(label+': saved for '+(l.name||'them')+'.'));})});
+    const liBtns=LI.dm||LI.inmail?[]:conn?[step('dm','DMed')]:LI.req?[step('acc','Accepted'),step('inmail','InMail')]:[step('req','Request sent'),step('reqNote','Request + note'),step('inmail','InMail')];
+    return{liStatus,liBtns,hasLiBtns:l.source==='LinkedIn'&&liBtns.length>0,isLi:l.source==='LinkedIn',hasLiChat:!!liChat&&l.source==='LinkedIn',liChatTitle:liId?'Open your LinkedIn chat with '+(l.name||'them'):'Open their LinkedIn profile, then press Message',
       liChat:stop(()=>{this.setState({ldTip:null});window.open(liChat,'_blank','noopener');}),hasDm:!!igH,dmTitle:'Open your DMs with @'+igH+(this.igAcct(l)?' (signed in as '+this.igAcct(l)+')':''),
       dm:stop(()=>{this.setState({ldTip:null});window.open('https://ig.me/m/'+encodeURIComponent(igH),'_blank','noopener');}),
       hasTip:tip.has,tipShow:e=>place(e),tipHide:()=>{if(this.state.ldTip&&this.state.ldTip.id===l.id)this.setState({ldTip:null});},
@@ -1294,9 +1298,18 @@ class Component extends DCLogic {
   // LinkedIn Outreach: today's numbers against LinkedIn's limits (approximate; LinkedIn changes them without notice).
   liOutVals(){const L=this.leadsAll();const t0=new Date();t0.setHours(0,0,0,0);const today=l=>new Date(l.stage_at||0)>=t0;
     const contacted=L.filter(l=>/^contacted$/i.test(l.stage)&&today(l)).length;const fresh=L.filter(l=>/^new$/i.test(l.stage)).length;
-    return{rows:[{label:'Messages to people you\u2019re connected with',v:contacted+' today',lim:'Keep it under 50 a day'},
-      {label:'Connection requests',v:'',lim:'About 20 a day, 100 a week (LinkedIn\u2019s weekly cap)'},
-      {label:'Requests with a note',v:'',lim:'About 5 a month on a free account, no cap on Premium'}],
+    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const w0=AK.weekStart(0);const at=(x,f)=>x&&new Date(x)>=f;
+    const LIs=L.map(l=>(l.fields||{}).li||{});const cnt=(k,f)=>LIs.filter(x=>at(x[k],f)).length;
+    const reqM=cnt('req',m0),noteM=LIs.filter(x=>x.note&&at(x.req,m0)).length,accM=cnt('acc',m0),dmM=cnt('dm',m0),imM=cnt('inmail',m0),reqW=cnt('req',w0);
+    const reqAll=LIs.filter(x=>x.req).length,accAll=LIs.filter(x=>x.req&&x.acc).length;
+    const track=[{label:'Requests sent this month',v:String(reqM),d:reqW+' this week (LinkedIn caps about 100 to 200 a week)'},
+      {label:'With a note',v:noteM+' / 250',d:'Premium: 250 personalised requests a month'},
+      {label:'Accepted this month',v:String(accM),d:'Acceptance rate (all time): '+(reqAll?Math.round(accAll/reqAll*100)+'%':'\u2013')+' of '+reqAll+' requests'},
+      {label:'DMed this month',v:String(dmM),d:'Connections we messaged'},
+      {label:'InMails this month',v:imM+' / 30',d:'Premium: 30 InMail credits a month'}];
+    return{track,rows:[{label:'Messages to people you\u2019re connected with',v:contacted+' today',lim:'Keep it under 50 a day'},
+      {label:'Connection requests',v:reqW+' this week',lim:'About 20 a day, 100 to 200 a week'},
+      {label:'Requests with a note',v:noteM+' this month',lim:'250 a month on your Premium plan'}],
       summary:fresh+' people in New: connected or engaged, not messaged yet. Message them, then move them to Contacted.'};}
   gtmNowVals(){const s=this.state;const A=this.gtmAll().filter(x=>!x.c.closed&&(s.gx||!['excluded','disqualified'].includes(x.c.score.band)));
     const ranked=A.filter(x=>x.c.radar.score>0).sort((a,b)=>b.c.radar.score-a.c.radar.score||b.c.score.score-a.c.score.score);const lim=s.gmore?ranked.length:24;
