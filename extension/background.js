@@ -9,6 +9,8 @@ const store = chrome.storage.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 let busy = false;
+// A fresh worker means nothing is running (Chrome may have stopped the last one midway), so clear stale flags.
+store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test LinkedIn again."] } } : {}) }));
 
 function setup() {
   chrome.alarms.create("sync", { periodInMinutes: 20, delayInMinutes: 1 });
@@ -84,7 +86,7 @@ const keepAlive = () => setInterval(() => chrome.runtime.getPlatformInfo(), 20e3
 
 async function sync(fromButton) {
   if (busy) return { busy: true };
-  busy = true; const ka = keepAlive(); const summary = {};
+  busy = true; const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
   try {
     const me = await op("me");
     const h = await api("hello", { me, version: VERSION, signed_in: me.signed_in });
@@ -135,7 +137,7 @@ async function sync(fromButton) {
     await log(String(e.message || e), true);
     try { await api("status", { error: String(e.message || e) }); } catch (_) {}
     return { error: String(e.message || e) };
-  } finally { clearInterval(ka); busy = false; }
+  } finally { clearInterval(ka); busy = false; await store.set({ syncing: false }); }
 }
 
 // One approved request or message at a time. Skips some ticks at random so the gaps aren't regular.
@@ -166,7 +168,16 @@ async function tick() {
 }
 
 // Checks each LinkedIn call without saving or sending anything, and saves the details to the CRM so they can be fixed.
+// Waits for a run in progress, keeps Chrome from stopping the worker midway, and keeps the result for the popup.
 async function selfTest() {
+  for (let i = 0; busy && i < 90; i++) await sleep(2000);
+  busy = true; const ka = keepAlive();
+  await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Testing… about 30 seconds. You can close this window."] } });
+  try { const r = await selfTestRun(); await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); return r; }
+  catch (e) { const r = { lines: ["Test stopped: " + (e.message || e)] }; await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); try { await api("status", { error: "self-test: " + (e.message || e) }); } catch (_) {} return r; }
+  finally { clearInterval(ka); busy = false; }
+}
+async function selfTestRun() {
   const me = await op("me");
   let h = {}; try { h = await api("hello", { me, version: VERSION, signed_in: me.signed_in }); } catch (_) {}
   let q = { qid: "", qids: [] };
