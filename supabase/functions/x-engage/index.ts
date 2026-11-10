@@ -70,13 +70,25 @@ const istStamp = (d: Date) => { const x = ist(d); return istDate(d) + " " + Stri
 const snipKey = (s: string) => String(s || "").replace(/https?:\/\/\S+/g, "").replace(/@\w+/g, "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40);
 const dbSnip = (s: string) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40);
 
+// twitterapi.io's free tier allows one request every 5 seconds: requests wait their turn, and a "slow down" is retried.
+// TWITTERAPI_PAGES caps the pages per search (20 posts each) so a run fits in Supabase's 150-second limit.
+const TW_PAGES = Number(Deno.env.get("TWITTERAPI_PAGES") ?? "2") || 2;
+let twNext = 0;
+async function twGet(url: string): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wait = Math.max(0, twNext - Date.now()); twNext = Math.max(Date.now(), twNext) + 5200;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    const r = await fetch(url, { headers: { "X-API-Key": TWAPI } });
+    if (r.status !== 429) return r;
+  }
+  return await fetch(url, { headers: { "X-API-Key": TWAPI } });
+}
 async function xSearch(query: string, maxItems: number): Promise<any[]> {
   if (TWAPI) {   // twitterapi.io (10 Nov): same data as the Apify scraper, about $0.15 per 1,000 posts, 20 a page
     const out: any[] = [];
     let cursor = "";
-    for (let page = 0; page < Math.ceil(maxItems / 20) + 1 && out.length < maxItems; page++) {
-      const r = await fetch("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor),
-        { headers: { "X-API-Key": TWAPI } });
+    for (let page = 0; page < Math.min(TW_PAGES, Math.ceil(maxItems / 20)) && out.length < maxItems; page++) {
+      const r = await twGet("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor));
       if (!r.ok) throw new Error("twitterapi.io answered " + r.status + ": " + (await r.text()).slice(0, 160));
       const j = await r.json();
       out.push(...(j.tweets ?? []));
@@ -184,7 +196,7 @@ async function syncX() {
   const since = ist(new Date(now.getTime() - 10 * 864e5)).toISOString().slice(0, 10);
   const [ours, mentions] = await Promise.all([
     xSearch(`from:${HANDLE} -filter:retweets since:${since}`, 60),
-    xSearch(`(to:${HANDLE} OR @${HANDLE} OR url:"${HANDLE}/status") -from:${HANDLE} since:${since}`, 80),
+    xSearch(`@${HANDLE} -from:${HANDLE}`, 80).then((l) => l.filter((t) => !t.createdAt || Date.now() - new Date(t.createdAt).getTime() < 10 * 864e5)),   // replies, quotes and mentions in the last 10 days
   ]);
   const mine = ours.filter((t) => String(t.author.userName).toLowerCase() === HANDLE.toLowerCase());
   const posts = mine.filter((t) => !t.isReply && !t.inReplyToId && !t.retweeted_tweet);
@@ -228,7 +240,9 @@ async function syncX() {
     const batch = fresh.slice(i, i + 6);
     const out = await Promise.all(batch.map((x) => {
       if (judged >= MAX_JUDGED) return Promise.resolve(null);
-      return judge(x.t.author, x.t.text || "", x.parent?.text || "", x.how).catch((e) => ({ error: String(e) }));
+      const list = /founders?/i.test(String(x.parent?.text || ""));
+      const ctx = list ? "(This is our 'founders to watch' list post. They are one of the founders we featured, or know them. Reply: short and warm, thank them and say one specific thing about their company or what they said. DM: mention the list, congratulate them, ask how GTM is going after the raise, and offer a quick 15-minute call.) " : "";
+      return judge(x.t.author, x.t.text || "", ctx + (x.parent?.text || ""), x.how).catch((e) => ({ error: String(e) }));
     }));
     for (let j = 0; j < batch.length; j++) {
       const { t, parent, how } = batch[j], a = t.author, o: any = out[j];

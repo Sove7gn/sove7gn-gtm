@@ -64,13 +64,25 @@ const ist = (d: Date) => new Date(d.getTime() + 330 * 60e3);   // shift so getUT
 const istStamp = (d: Date) => { const x = ist(d); return x.getUTCDate() + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear() + " " + String(x.getUTCHours()).padStart(2, "0") + ":" + String(x.getUTCMinutes()).padStart(2, "0"); };
 const istDay = (d: Date) => ist(d).toISOString().slice(0, 10);
 
+// twitterapi.io's free tier allows one request every 5 seconds: requests wait their turn, and a "slow down" is retried.
+// TWITTERAPI_PAGES caps the pages per search (20 posts each) so a run fits in Supabase's 150-second limit.
+const TW_PAGES = Number(Deno.env.get("TWITTERAPI_PAGES") ?? "2") || 2;
+let twNext = 0;
+async function twGet(url: string): Promise<Response> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const wait = Math.max(0, twNext - Date.now()); twNext = Math.max(Date.now(), twNext) + 5200;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    const r = await fetch(url, { headers: { "X-API-Key": TWAPI } });
+    if (r.status !== 429) return r;
+  }
+  return await fetch(url, { headers: { "X-API-Key": TWAPI } });
+}
 async function xSearch(query: string, maxItems: number): Promise<any[]> {
   if (TWAPI) {   // twitterapi.io (10 Nov): same data as the Apify scraper, about $0.15 per 1,000 posts, 20 a page
     const out: any[] = [];
     let cursor = "";
-    for (let page = 0; page < Math.ceil(maxItems / 20) + 1 && out.length < maxItems; page++) {
-      const r = await fetch("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor),
-        { headers: { "X-API-Key": TWAPI } });
+    for (let page = 0; page < Math.min(TW_PAGES, Math.ceil(maxItems / 20)) && out.length < maxItems; page++) {
+      const r = await twGet("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor));
       if (!r.ok) throw new Error("twitterapi.io answered " + r.status + ": " + (await r.text()).slice(0, 160));
       const j = await r.json();
       out.push(...(j.tweets ?? []));
