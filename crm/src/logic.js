@@ -21,7 +21,7 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
   const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liOut:{sec:'out',label:'Outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
@@ -30,8 +30,8 @@ const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',page
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
-const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liOut','gtmEngage'];
-const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liOut']}];
+const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
+const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
 const PAGE_INFO={home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
@@ -46,7 +46,8 @@ const PAGE_INFO={home:'Today at a glance: who to answer first, DMs to send, post
   liPeople:'Everyone who liked or commented on our LinkedIn posts, and whether they fit who we sell to. Good fits are added to Leads on their own.',
   gtmEngage:'Founders\u2019 LinkedIn posts worth commenting on today, with a genuine comment ready to copy. A good comment gets them talking to us.',
   liMid:'People we reached out to (a message or a comment) who then engaged back: replied, asked a question, or booked a call.',
-  liOut:'People to reach on LinkedIn: new connections we haven\u2019t messaged yet, and outreach in progress, with LinkedIn\u2019s daily limits.',
+  liPipe:'Everyone who liked or commented on our posts and fits who we sell to, from found to won. Each card says what they build, their latest funding and a score out of 10. Approve the bot\u2019s messages right on the cards.',
+  liOut:'The LinkedIn bot: is it running, Review or Auto, every message waiting for approval, what went out, the messages it uses, and LinkedIn\u2019s limits. Plus people to reach: new connections we haven\u2019t messaged yet, and outreach in progress, with LinkedIn\u2019s daily limits.',
   leads:'Every channel in one view: open leads, who needs you today, where leads come from, and how outreach turns into calls.',
   gtmNow:'Leads with a buying window open right now (just raised, hiring for growth, or active lately), best first.',
   leadBoard:'Every lead by stage. Drag a card to move it. The channel buttons at the top show one channel at a time.',
@@ -384,7 +385,7 @@ class Component extends DCLogic {
       h.next=L2.length?(L2.length===1?'1 person who fits our ICP is':L2.length+' people who fit our ICP are')+' waiting for a DM. Start with '+L2[0].name+': '+String(L2[0].bio).replace(/\.$/,'')+'.':'Nobody who fits is waiting for a DM. Replies, quotes and mentions on our X posts are checked every 6 hours.';h.cta=L2.length?'Show who to message':'';h.go=L2.length?()=>this.setState({pdmTab:'To message'}):null;}
     if(page==='comps'){const top=this.compList().filter(c=>c.freshUncopied>0).sort((a,b)=>b.freshUncopied-a.freshUncopied)[0];
       h.next=top?top.name+' posted '+top.freshUncopied+' post'+(top.freshUncopied===1?'':'s')+' in the last 7 days that we haven’t copied yet.':'No competitor has posted anything new and uncopied in the last 7 days.';h.cta=top?'Open '+top.name:'';h.go=top?()=>this.openComp(top.id):null;}
-    if(sec==='leads'||LI_LISTS[page]||page==='gtmEngage'){h=this.leadHdr(page,h);if(s.plat==='LinkedIn')h={...h,eyebrow:'LinkedIn · '+PAGES[page].label,title:PAGES[page].label,cta:'',go:null};}
+    if(sec==='leads'||LI_LISTS[page]||page==='gtmEngage'||page==='liPipe'){h=this.leadHdr(page,h);if(s.plat==='LinkedIn')h={...h,eyebrow:'LinkedIn · '+PAGES[page].label,title:PAGES[page].label,cta:'',go:null};}
     if(page==='liPeople')h=this.liPeopleHdr(h);
     if(g&&!g.wait){h.next='Nothing to show until the data loads.';h.cta='';h.go=null;}
     if(this.founder&&page!=='home'){h.cta=h.go?h.cta.replace('Copy our version','See posts'):'';}
@@ -623,7 +624,7 @@ class Component extends DCLogic {
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
       add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
-  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -967,6 +968,7 @@ class Component extends DCLogic {
     else if(page==='leadSetup')h.next='Your ICP, stages, sources, groups, categories and extra fields. Changes apply to every lead.';
     else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a HIGH buying window. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
     else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
+    else if(page==='liPipe'){const w=AK.LBT.rows.filter(t=>t.status==='review').length;h.next=w?w+(w===1?' message is':' messages are')+' waiting for your OK. Approve them on the cards below.':'Nothing waiting for your OK. New people who engage with our posts show up in Leads found.';}
     else if(LI_LISTS[page]){const n=this.gtmAll().filter(x=>LI_LISTS[page].some(id=>GV.find(v=>v.id===id).f(x))).length;h.next=page==='liOut'?n+' LinkedIn people to reach out to or follow up with. Stay inside LinkedIn’s daily limits below.':page==='liInbox'?(n?n+(n===1?' person':' people')+' came to us first. Answer them today.':'Nobody has messaged us first yet. When someone does, add them here as Inbound.'):(n?n+(n===1?' person':' people')+' engaged back after we reached out.':'Nobody has replied to our outreach yet.');}
     else if(page==='gtmDash')h.next='Outreach, replies and conversion, by source, ICP band, template, angle and stage.';
     else if(page==='gtmEngage'){const cfg=AK.gtm.engageCfg();const n=AK.gtm.commentsToday();const rv=this.gtmAll().reduce((a,x)=>a+GTM.contentOf(x.l).filter(c=>c.status==='new').length,0);h.next=n+' of '+cfg.cap+' comments posted today. '+(rv?rv+(rv===1?' draft waits':' drafts wait')+' for your review: edit, then Approve. ':'')+(cfg.auto?'Approved comments are posted by the 30-minute LinkedIn check.':'Auto-posting is off: post approved comments yourself, then Mark posted.');}
@@ -1003,6 +1005,7 @@ class Component extends DCLogic {
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
     if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
+    if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
     if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
@@ -1296,6 +1299,72 @@ class Component extends DCLogic {
         open:()=>this.openLead(l.id,'details'),merge:async()=>{if(await AK.gtm.merge(keep.id,l.id))this.toast('Merged '+(l.name||'the duplicate')+' into '+(keep.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));}}))};});
     return{groups,hasGroups:groups.length>0,noGroups:!groups.length};}
   // LinkedIn Outreach: today's numbers against LinkedIn's limits (approximate; LinkedIn changes them without notice).
+  /* LinkedIn pipeline (11 Nov): every ICP person who engaged with our posts, by where they are in the LinkedIn sequence.
+     Cards show what they build, their latest round and a 1 to 10 score (the ICP score out of 100, divided by 10). Messages
+     the bot wrote wait on the card for Approve. Columns come from fields.li (written by the bot) and the lead's stage. */
+  liPipeScore(l){const v=AK.version();if(this._lpV!==v){this._lpV=v;this._lpS=new Map();}
+    if(!this._lpS.has(l.id)){const sc=GTM.score(l,AK.gtm.cfg());this._lpS.set(l.id,{n:Math.max(1,Math.min(10,Math.round(sc.score/10))),sc});}
+    return this._lpS.get(l.id);}
+  liPipeVals(){const s=this.state;const set=AK.LD.settings.li_bot||{};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
+    const LI=l=>(l.fields||{}).li||{};const ICP=l=>(l.fields||{}).li_icp||{};const I=l=>((l.fields||{}).gtm||{}).intel||{};
+    const open=new Map();for(const t of T)if(['review','ready','sending','failed'].includes(t.status))open.set(t.lead_id,t);
+    const COLS=[['found','Leads found','ICP people who liked or commented on our posts. Approve a request to send it.','var(--ink-4)'],
+      ['req','Request sent','Waiting for them to accept. When they do, the first message is written for you to approve.','var(--out)'],
+      ['dm','First message sent','They accepted. The bot sent the first message.','oklch(0.6 0.13 250)'],
+      ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,n===1?'No reply yet. One follow-up a day until they reply.':'No reply yet.','oklch(0.72 0.15 65)']),
+      ['replied','Replied','They answered. The bot stopped; reply to them yourself.','var(--mid)'],
+      ['booked','Call booked','A call is on the calendar.','var(--in)'],
+      ['won','Won','They became a client.','var(--ok)'],
+      ['lost','Lost','Not interested, or no reply after follow-up 7.','var(--bad)']];
+    const colOf=l=>{const g=String(l.stage||'').toLowerCase(),x=LI(l);
+      if(g==='won')return 'won';if(g==='lost'||g==='cold lead'||x.stop==='no reply')return 'lost';if(g==='call booked'||g==='proposal sent')return 'booked';
+      if(x.replied||g==='in talks')return 'replied';if(x.dm){const f=+x.fu||0;return f>0?'fu'+Math.min(7,f):'dm';}
+      if(x.req||x.acc)return 'req';return 'found';};
+    const q=String(s.lpQ||'').trim().toLowerCase(),min=+s.lpMin||0;
+    const pool=this.leadsAll().filter(l=>l.source==='LinkedIn'&&String(l.origin_key||'').startsWith('li-person:')&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm')||/^(won|lost|call booked|proposal sent|in talks)$/i.test(l.stage))&&LI(l).stop!=='skipped');
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request'):t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b',w:'Hot'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00',w:'Warm'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)',w:'Cool'};
+    const card=(l,col)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
+      const one=ic.one_liner||(iv.description&&iv.description.v)||'';
+      const fund=ic.funding||[iv.round&&iv.round.v,iv.amount&&iv.amount.v?GTM.fmtMoney(iv.amount.v):'',iv.date&&iv.date.v?String(iv.date.v).slice(0,7):''].filter(Boolean).join(' · ');
+      const status=col==='found'?(t?(t.status==='review'?'Request written. Waiting for your OK.':t.status==='failed'?'Didn’t go through: '+(t.error||'unknown problem'):'Approved. Sends soon.'):(ic.at?'Writing the request…':'Looking them up…')):
+        col==='req'?(x.acc?'Accepted '+this.since(x.acc)+(t&&t.kind==='dm'&&t.status==='review'?'. First message waiting for your OK.':''):'Request sent '+this.since(x.req)):
+        col==='dm'||col.startsWith('fu')?'Last message '+this.since(x.last||x.dm)+(t&&t.status==='review'?'. Next one waiting for your OK.':t&&t.status!=='failed'?'. Next one sends soon.':''):
+        col==='replied'?'Replied '+this.since(x.replied||l.stage_at):col==='lost'?(x.stop==='no reply'?'No reply after follow-up 7':'Lost '+this.since(l.stage_at)):l.stage+' '+this.since(l.stage_at);
+      const tx=t?(ed!=null?ed:t.text):'';
+      return{id:l.id,...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company&&!/^unknown$/i.test(l.company)?l.company:''].filter(Boolean).join(' · ').slice(0,90),
+        score:S.n+'/10',sBg:tn.bg,sFg:tn.fg,sWord:tn.w,why:S.sc.reasons.slice(0,3).join(' · ')||'Not enough known about them yet',
+        whyTitle:'Score '+S.n+' of 10 ('+S.sc.score+' of 100). '+S.sc.explain,
+        one:one||'What they build: not found yet',oneC:one?'var(--ink)':'var(--ink-4)',fund:fund||'Funding: not found',fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
+        did:clip(String(l.source_detail||'').replace(/^Commented on your post/i,'Commented on our post').replace(/^Liked your post/i,'Liked our post'),90),status,
+        hasMsg:!!t&&t.status==='review',msgKind:t?kindLabel(t):'',msg:tx,chars:t&&t.kind==='invite'?tx.length+' / 300':'',
+        onMsg:e=>{const v=e.target.value;this.setState(z=>({lbtEd:{...(z.lbtEd||{}),[t.id]:v}}));},
+        saveMsg:()=>{const v=(this.state.lbtEd||{})[t&&t.id];if(!t||v==null||v===t.text)return;if(t.kind==='invite'&&v.length>300){this.toast('A connection note can be 300 characters at most.',true);return;}AK.lbtSet(t.id,{text:v});},
+        approve:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'ready'}).then(ok=>ok&&this.toast('Approved for '+(l.name||'them')+'. The bot sends it a few minutes from now.'));},
+        skip:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'skipped'}).then(ok=>ok&&this.toast('Skipped '+(l.name||'them')+'. The bot won’t message them.'));},
+        stop:e=>{e&&e.stopPropagation&&e.stopPropagation();},
+        isFailed:!!t&&t.status==='failed',retry:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t)AK.lbtSet(t.id,{status:'ready'});},
+        open:()=>this.openLead(l.id),profile:e=>{e&&e.stopPropagation&&e.stopPropagation();if(l.linkedin)window.open(l.linkedin,'_blank','noopener');},hasProfile:!!l.linkedin,
+        _n:S.n,_t:Date.parse(x.last||x.req||l.created_at||0)||0};};
+    const by=new Map(COLS.map(c=>[c[0],[]]));
+    for(const l of pool){const c=colOf(l);const k=card(l,c);if(min&&k._n<min&&!['replied','booked','won','lost'].includes(c))continue;
+      if(q&&![l.name,l.company,l.role,k.one,k.fund].join(' ').toLowerCase().includes(q))continue;by.get(c).push(k);}
+    const lim=s.lpLim||{};
+    const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>b._n-a._n||b._t-a._t);const n=lim[id]||30;
+      const ready=list.filter(k=>k.hasMsg);const good=ready.filter(k=>k._n>=7);
+      return{id,name,hint,dot,n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({lpLim:{...(z.lpLim||{}),[id]:n+40}})),
+        hasBulk:good.length>0,bulkLabel:'Approve all scored 7+ ('+good.length+')',
+        bulk:()=>{if(!AK.canEdit())return;const ids=good.map(k=>open.get(k.id).id);AK.lbtSet(ids,{status:'ready'}).then(ok=>ok&&this.toast('Approved '+ids.length+'. The bot sends them a few at a time.'));},
+        empty:!list.length};});
+    const waiting=T.filter(t=>t.status==='review').length;
+    const seenMin=st.seen?(Date.now()-Date.parse(st.seen))/6e4:null;
+    const bot=!st.seen?'The Chrome extension hasn’t connected yet.':st.signed_in===false?'Chrome is signed out of LinkedIn, so the bot is waiting.':
+      seenMin>45?'The bot last checked LinkedIn '+this.since(st.seen)+'. It runs while Chrome is open.':'The bot checked LinkedIn '+this.since(st.seen)+(set.paused?' (paused)':'')+'.';
+    const el=()=>document.getElementById('li-board');const step=d=>{const b=el();if(b)b.scrollBy({left:d*300*2,behavior:'smooth'});};
+    return{cols,bot,waiting:String(waiting),hasWaiting:waiting>0,q:s.lpQ||'',onQ:e=>this.setState({lpQ:e.target.value}),
+      min:String(s.lpMin||0),onMin:e=>this.setState({lpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5 and up'},{v:'7',l:'Score 7 and up'},{v:'8',l:'Score 8 and up'}],
+      total:String(pool.length),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
+      scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero, so a low score can mean "not looked up yet".'};}
   /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
   liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};

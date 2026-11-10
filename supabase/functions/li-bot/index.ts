@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -264,7 +264,9 @@ async function plan(_b: any) {
   // People whose LinkedIn id we still need (to send anything), or whose email we haven't looked for since they connected.
   const lookups = leads.filter((l) => { const li = l.fields?.li ?? {}; return (!urnOf(l) && !li.lookup_fail) || (li.acc && !li.ci && !l.email); })
     .slice(0, 8).map((l) => ({ lead_id: l.id, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, connected: !!l.fields?.li?.acc }));
-  await saveStatus({ last_plan: now(), queued: newRows.length, handed_out: tasks.length });
+  let enriched: any = null;
+  try { enriched = await enrich({ limit: 8 }); } catch (_) { /* research is a bonus; never block sending */ }
+  await saveStatus({ last_plan: now(), queued: newRows.length, handed_out: tasks.length, enriched });
   return { queued: newRows.length, finished, tasks, lookups, paused: set.paused, in_hours: inHours(set.hours) };
 }
 
@@ -430,4 +432,82 @@ async function calBooking(req: Request) {
   }
   await db.from("crm_lead_events").insert({ lead_id: (l as any).id, kind: "meeting", text: "Booked a call on cal.com" + (when ? " for " + when : ""), by_email: "cal.com" });
   return json({ ok: true });
+}
+
+// ───────── enrich: what each LinkedIn lead is building and their latest round (feeds the 1 to 10 score) ─────────
+// One Exa search per person with a structured answer (Exa allows at most 10 fields). Facts go into the lead's intelligence card (fields.gtm.intel) with
+// the page they came from, so the CRM's ICP score counts them as evidence. A short line about them goes in fields.li_icp.
+const EXA = Deno.env.get("EXA_API_KEY") ?? "";
+const ROUNDS = ["Pre-seed", "Seed", "Series A", "Series B", "Series C", "Series D+", "Bootstrapped", "Grant / other"];
+const MODELS = ["B2B", "B2B2C", "B2C", "Marketplace", "Services / agency"];
+async function enrich(b: any) {
+  if (!EXA) return { error: "EXA_API_KEY is missing" };
+  const limit = Math.min(+(b.limit ?? 8), 60);
+  const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,fields,notes")
+    .eq("source", "LinkedIn").eq("archived", false).like("origin_key", "li-person:%").in("heat", ["Hot", "Warm"]).limit(2000);
+  if (error) throw error;
+  const todo = (data ?? []).filter((l: any) => (!l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3))).sort((a: any, c: any) => (a.fields?.li?.req ? 1 : 0) - (c.fields?.li?.req ? 1 : 0)).slice(0, limit);
+  let done = 0, cost = 0;
+  for (let i = 0; i < todo.length; i += 4) {
+    const out = await Promise.all(todo.slice(i, i + 4).map((l: any) => lookUp(l).catch((e) => ({ error: String(e) }))));
+    for (let j = 0; j < out.length; j++) {
+      const l: any = todo[i + j], o: any = out[j];
+      cost += o.cost ?? 0;
+      const f = { ...(l.fields ?? {}) };
+      const now = new Date().toISOString(), day = now.slice(0, 10);
+      if (o.error) { f.li_icp = { at: now, err: String(o.error).slice(0, 200) }; }
+      else {
+        const src = /^https?:\/\//.test(o.source_url ?? "") ? o.source_url : "";
+        const g = { ...(f.gtm ?? {}) }, I = { ...(g.intel ?? {}) };
+        const put = (k: string, v: unknown) => { if (v == null || v === "" || I[k]) return; I[k] = { v, src, at: day, by: "li-bot" }; };
+        if (o.about_this_company) {
+          put("description", String(o.one_liner ?? "").slice(0, 300));
+          if (MODELS.includes(o.model)) put("model", o.model);
+          if (o.industry) put("industry", String(o.industry).slice(0, 80));
+          if (Number.isFinite(+o.employees) && +o.employees > 0) put("employees", Math.round(+o.employees));
+          if (ROUNDS.includes(o.round)) put("round", o.round);
+          if (+o.round_amount_usd > 0) put("amount", Math.round(+o.round_amount_usd));
+          const d = String(o.round_date ?? "").match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
+          if (d && Date.parse(d[1] + "-" + d[2] + "-" + (d[3] ?? "01")) <= Date.now()) put("date", d[1] + "-" + d[2] + "-" + (d[3] ?? "01"));
+          if (+o.total_raised_usd > 0) put("total", Math.round(+o.total_raised_usd));
+          if (o.investors) put("investors", String(o.investors).slice(0, 120));
+          if (o.accelerator) put("accelerator", String(o.accelerator).slice(0, 40));
+          if (o.hiring_growth_roles) put("hiring", String(o.hiring_growth_roles).slice(0, 120));
+          if (/^https?:\/\//.test(o.website ?? "")) put("website", o.website);
+        }
+        if (/founder|ceo|chief executive/i.test(l.role ?? "") && !I.founder) I.founder = { v: "Yes", src: "", at: day, by: "li-bot" };
+        g.intel = I; g.v = 1; g.at = now; f.gtm = g;
+        f.li_icp = { at: now, one_liner: o.about_this_company ? String(o.one_liner ?? "").slice(0, 160) : "", funding: o.about_this_company ? fundingLine(o) : "", src };
+      }
+      const { error: e2 } = await db.from("crm_leads").update({ fields: f }).eq("id", l.id);
+      if (!e2) done++;
+    }
+  }
+  return { enriched: done, left: (data ?? []).filter((l: any) => !l.fields?.li_icp?.at).length - done, cost_exa: Math.round(cost * 1000) / 1000 };
+}
+const money = (n: number) => n >= 1e9 ? "$" + (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B" : n >= 1e6 ? "$" + (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? "$" + Math.round(n / 1e3) + "K" : "$" + n;
+function fundingLine(o: any) {
+  if (!ROUNDS.includes(o.round)) return "";
+  const d = String(o.round_date ?? "").match(/^(\d{4})-(\d{2})/);
+  const when = d ? new Date(+d[1], +d[2] - 1, 1).toLocaleString("en-US", { month: "short", year: "numeric" }) : "";
+  return [o.round, +o.round_amount_usd > 0 ? money(+o.round_amount_usd) : "", when].filter(Boolean).join(" · ");
+}
+async function lookUp(l: any) {
+  const schema = { type: "object", required: ["about_this_company", "one_liner"], properties: {
+    about_this_company: { type: "boolean", description: "true only if the results are about this person's current company" },
+    one_liner: { type: "string", description: "What the company builds and for whom, in plain words, under 15 words, no buzzwords. Example: 'AI note-taker for doctors that writes visit summaries'" },
+    model: { type: "string", enum: [...MODELS, "unknown"] }, industry: { type: "string", description: "e.g. AI software, fintech, devtools, biotech" },
+    employees: { type: "number", description: "team size if stated, else 0" },
+    round: { type: "string", enum: [...ROUNDS, "unknown"], description: "their most recent funding round" },
+    round_amount_usd: { type: "number", description: "amount of that round in USD, 0 if unknown" }, round_date: { type: "string", description: "YYYY-MM or YYYY-MM-DD of that round, empty if unknown" },
+    accelerator: { type: "string", description: "e.g. YC W25, Techstars, empty if none" },
+    source_url: { type: "string", description: "the result URL that best supports the funding facts" } } };
+  const q = [l.company && !/^unknown$/i.test(l.company) ? l.company : "", l.name, "startup funding round"].filter(Boolean).join(" ");
+  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
+      systemPrompt: "Research one startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
+        "Find what their company builds and its most recent funding round. Only use facts the results state; never guess. If the results are about a different person or company, set about_this_company=false." }) });
+  if (!res.ok) throw new Error("Exa answered " + res.status);
+  const j = await res.json();
+  return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
 }
