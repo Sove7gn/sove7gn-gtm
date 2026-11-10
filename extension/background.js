@@ -87,8 +87,9 @@ const keepAlive = () => setInterval(() => chrome.runtime.getPlatformInfo(), 20e3
 // LinkedIn's comments call needs a query id that changes when LinkedIn ships a new version. Opening one of our posts makes
 // the page use it, so it's read from there and kept until LinkedIn rejects it.
 async function commentsQid(me, extra, force) {
-  let { cqid } = await store.get("cqid");
-  if (cqid && !force) return cqid;
+  let { cqid, cqidAt = 0 } = await store.get(["cqid", "cqidAt"]);
+  if (!force && (cqid || Date.now() - cqidAt < 24 * 3600e3)) return cqid || "";
+  await store.set({ cqidAt: Date.now() });
   let id = (await op("latestPost", { me })).id || (extra || [])[0] || "";
   if (!id) return "";
   await go("https://www.linkedin.com/feed/update/urn:li:activity:" + id + "/");
@@ -97,6 +98,30 @@ async function commentsQid(me, extra, force) {
   await store.set({ cqid, qids_seen: q.qids || [] });
   await go("https://www.linkedin.com/feed/");
   return cqid;
+}
+
+// Opens each of our posts that has new comments and reads them off the page (a few seconds per post).
+async function pageComments(me, e) {
+  const { ccount = {} } = await store.get("ccount");
+  const todo = (e.dom || []).filter((p) => p.n == null || (p.n > 0 && p.n !== ccount[p.id])).slice(0, 12);
+  let added = 0, err = "";
+  for (const p of todo) {
+    try {
+      await go("https://www.linkedin.com/feed/update/urn:li:activity:" + p.id + "/");
+      const r = await op("domComments", { me });
+      for (const c of r.list) {
+        e.items.push({ type: "comment", postId: p.id, commentary: c.text, createdAt: null,
+          actor: { id: c.id || c.pid, linkedinUrl: "https://www.linkedin.com/in/" + (c.pid || c.id), name: c.name, position: c.headline } });
+        added++;
+      }
+      if (p.n != null && (r.list.length || !p.n)) ccount[p.id] = p.n;
+      if (!r.found && p.n) err = "couldn't find comments on the post page";
+    } catch (x) { err = String(x.message || x); }
+    await sleep(rand(2000, 4000));
+  }
+  if (todo.length) await go("https://www.linkedin.com/feed/");
+  await store.set({ ccount });
+  return { posts: todo.length, added, err };
 }
 
 async function sync(fromButton) {
@@ -117,6 +142,8 @@ async function sync(fromButton) {
         cqid = await commentsQid(me, h.extra_posts, true);
         e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
       }
+      const pc = await pageComments(me, e);
+      if (pc.err) e.err = (e.err ? e.err + "; " : "") + "comments: " + pc.err;
       const r = await api("engagers", { items: e.items });
       summary.engagers = r;
       await log("Checked " + e.posts + " posts: " + e.items.filter((i) => i.type !== "post").length + " likes and comments. New ICP leads: " + (r.leads_added ?? 0) + (e.err ? ". Problem: " + e.err : ""), !!e.err);
@@ -204,8 +231,19 @@ async function selfTestRun() {
   if (me.signed_in) { await go("https://www.linkedin.com/messaging/"); q = await op("findQid"); await go("https://www.linkedin.com/feed/"); }
   let cqid = ""; if (me.signed_in) { try { cqid = await commentsQid(me, h.extra_posts, true); } catch (_) {} }
   const { qids_seen = [] } = await store.get("qids_seen");
+  let domTest = null, net = null;
+  if (me.signed_in) {
+    try {
+      const lp = (await op("latestPost", { me })).id || (h.extra_posts || [])[0];
+      if (lp) { await go("https://www.linkedin.com/feed/update/urn:li:activity:" + lp + "/"); const r = await op("domComments", { me }); net = await op("netlog");
+        domTest = { post: lp, found: r.found, read: r.list.length, sample: r.sample, first: r.list[0] ? { id: !!r.list[0].id, pid: !!r.list[0].pid, name: !!r.list[0].name, headline: !!r.list[0].headline, text: !!r.list[0].text } : null };
+        await go("https://www.linkedin.com/feed/"); }
+    } catch (x) { domTest = { err: String(x.message || x) }; }
+  }
   const d = await op("diagnose", { qid: q.qid, qids: [...new Set([...(q.qids || []), ...qids_seen])], extra_posts: h.extra_posts || [], cqid });
+  d.steps.page_comments = domTest; d.steps.post_page_calls = net;
   const out = d.lines || [];
+  if (domTest) out.splice(3, 0, "Comments on your newest post (read from the page): " + (domTest.err ? "problem: " + domTest.err : domTest.read + " read"));
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
   if (d.qid) await store.set({ qid: d.qid });
   return { lines: out };

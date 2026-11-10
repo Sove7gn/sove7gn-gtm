@@ -77,6 +77,8 @@ export async function liOp(op, a = {}) {
         if (at < since) continue;
         posts.push({ id: act, content: txt(u.commentary && u.commentary.text), at });
       }
+      const nc = new Map(inc(j).filter((e) => /SocialActivityCounts$/.test(e.$type || "")).map((e) => [(String(e.entityUrn || e.urn || "").match(/activity:(\d+)/) || [])[1], e.numComments]));
+      for (const p of posts) p.numComments = nc.has(p.id) ? +nc.get(p.id) || 0 : null;
     } catch (e) { out.err = String(e.message); }
     for (const id of x.extra_posts || []) if (!posts.some((p) => p.id === id)) { const at = Number(BigInt(id) >> 22n); if (at >= since) posts.push({ id, content: "", at }); }
     for (const p of posts) {
@@ -98,8 +100,9 @@ export async function liOp(op, a = {}) {
         await jitter(800, 1600);
       }
       // Comments (LinkedIn retired feed/comments in 2026; see commentsOf).
-      const cm = await commentsOf(p.id, x.cqid);
+      const cm = x.cqid ? await commentsOf(p.id, x.cqid) : { list: [], via: "", err: "" };
       if (cm.err) out.err = cm.err;
+      if (!cm.via) out.dom = [...(out.dom || []), { id: p.id, n: p.numComments }];
       out.via = cm.via;
       for (const c of cm.list) {
         if (c.id === x.me.urn || (x.me.pid && c.pid === x.me.pid)) continue;
@@ -112,7 +115,7 @@ export async function liOp(op, a = {}) {
         author: { id: x.me.urn, linkedinUrl: "https://www.linkedin.com/in/" + x.me.pid, name: x.me.name, publicIdentifier: x.me.pid } });
       await jitter(1200, 2500);
     }
-    return { items: out, posts: posts.length, err: out.err || "" };
+    return { items: out, posts: posts.length, err: out.err || "", dom: out.dom || [] };
   }
 
   // Comments on one post: LinkedIn's web app now uses voyagerSocialDashComments, either as GraphQL (query id learned from a
@@ -123,7 +126,6 @@ export async function liOp(op, a = {}) {
     const sd = "urn:li:fsd_socialDetail:(" + act + "," + act + ",urn:li:highlightedReply:-)";
     const tries = [];
     if (cqid) tries.push({ via: "graphql", url: (st) => "graphql?includeWebMetadata=true&variables=(count:100,numReplies:0,socialDetailUrn:" + enc(sd) + ",sortOrder:RELEVANCE,start:" + st + ")&queryId=" + cqid });
-    tries.push({ via: "finder", url: (st) => "voyagerSocialDashComments?count=100&numReplies=0&q=comments&socialDetailUrn=" + enc(sd) + "&sortOrder=RELEVANCE&start=" + st });
     let err = "";
     for (const t of tries) {
       const list = [], seen = new Set();
@@ -157,6 +159,42 @@ export async function liOp(op, a = {}) {
       const j = await get("identity/profileUpdatesV2?count=5&includeLongTermHistory=true&moduleKey=member-shares%3Aphone&numComments=0&q=memberShareFeed&start=0&profileUrn=" + encodeURIComponent("urn:li:fsd_profile:" + x.me.urn));
       return { id: ((JSON.stringify(j).match(/urn:li:activity:(\d+)/) || [])[1]) || "" };
     } catch (e) { return { id: "", err: String(e.message) }; }
+  }
+
+  // Comments as shown on the post page open in this tab: opens every "load more", then reads each comment's author link,
+  // name, headline and text. Used because LinkedIn's post page no longer loads comments through a call we can reuse.
+  async function domComments(x) {
+    for (let i = 0; i < 40 && !document.querySelector("article, [data-id*='comment'], .comments-comments-list"); i++) await sleep(500);
+    window.scrollTo(0, document.body.scrollHeight / 3); await sleep(1200);
+    const label = (b) => ((b.innerText || "") + " " + (b.getAttribute("aria-label") || "")).toLowerCase();
+    for (let i = 0; i < 25; i++) {
+      const more = [...document.querySelectorAll("button")].find((b) => /load more comments|show more comments|see more comments|load previous replies|more comments/.test(label(b)) && b.offsetParent);
+      if (!more) break;
+      more.scrollIntoView({ block: "center" }); more.click(); await sleep(1400 + Math.random() * 900);
+    }
+    const nodes = [...document.querySelectorAll("article")].filter((a) => /comment/i.test(a.className + " " + (a.getAttribute("data-id") || "") + " " + (a.getAttribute("aria-label") || "")));
+    const list = [], seen = new Set();
+    for (const a of nodes) {
+      const link = [...a.querySelectorAll("a[href*='/in/']")].find((l) => !l.closest("article article") || l.closest("article") === a);
+      if (!link) continue;
+      const href = link.href.split("?")[0];
+      const id = acoa(href), pid = vanity(href);
+      const key = (id || pid) + "|" + (a.getAttribute("data-id") || list.length);
+      if (seen.has(key)) continue; seen.add(key);
+      const pick = (re) => { const el = [...a.querySelectorAll("*")].find((e) => re.test(e.className || "") && e.closest("article") === a); return el ? el.innerText.trim() : ""; };
+      const name = pick(/description-title|comment-meta__description-title|actor__name|commenter-name/) || (link.getAttribute("aria-label") || link.innerText || "").replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").split("\n")[0].trim();
+      const headline = pick(/description-subtitle|comment-meta__description-subtitle|actor__description|headline/);
+      const text = pick(/comment-item__main-content|comments-comment-item-content-body|main-content|update-components-text/);
+      if (!id && !pid) continue;
+      if ((x.me && (id === x.me.urn || pid === x.me.pid))) continue;
+      list.push({ id, pid, name: name.slice(0, 120), headline: headline.split("\n")[0].slice(0, 200), text: text.slice(0, 1000) });
+    }
+    return { list, found: nodes.length, sample: nodes[0] ? nodes[0].className.slice(0, 120) : "", url: location.pathname };
+  }
+
+  // Every LinkedIn API call this page made (paths only), to see how a page loads its data.
+  function netlog() {
+    return { calls: [...new Set(performance.getEntriesByType("resource").map((e) => e.name).filter((u) => /\/voyager\/api\/|\/flagship-web\/|sdui|rsc/.test(u)).map((u) => u.split("?")[0].replace(/ACoA[\w-]+/g, "ACoA_").replace(/\d{10,}/g, "N")))].slice(0, 40) };
   }
 
   // Who connected with us recently.
@@ -312,6 +350,8 @@ export async function liOp(op, a = {}) {
     case "findQid": return findQid();
     case "diagnose": return diagnose(a);
     case "latestPost": return latestPost(a);
+    case "domComments": return domComments(a);
+    case "netlog": return netlog();
     case "invite": return invite(a);
     case "message": return message(a);
     default: throw new Error("unknown op " + op);
