@@ -181,7 +181,8 @@ export async function liOp(op, a = {}) {
   function findQid() {
     const urls = performance.getEntriesByType("resource").map((e) => e.name);
     const q = urls.map((u) => (u.match(/queryId=(messengerConversations\.[0-9a-f]+)/) || [])[1]).find(Boolean);
-    return { qid: q || "" };
+    const all = [...new Set(urls.map((u) => (u.match(/queryId=(\w+\.[0-9a-f]+)/) || [])[1]).filter(Boolean))];
+    return { qid: q || "", qids: all.slice(0, 30) };
   }
 
   async function invite(x) {
@@ -206,6 +207,67 @@ export async function liOp(op, a = {}) {
     return { ok: false, error: "LinkedIn answered " + r.status + ": " + (r.text || "").slice(0, 200) };
   }
 
+  // Read-only check of every call, with the shape of each answer, so a broken one can be fixed without guessing.
+  async function diagnose(x) {
+    const D = { at: new Date().toISOString(), lines: [], steps: {}, qid: x.qid || "", qids: x.qids || [] };
+    const shape = (j) => ({ dataKeys: j && j.data && typeof j.data === "object" ? Object.keys(j.data).slice(0, 15) : [], types: [...new Set(inc(j).map((e) => e.$type))].slice(0, 20) });
+    const sample = (e) => e ? Object.fromEntries(Object.entries(e).slice(0, 30).map(([k, v]) => [k, v && typeof v === "object" ? "{" + Object.keys(v).slice(0, 10).join(",") + "}" : String(v).slice(0, 90)])) : null;
+    const step = async (name, fn) => { try { D.steps[name] = await fn(); } catch (e) { D.steps[name] = { err: String(e.message || e) }; } };
+    const m = await me(); D.me = { signed_in: m.signed_in, has_urn: !!m.urn, pid: m.pid, err: m.error || "" };
+    D.lines.push(m.signed_in ? "Signed in as " + m.name : "Not signed in to LinkedIn" + (m.error ? " (" + m.error + ")" : ""));
+    if (!m.signed_in) return D;
+    let postId = "";
+    await step("posts", async () => {
+      const j = await get("identity/profileUpdatesV2?count=20&includeLongTermHistory=true&moduleKey=member-shares%3Aphone&numComments=0&q=memberShareFeed&start=0&profileUrn=" + encodeURIComponent("urn:li:fsd_profile:" + m.urn));
+      const acts = [...new Set((JSON.stringify(j).match(/urn:li:activity:\d+/g) || []))];
+      postId = (acts[0] || "").split(":").pop();
+      return { ...shape(j), activities: acts.length };
+    });
+    if (!postId && (x.extra_posts || []).length) postId = x.extra_posts[0];
+    D.steps.post_used = postId;
+    if (postId) {
+      await step("reactions", async () => {
+        const j = await get("voyagerSocialDashReactions?decorationId=com.linkedin.voyager.dash.deco.social.ReactionsByTypeWithProfileActions-13&count=10&q=reactionType&start=0&threadUrn=" + encodeURIComponent("urn:li:activity:" + postId));
+        const r = inc(j).find((e) => /Reaction$/.test(e.$type || ""));
+        return { ...shape(j), sample: sample(r), lockup: r && r.reactorLockup ? sample(r.reactorLockup) : null };
+      });
+      await step("comments", async () => {
+        const j = await get("feed/comments?count=10&q=comments&sortOrder=RELEVANCE&start=0&updateId=activity:" + postId);
+        const c = inc(j).find((e) => /\.Comment$/.test(e.$type || ""));
+        return { ...shape(j), sample: sample(c), commenter: c && c.commenter ? sample(c.commenter) : null };
+      });
+      await step("engagers_parsed", async () => { const e = await engagers({ me: m, days: 60, extra_posts: [postId] }); return { posts: e.posts, items: e.items.length, reactions: e.items.filter((i) => i.type === "reaction").length, comments: e.items.filter((i) => i.type === "comment").length, err: e.err }; });
+    }
+    let someone = null;
+    await step("connections", async () => {
+      const j = await get("relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=10&q=search&sortType=RECENTLY_ADDED&start=0");
+      const c = inc(j).find((e) => /Connection$/.test(e.$type || ""));
+      let parsed = []; try { parsed = await connections(); } catch (_) {}
+      someone = parsed[0] || null;
+      return { ...shape(j), sample: sample(c), parsed: parsed.length, first_has_pid: !!(someone && someone.pid), first_has_at: !!(someone && someone.at) };
+    });
+    if (someone) await step("lookup", async () => { const r = await lookup({ urn: someone.urn, pid: someone.pid }); return { urn: !!r.urn, pid: !!r.pid, connected: r.connected, email_found: !!r.email }; });
+    await step("threads", async () => {
+      if (!D.qid) return { err: "no messaging query id found" };
+      const t = await threads({ me: m, qid: D.qid });
+      if (t.need_qid) return { err: "query id rejected" };
+      const r = await fetch("/voyager/api/voyagerMessagingGraphQL/graphql?queryId=" + D.qid + "&variables=(mailboxUrn:" + encodeURIComponent("urn:li:fsd_profile:" + m.urn) + ")", { headers: { ...H, accept: "application/graphql" }, credentials: "include" });
+      const raw = await r.text();
+      return { parsed: t.threads.length, with_reply_time: t.threads.filter((z) => z.them_at).length, with_my_time: t.threads.filter((z) => z.me_at).length,
+        raw_start: raw.slice(0, 700).replace(/ACoA[\w-]+/g, "ACoA_").replace(/"text":"[^"]*"/g, '"text":"_"') };
+    });
+    const fake = "ACoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    await step("invite_probe", async () => { const r = await post("voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2", { invitee: { inviteeUnion: { memberProfile: "urn:li:fsd_profile:" + fake } } }); return { status: r.status, text: r.text.slice(0, 250) }; });
+    await step("message_probe", async () => { const r = await post("voyagerMessagingDashMessengerMessages?action=createMessage", { message: { body: { attributes: [], text: "test" }, renderContentUnions: [], originToken: crypto.randomUUID() }, mailboxUrn: "urn:li:fsd_profile:" + m.urn, trackingId: "aaaaaaaaaaaaaaaa", dedupeByClientGeneratedToken: false, hostRecipientUrns: ["urn:li:fsd_profile:" + fake] }); return { status: r.status, text: r.text.slice(0, 250) }; });
+    const S = D.steps, ok = (k) => S[k] && !S[k].err;
+    D.lines.push("Your posts: " + (ok("posts") ? S.posts.activities + " found" : "couldn't read (" + (S.posts && S.posts.err) + ")"));
+    if (S.engagers_parsed) D.lines.push("Likes and comments read: " + (S.engagers_parsed.reactions || 0) + " likes, " + (S.engagers_parsed.comments || 0) + " comments" + (S.engagers_parsed.err ? " (" + S.engagers_parsed.err + ")" : ""));
+    D.lines.push("Connections: " + (ok("connections") ? S.connections.parsed + " read" : "couldn't read (" + (S.connections && S.connections.err) + ")"));
+    D.lines.push("Messages: " + (ok("threads") ? S.threads.parsed + " chats read" : "couldn't read (" + (S.threads && S.threads.err) + ")"));
+    D.lines.push("Sending requests: " + (S.invite_probe && S.invite_probe.status ? "LinkedIn answered " + S.invite_probe.status : "?") + " · Sending DMs: " + (S.message_probe && S.message_probe.status ? "LinkedIn answered " + S.message_probe.status : "?"));
+    return D;
+  }
+
   switch (op) {
     case "me": return me();
     case "lookup": return lookup(a);
@@ -213,6 +275,7 @@ export async function liOp(op, a = {}) {
     case "connections": return connections();
     case "threads": return threads(a);
     case "findQid": return findQid();
+    case "diagnose": return diagnose(a);
     case "invite": return invite(a);
     case "message": return message(a);
     default: throw new Error("unknown op " + op);

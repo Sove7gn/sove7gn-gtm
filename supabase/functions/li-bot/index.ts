@@ -84,7 +84,7 @@ async function hello(b: any) {
   return { paused: set.paused, mode: set.mode, in_hours: inHours(set.hours), hours: set.hours,
     scan_engagers: Date.now() - lastScan > 3 * 3600e3, scan_days: 30, extra_posts: (known ?? []).map((k) => String(k.post_id)).filter((x) => /^\d+$/.test(x)) };
 }
-async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { last_error: String(b.error).slice(0, 500), last_error_at: now() } : {}), ...(b.note ? { last_note: String(b.note).slice(0, 300) } : {}) }); return { ok: true }; }
+async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { last_error: String(b.error).slice(0, 500), last_error_at: now() } : {}), ...(b.note ? { last_note: String(b.note).slice(0, 300) } : {}), ...(b.diag ? { diag: b.diag } : {}) }); return { ok: true }; }
 
 // ───────── engagers: hand them to social-sync (same judging and lead rules as before, no Apify) ─────────
 async function engagers(b: any) {

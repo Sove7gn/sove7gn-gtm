@@ -38,20 +38,43 @@ async function api(action, body = {}) {
   return j;
 }
 
-// The bot works in its own pinned LinkedIn tab, so it never touches the tabs you're using.
+// The bot works in its own pinned LinkedIn tab, so it never touches the tabs you're using. If that tab shows an error
+// page (it failed to load, or Chrome put it to sleep), it's reloaded, and replaced if it still won't load.
 async function botTab() {
   const { tabId } = await store.get("tabId");
-  if (tabId) { try { const t = await chrome.tabs.get(tabId); if (/linkedin\.com/.test(t.url || t.pendingUrl || "")) return t.id; } catch (_) {} }
+  if (tabId) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      if (/linkedin\.com/.test(t.url || t.pendingUrl || "")) {
+        if (t.discarded || t.status !== "complete") { await chrome.tabs.reload(t.id); await loaded(t.id); }
+        if (await alive(t.id)) return t.id;
+        await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500);
+        if (await alive(t.id)) return t.id;
+        await log("The bot's LinkedIn tab wouldn't load (" + ((await chrome.tabs.get(t.id)).url || "").slice(0, 80) + "). Opening a fresh one.", true);
+        await chrome.tabs.remove(t.id).catch(() => {});
+      }
+    } catch (_) {}
+  }
   const t = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false, pinned: true });
   await store.set({ tabId: t.id });
-  await loaded(t.id);
+  await loaded(t.id); await sleep(2500);
+  if (!(await alive(t.id))) throw new Error("LinkedIn won't load in Chrome right now. Open linkedin.com in a normal tab to check you're online and signed in.");
   return t.id;
+}
+async function alive(id) {
+  try { const r = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: () => location.hostname }); return /linkedin\.com$/.test((r && r[0] && r[0].result) || ""); }
+  catch (_) { return false; }
 }
 async function loaded(id) { for (let i = 0; i < 60; i++) { const t = await chrome.tabs.get(id); if (t.status === "complete") return; await sleep(500); } }
 async function go(url) { const id = await botTab(); await chrome.tabs.update(id, { url }); await sleep(800); await loaded(id); await sleep(3000); }
 async function op(name, args = {}) {
-  const id = await botTab();
-  const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] });
+  let id = await botTab(), res;
+  try { res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] }); }
+  catch (e) {
+    if (!/error page|Cannot access|No tab|frame/i.test(String(e.message))) throw e;
+    await chrome.tabs.reload(id); await loaded(id); await sleep(3000);                 // one retry after a reload
+    res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] });
+  }
   const r = res && res[0];
   if (!r) throw new Error("LinkedIn tab didn't answer");
   if (r.error) throw new Error(r.error.message || String(r.error));
@@ -142,20 +165,15 @@ async function tick() {
   } finally { clearInterval(ka); busy = false; }
 }
 
-// Checks each LinkedIn read without saving or sending anything.
+// Checks each LinkedIn call without saving or sending anything, and saves the details to the CRM so they can be fixed.
 async function selfTest() {
-  const out = [];
   const me = await op("me");
-  out.push(me.signed_in ? "Signed in as " + me.name : "Not signed in to LinkedIn");
-  if (!me.signed_in) return { lines: out };
-  try { const c = await op("connections"); out.push("Connections: read " + c.length + " recent"); } catch (e) { out.push("Connections: " + e.message); }
-  try {
-    let { qid } = await store.get("qid");
-    let t = await op("threads", { me, qid });
-    if (t.need_qid) { await go("https://www.linkedin.com/messaging/"); qid = (await op("findQid")).qid; await store.set({ qid }); t = qid ? await op("threads", { me, qid }) : {}; await go("https://www.linkedin.com/feed/"); }
-    out.push(t.threads ? "Messages: read " + t.threads.length + " recent chats" : "Messages: couldn't find the messaging feed");
-  } catch (e) { out.push("Messages: " + e.message); }
-  try { const e = await op("engagers", { me, days: 7 }); out.push("Posts (last 7 days): " + e.posts + ", likes and comments: " + e.items.filter((i) => i.type !== "post").length + (e.err ? " (" + e.err + ")" : "")); } catch (e) { out.push("Posts: " + e.message); }
-  try { await api("status", { note: "self-test: " + out.join(" | ") }); out.push("CRM: connected"); } catch (e) { out.push("CRM: " + e.message); }
+  let h = {}; try { h = await api("hello", { me, version: VERSION, signed_in: me.signed_in }); } catch (_) {}
+  let q = { qid: "", qids: [] };
+  if (me.signed_in) { await go("https://www.linkedin.com/messaging/"); q = await op("findQid"); await go("https://www.linkedin.com/feed/"); }
+  const d = await op("diagnose", { qid: q.qid, qids: q.qids, extra_posts: h.extra_posts || [] });
+  const out = d.lines || [];
+  try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
+  if (d.qid) await store.set({ qid: d.qid });
   return { lines: out };
 }
