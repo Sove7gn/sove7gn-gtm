@@ -405,11 +405,10 @@ function poll(){ticks++;if(Date.now()<(S.liveUntil||0))return liveLoad().catch((
 // Refresh: reload the sheet now and ask the team's computer to run the post tracker (new numbers and replies from X).
 async function refresh(){
   if(S.pub){
-    let asked=false;
-    try{await scriptCall({action:"refresh"});asked=true}catch(e){}
+    toast("Checking X for new replies, quotes and post numbers…");
+    xRun("x-engage",false,{manual:true});   // shows "Checking X…" on the button until it answers
+    try{await scriptCall({action:"refresh"})}catch(e){}
     await goLive();liLoad(true);
-    toast("Up to date. Checking X for new numbers and replies too; they land in about a minute.");
-    xRun("x-engage",true);
     return;
   }
   if(!S.mcp)return;
@@ -1158,7 +1157,9 @@ async function lisRun(){
 }
 /* Likers (10 Nov): X shows likes only to us, so they're pasted in from X's notifications; x-engage looks them up and writes the DM. */
 async function addLikers(text){
-  const handles=[...new Set(String(text||"").split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];
+  const all=[...new Set(String(text||"").split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];
+  const links=all.filter(x=>/status(es)?\/\d+/.test(x)),handles=all.filter(x=>!/status(es)?\/\d+/.test(x));
+  if(links.length){await xRun("x-engage",false,{links});await publicLoad();if(!handles.length)return true}
   if(!handles.length)return false;
   try{const r=await scriptCall({action:"addLikers",handles});const n=+String(r).split(" ")[1]||0;
     if(!n){toast("They're all on the list already.");return true}
@@ -1173,7 +1174,8 @@ async function xRun(slug,quiet,body){
     if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
     if(data&&data.skipped){if(!quiet)toast(data.skipped)}
     else if(data&&slug==="x-leads")toast("Added "+data.added+" new "+(data.added===1?"person":"people")+" to DM. "+data.added_today+" today so far.");
-    else if(data&&!quiet)toast("Checked X: "+data.posts+" posts, "+data.new_people+" new people replied or mentioned you.");
+    else if(data&&data.added!=null&&!quiet)toast(data.added?"Added "+data.added+(data.added===1?" reply":" replies")+" to Engaged, with a reply and DM ready.":"Nothing new in those links.");
+    else if(data&&!quiet)toast("Checked X: "+data.posts+" posts, "+data.new_people+" new "+(data.new_people===1?"person":"people")+" replied, quoted or mentioned you"+(data.tagged?", "+data.tagged+" tagged":"")+".");
     return data}
   catch(e){if(!quiet)toast((slug==="x-leads"?"The lead search":"The X check")+" didn't finish: "+(e.message||e),true);return null}
   finally{XJ.running[slug]=false;await publicLoad();xRunsLoad()}

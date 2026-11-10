@@ -42,6 +42,9 @@ Deno.serve(async (req) => {
   const { data: last } = await db.from("crm_sync_runs").select("started_at").eq("platform", "x").eq("ok", true).order("started_at", { ascending: false }).limit(1);
   const body = await req.json().catch(() => ({}));
   if (!req.headers.get("x-cron-secret") && !body?.likers && last?.[0] && Date.now() - new Date(last[0].started_at).getTime() < 20 * 60e3) return json({ skipped: "Checked X less than 20 minutes ago." });
+  if (Array.isArray(body?.links) && body.links.length) {
+    try { return json(await addByLinks(body.links)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 500); }
+  }
   const { data: run, error: busy } = await db.from("crm_sync_runs").insert({ platform: "x" }).select("id").single();
   if (busy) return json({ skipped: "A check is already running." });
   try {
@@ -49,7 +52,7 @@ Deno.serve(async (req) => {
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary }).eq("id", run.id);
     return json(summary);
   } catch (e) {
-    const error = String((e as Error).message ?? e);
+    const error = await plainError(String((e as Error).message ?? e));
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: false, error }).eq("id", run.id);
     return json({ error }, 500);
   }
@@ -91,7 +94,7 @@ async function judge(author: any, said: string, ourPost: string, how: string) {
     why: { type: "string", description: "One plain sentence: who they are and why this verdict" },
     company: { type: "string" },
     reply: { type: "string", description: "Our public reply under their post, as Reyansh: max 200 characters, specific to what they said, friendly, no pitch, no links, no hashtags, no em dashes, no 'Great point'." },
-    dm: { type: "string", description: "Only for DM + reply: a DM from Reyansh, max 300 characters, that mentions what they said, adds one useful thought, and ends with a light question. No pitch in the first line, no links, no em dashes. Empty otherwise." } } };
+    dm: { type: "string", description: "Only for DM + reply: a DM from Reyansh, max 300 characters, that mentions what they said, adds one useful thought, and ends with a light question, or, for a founder who fits well, a low-pressure offer of a quick 15-minute call. Sounds like a person typed it. No pitch in the first line, no links, no em dashes. Empty otherwise." } } };
   const res = await fetch("https://api.exa.ai/search", {
     method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " company", numResults: 3, outputSchema: schema,
@@ -102,6 +105,61 @@ async function judge(author: any, said: string, ourPost: string, how: string) {
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
+}
+
+// Apify errors, in words: the monthly limit, or X's search being down for a bit.
+async function plainError(msg: string) {
+  if (!/apify/i.test(msg)) return msg;
+  try {
+    const r = await fetch("https://api.apify.com/v2/users/me/limits", { headers: { Authorization: "Bearer " + APIFY } });
+    const d = (await r.json()).data;
+    if (d && d.current.monthlyUsageUsd >= d.limits.maxMonthlyUsageUsd - 0.01)
+      return "X couldn't be read: Apify's monthly limit ($" + d.limits.maxMonthlyUsageUsd + ") is used up. It resets on " +
+        new Date(d.monthlyUsageCycle?.endAt ?? Date.now()).toDateString().slice(4, 10) + ", or raise it in Apify → Billing. Pasting a reply's link still works.";
+  } catch { /* fall through */ }
+  return "X's search service didn't answer just now. Try again in a few minutes.";
+}
+
+// One post from X's public embed endpoint (no login, no Apify): text, author, and the post it replies to.
+async function onePost(id: string) {
+  const r = await fetch("https://cdn.syndication.twimg.com/tweet-result?id=" + id + "&lang=en&token=4");
+  if (!r.ok) return null;
+  const d = await r.json().catch(() => null);
+  return d && d.user ? d : null;
+}
+
+// Replies or quotes pasted as links on the Engaged page: read each one, judge it, write the reply and the DM.
+async function addByLinks(links: string[]) {
+  const ids = [...new Set(links.map((l) => (String(l).match(/status(?:es)?\/(\d+)/) || [])[1]).filter(Boolean))].slice(0, 20);
+  const { data: pe } = await db.from("crm_sheet").select("cells").eq("tab", "Post Engagers").gte("row", 4);
+  const have = new Set((pe ?? []).map((r) => String(r.cells?.[11] || "").replace(/^.*\/status\//, "")).filter(Boolean));
+  const engagers: any[] = [];
+  let skipped = 0;
+  for (const id of ids) {
+    if (have.has(id)) { skipped++; continue; }
+    const t = await onePost(id);
+    if (!t || String(t.user.screen_name).toLowerCase() === HANDLE.toLowerCase()) { skipped++; continue; }
+    const parentId = t.in_reply_to_status_id_str || t.quoted_tweet?.id_str || "";
+    const parent = parentId ? await onePost(parentId) : null;
+    const ours = parent && String(parent.user?.screen_name || "").toLowerCase() === HANDLE.toLowerCase();
+    const how = t.quoted_tweet ? "Quoted" : t.in_reply_to_status_id_str ? "Replied" : "Mentioned";
+    const ourText = ours ? String(parent.text || "") : "";
+    const author = { name: t.user.name, userName: t.user.screen_name, followers: t.user.followers_count, description: t.user.description || "" };
+    const tagged = ourText && new RegExp("@" + t.user.screen_name + "\\b", "i").test(ourText);
+    const o: any = await judge(author, String(t.text || ""), (tagged ? "(We tagged them in this post.) " : "") + ourText, how).catch(() => null);
+    const L = "https://x.com/" + t.user.screen_name + "/status/" + id;
+    engagers.push([istStamp(new Date(t.created_at || Date.now())), ACCOUNT, ours ? "https://x.com/" + HANDLE + "/status/" + parentId : L, clip(ourText || "(a post)", 200), how,
+      t.user.screen_name, t.user.name || "", clip(author.description, 200), String(t.user.followers_count ?? ""), "", String(t.text || ""), L,
+      o?.fit || "Good fit", ACCOUNT, noDash(o?.dm || ""), o?.verdict === "Skip" ? "Dismissed" : "To message", "", noDash(o?.reply || ""), o?.verdict || "DM + reply",
+      noDash(o?.why || (tagged ? "We tagged them in our post." : "")), String(t.user.id_str || "")]);
+  }
+  let added = 0;
+  if (engagers.length) {
+    const { data: res, error } = await db.rpc("crm_call", { body: { action: "track", posts: [], snapshots: [], newPosts: [], engagers } });
+    if (error) throw error;
+    added = +((String(res).match(/(\d+) new people/) || [])[1] || 0);   // the database skips anyone already listed for that post
+  }
+  return { added, skipped: skipped + engagers.length - added };
 }
 
 async function syncX() {

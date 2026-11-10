@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=586d3fde97"></script>
+<script src="./data.js?v=aac720b1ed"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -776,8 +776,9 @@ class Component extends DCLogic {
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
     if(page==='pipeline'&&s.pipeTab==='Scripts'){h.next='Each new lead gets the next script in turn. Edit one here and every unsent message uses the new text.';}
-    if(page==='engaged'){const E=this.engagers().filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip');
-      h.next=rep.length?rep.length+(rep.length===1?' person replied':' people replied')+' to your DMs. Answer them first.':E.length?E.length+(E.length===1?' person':' people')+' engaged with your posts. Copy the reply or DM, send it, then press Done.':'Nothing waiting. New replies, quotes and mentions show up here every 6 hours.';}
+    if(page==='engaged'){const E=this.engagers().filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip');const lr=(AK.XJ.runs.x||[])[0];const failed=lr&&lr.ok===false&&lr.error;
+      h.next=rep.length?rep.length+(rep.length===1?' person replied':' people replied')+' to your DMs. Answer them first.':E.length?E.length+(E.length===1?' person':' people')+' engaged with your posts. Copy the reply or DM, send it, then press Done.':failed?'Last check of X failed ('+this.since(lr.started_at)+'): '+lr.error:'Nothing waiting. New replies, quotes and mentions show up here every 6 hours.';
+      if(AK.XJ.running['x-engage'])h.next='Checking X for new replies, quotes and mentions\u2026 about a minute.';}
     if(page==='pipeline'&&s.pipeTab!=='Scripts'){const sent=P.filter(p=>['Contacted','Follow-up 1 sent','Follow-up 2 sent'].includes(p.stage)).length;
       h.next=rep.length?rep.length+' people replied and are waiting on us. Calls come next: '+calls.length+' booked.':P.length+' people in the pipeline. '+sent+' have a message out and nobody is waiting on a reply from us.';h.cta=rep.length?'Open replies':'';h.go=rep.length?()=>this.go('inbox'):null;}
     if(page==='inbox'){h.title='Replies and calls';h.next=rep[0]?'Reply to '+rep[0].first+' at '+rep[0].company+'. Then prep for '+(calls[0]?calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:''):'your next call')+'.':calls[0]?'Nobody is waiting on a reply. Prep for '+calls[0].first+'’s call'+(calls[0].call?' on '+calls[0].call:'')+'.':(()=>{const R=this.postReplies();const b=R.filter(e=>verdictOf(e)==='DM + reply');return R.length?R.length+(R.length===1?' reply is':' replies are')+' worth answering'+(b.length?', '+b.length+' from people who fit our ICP. Start with '+String(b[0].Name||b[0].Handle).split(' ')[0]+'.':'. Reply under their comments.'):'Nobody is waiting on a reply.';})();h.cta=rep[0]?'Reply to '+rep[0].first:calls[0]?'Prep the call':'';h.go=rep[0]?()=>this.openC(rep[0].id):calls[0]?()=>this.openC(calls[0].id):null;}
@@ -1006,7 +1007,7 @@ class Component extends DCLogic {
       open:()=>this.openC(p.id),openX:()=>xDm(p.xid,p.handle,''),xLabel:p.xid?'Open DM':'Open X',cta:kind==='call'?'Prep the call':'Open and reply'});
     const tab=(id,label,c)=>{const on=(id==='done')!==isTodo;return{label,count:String(c),go:()=>this.setState({engTab:id}),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};};
     const lk={text:s.likersTxt||'',onText:e=>this.setState({likersTxt:e.target.value}),busy:AK.XJ.running['x-engage'],
-      label:AK.XJ.running['x-engage']?'Looking them up\u2026 about a minute':'Add and write their DMs',
+      label:AK.XJ.running['x-engage']?'Reading them\u2026 about a minute':'Add and write replies and DMs',
       add:async()=>{const t=this.state.likersTxt||'';if(!t.trim()||AK.XJ.running['x-engage']||!AK.canEdit())return;const ok=await AK.addLikers(t);if(ok)this.setState({likersTxt:''});}};
     return{lk,isTodo,tabs:[tab('todo','To do',todo.length),tab('done','Done',done.length)],replies:L.rep.map(p=>pRow(p,'reply')),hasReplies:L.rep.length>0&&isTodo,calls:L.calls.map(p=>pRow(p,'call')),hasCalls:L.calls.length>0&&isTodo,
       cards:list.slice(0,n).map(card),hasCards:list.length>0,none:!list.length&&!(isTodo&&(L.rep.length||L.calls.length)),
@@ -2111,7 +2112,7 @@ class Component extends DCLogic {
       rootRef:this.rootRef,mainRef:this.mainRef,palRef:this.palRef,F,density:narrow?'touch':'comfy',glassMode:{'Frosted':'frosted','Clear':'clear','Solid white':'solid'}[this.props.glass??'Frosted']||'frosted',
       wide:!narrow,narrow,isPhone:!!F.phone,phoneTime:hhmm(Date.now()),amb,nav:this.navVals(c),owners:this.ownerVals(),owner:s.owner,onOwnerSel:e=>this.setOwner(e.target.value),
       openPal:()=>this.openPal(),status:!at?(AK.gate()&&!AK.gate().wait?'Not connected':'Connecting…'):this.founder?'View only · updated '+tm:src+' · '+tm,statusShort:this.founder?'View only · '+tm:'Updated '+tm,
-      refresh:()=>{AK.refresh();},openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
+      refresh:()=>{if(!AK.XJ.running['x-engage'])AK.refresh();},refreshLabel:AK.XJ.running['x-engage']?'Checking X\u2026':'Refresh now',openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
       plats:this.platVals(),plat:s.plat,isLiMode:s.plat==='LinkedIn',onPlatSel:e=>this.setPlat(e.target.value),
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
       tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=s.plat!=='X'?0:x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;const lb=this.lastBy&&this.lastBy[s.plat+'|'+x.id];return{label:x.label,go:()=>this.go(lb&&x.pages.includes(lb)?lb:x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
@@ -2215,7 +2216,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="width:7px; height:7px; border-radius:50%; flex:0 0 7px; background:var(--ok); animation:ak-live 2.4s var(--ease) infinite;"></span>
 <span>{{ status }}</span>
 </button>
-<button onClick="{{ refresh }}" title="Reload now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Refresh now</button>
+<button onClick="{{ refresh }}" title="Reload now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ refreshLabel }}</button>
 <a href="#" onClick="{{ openSheet }}" style="display:flex; align-items:center; justify-content:space-between; height:32px; padding:0 12px; border-radius:var(--r-btn); background:rgba(255,255,255,.65); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; color:var(--ink); transition:background var(--dur), box-shadow var(--dur);" style-hover="background:#fff; color:var(--ink); box-shadow:var(--shadow-sm);">Database<span style="color:var(--ink-3);">↗</span></a>
 </div>
 </div>
@@ -3684,8 +3685,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <sc-if value="{{ eng.isTodo }}">
 <div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; padding:12px 14px; border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);">
-<label style="flex:1 1 320px; display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs); color:var(--ink-3);"><span><b style="color:var(--ink);">Who liked your posts?</b> X only shows likes to you: open a post's likes on X, then paste their @handles or profile links here.</span>
-<textarea value="{{ eng.lk.text }}" onChange="{{ eng.lk.onText }}" rows="2" placeholder="@someone, @another, x.com/third" style="padding:8px 10px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+<label style="flex:1 1 320px; display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs); color:var(--ink-3);"><span><b style="color:var(--ink);">Someone replied, quoted or liked and it's not here?</b> Paste the link to their reply or quote (copy it from X), or the @handles of people who liked a post. You get a reply and a DM ready to copy.</span>
+<textarea value="{{ eng.lk.text }}" onChange="{{ eng.lk.onText }}" rows="2" placeholder="x.com/them/status/123…  or  @someone, @another" style="padding:8px 10px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
 <button onClick="{{ eng.lk.add }}" style="height:var(--btn-h-sm); padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ eng.lk.label }}</button>
 </div>
 </sc-if>

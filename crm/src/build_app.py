@@ -141,7 +141,7 @@ rep('<div style="flex:2 1 300px; display:flex; flex-direction:column; gap:4px;">
 
 # ---------- sidebar: a visible Refresh button above Open sheet ----------
 rep('<a href="#" onClick="{{ openSheet }}"',
-    '<button onClick="{{ refresh }}" title="Reload the sheet now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Refresh now</button>\n'
+    '<button onClick="{{ refresh }}" title="Reload the sheet now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ refreshLabel }}</button>\n'
     '<a href="#" onClick="{{ openSheet }}"')
 
 # ---------- calendar (31 Oct): the design's week grid is swapped for src/calendar.html ----------
