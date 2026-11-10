@@ -234,16 +234,18 @@ async function selfTestRun() {
   let domTest = null, net = null;
   if (me.signed_in) {
     try {
-      const lp = (await op("latestPost", { me })).id || (h.extra_posts || [])[0];
+      const lp = (h.probe && h.probe.post) || (await op("latestPost", { me })).id || (h.extra_posts || [])[0];
       if (lp) { await go("https://www.linkedin.com/feed/update/urn:li:activity:" + lp + "/"); const r = await op("domComments", { me }); net = await op("netlog");
-        domTest = { post: lp, found: r.found, read: r.list.length, sample: r.sample, first: r.list[0] ? { id: !!r.list[0].id, pid: !!r.list[0].pid, name: !!r.list[0].name, headline: !!r.list[0].headline, text: !!r.list[0].text } : null };
+        const pr = await op("domProbe", { names: (h.probe && h.probe.names) || [] });
+        domTest = { post: lp, expected: h.probe ? h.probe.names.length : null, found: r.found, anchors: r.anchors, read: r.list.length, probe: pr,
+          first: r.list[0] ? { id: !!r.list[0].id, pid: !!r.list[0].pid, name: r.list[0].name.slice(0, 20), headline: !!r.list[0].headline, text: !!r.list[0].text } : null };
         await go("https://www.linkedin.com/feed/"); }
     } catch (x) { domTest = { err: String(x.message || x) }; }
   }
   const d = await op("diagnose", { qid: q.qid, qids: [...new Set([...(q.qids || []), ...qids_seen])], extra_posts: h.extra_posts || [], cqid });
   d.steps.page_comments = domTest; d.steps.post_page_calls = net;
   const out = d.lines || [];
-  if (domTest) out.splice(3, 0, "Comments on your newest post (read from the page): " + (domTest.err ? "problem: " + domTest.err : domTest.read + " read"));
+  if (domTest) out.splice(3, 0, "Comments on a post with known comments (read from the page): " + (domTest.err ? "problem: " + domTest.err : domTest.read + " read"));
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
   if (d.qid) await store.set({ qid: d.qid });
   return { lines: out };

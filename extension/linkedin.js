@@ -161,35 +161,69 @@ export async function liOp(op, a = {}) {
     } catch (e) { return { id: "", err: String(e.message) }; }
   }
 
-  // Comments as shown on the post page open in this tab: opens every "load more", then reads each comment's author link,
-  // name, headline and text. Used because LinkedIn's post page no longer loads comments through a call we can reuse.
+  // Comments as shown on the post page open in this tab. LinkedIn's new post pages have no stable class names, so a comment
+  // is found by its shape: an author profile link, a block of text around it, and a "Reply" button, with no other person's
+  // link inside. Opens every "load more" first.
   async function domComments(x) {
-    for (let i = 0; i < 40 && !document.querySelector("article, [data-id*='comment'], .comments-comments-list"); i++) await sleep(500);
-    window.scrollTo(0, document.body.scrollHeight / 3); await sleep(1200);
+    for (let i = 0; i < 30 && document.querySelectorAll("a[href*='/in/']").length < 2; i++) await sleep(500);
+    await sleep(1500);
     const label = (b) => ((b.innerText || "") + " " + (b.getAttribute("aria-label") || "")).toLowerCase();
     for (let i = 0; i < 25; i++) {
-      const more = [...document.querySelectorAll("button")].find((b) => /load more comments|show more comments|see more comments|load previous replies|more comments/.test(label(b)) && b.offsetParent);
+      window.scrollTo(0, document.body.scrollHeight); await sleep(900);
+      const more = [...document.querySelectorAll("button, [role=button]")].find((b) => /load more comments|show more comments|see more comments|more comments|previous replies|show more replies/.test(label(b)) && b.offsetParent);
       if (!more) break;
       more.scrollIntoView({ block: "center" }); more.click(); await sleep(1400 + Math.random() * 900);
     }
-    const nodes = [...document.querySelectorAll("article")].filter((a) => /comment/i.test(a.className + " " + (a.getAttribute("data-id") || "") + " " + (a.getAttribute("aria-label") || "")));
-    const list = [], seen = new Set();
-    for (const a of nodes) {
-      const link = [...a.querySelectorAll("a[href*='/in/']")].find((l) => !l.closest("article article") || l.closest("article") === a);
-      if (!link) continue;
-      const href = link.href.split("?")[0];
-      const id = acoa(href), pid = vanity(href);
-      const key = (id || pid) + "|" + (a.getAttribute("data-id") || list.length);
-      if (seen.has(key)) continue; seen.add(key);
-      const pick = (re) => { const el = [...a.querySelectorAll("*")].find((e) => re.test(e.className || "") && e.closest("article") === a); return el ? el.innerText.trim() : ""; };
-      const name = pick(/description-title|comment-meta__description-title|actor__name|commenter-name/) || (link.getAttribute("aria-label") || link.innerText || "").replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").split("\n")[0].trim();
-      const headline = pick(/description-subtitle|comment-meta__description-subtitle|actor__description|headline/);
-      const text = pick(/comment-item__main-content|comments-comment-item-content-body|main-content|update-components-text/);
-      if (!id && !pid) continue;
-      if ((x.me && (id === x.me.urn || pid === x.me.pid))) continue;
-      list.push({ id, pid, name: name.slice(0, 120), headline: headline.split("\n")[0].slice(0, 200), text: text.slice(0, 1000) });
+    const prof = (h) => { const id = acoa(h), pid = vanity(h); return id || pid ? (id || pid).toLowerCase() : ""; };
+    const meKeys = new Set([String(x.me && x.me.urn || "").toLowerCase(), String(x.me && x.me.pid || "").toLowerCase()]);
+    const anchors = [...document.querySelectorAll("a[href*='/in/']")].filter((l) => !l.closest("header, nav, aside") && prof(l.href) && !meKeys.has(prof(l.href)));
+    const isReply = (el) => [...el.querySelectorAll("button, [role=button], span")].some((b) => /^reply$/i.test((b.innerText || "").trim()) || /^reply/i.test(b.getAttribute("aria-label") || ""));
+    const blocks = new Map();
+    for (const l of anchors) {
+      const key = prof(l.href);
+      let node = l, best = null;
+      for (let up = 0; up < 14 && node.parentElement; up++) {
+        const par = node.parentElement;
+        const others = [...par.querySelectorAll("a[href*='/in/']")].some((o) => prof(o.href) && prof(o.href) !== key && !meKeys.has(prof(o.href)) && !l.contains(o));
+        if (others) break;
+        node = par;
+        if (isReply(node)) { best = node; break; }
+      }
+      if (!best || blocks.has(best)) continue;
+      blocks.set(best, { key, href: l.href.split("?")[0], name: (l.innerText || l.getAttribute("aria-label") || "").trim() });
     }
-    return { list, found: nodes.length, sample: nodes[0] ? nodes[0].className.slice(0, 120) : "", url: location.pathname };
+    const list = [], seen = new Set();
+    for (const [el, info] of blocks) {
+      const lines = el.innerText.split("\n").map((t) => t.trim()).filter(Boolean);
+      const junk = /^(like|reply|replies|\d+\s*(m|h|d|w|mo|yr)s?|\d+|•|·|edited|author|follow|connect|see translation|…more|more|\d+(st|nd|rd|th)\+?|1st|2nd|3rd\+?|· (1st|2nd|3rd\+?))$/i;
+      const name = (lines[0] || info.name).split("\n")[0].replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").slice(0, 120);
+      const rest = lines.slice(1).filter((t) => !junk.test(t) && t !== name);
+      const headline = rest[0] || "";
+      const text = rest.slice(1).sort((p, q) => q.length - p.length)[0] || "";
+      const id = acoa(info.href), pid = vanity(info.href);
+      if (seen.has(info.key + "|" + text.slice(0, 40))) continue; seen.add(info.key + "|" + text.slice(0, 40));
+      list.push({ id, pid, name, headline: headline.slice(0, 200), text: text.slice(0, 1000) });
+    }
+    return { list, found: blocks.size, anchors: anchors.length, url: location.pathname };
+  }
+
+  // For fixing the reader: where known commenters' names sit on the page, as a chain of parent elements.
+  function domProbe(x) {
+    const out = [];
+    const attrs = (e) => [e.tagName.toLowerCase(), e.getAttribute("role") && "role=" + e.getAttribute("role"), e.getAttribute("data-testid") && "testid=" + e.getAttribute("data-testid").slice(0, 40),
+      e.getAttribute("componentkey") && "ck=" + e.getAttribute("componentkey").slice(0, 40), e.getAttribute("aria-label") && "aria=" + e.getAttribute("aria-label").slice(0, 40),
+      e.className && typeof e.className === "string" && "cls=" + e.className.slice(0, 50)].filter(Boolean).join(" ");
+    for (const n of (x.names || []).slice(0, 3)) {
+      const first = n.split(/\s+/)[0];
+      const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let hit = null; while (w.nextNode()) { if (w.currentNode.nodeValue.includes(first)) { hit = w.currentNode.parentElement; break; } }
+      if (!hit) { out.push({ name: first, found: false }); continue; }
+      const chain = []; let e = hit;
+      for (let i = 0; i < 12 && e; i++, e = e.parentElement) chain.push(attrs(e) + " | links:" + e.querySelectorAll("a[href*='/in/']").length + " len:" + (e.innerText || "").length);
+      out.push({ name: first, found: true, chain });
+    }
+    const withComment = [...document.querySelectorAll("*")].filter((e) => /comment/i.test([e.getAttribute("data-testid"), e.getAttribute("componentkey"), e.getAttribute("aria-label"), typeof e.className === "string" ? e.className : ""].join(" "))).slice(0, 12).map(attrs);
+    return { probes: out, comment_attrs: withComment, buttons: [...new Set([...document.querySelectorAll("button")].map((b) => (b.innerText || b.getAttribute("aria-label") || "").trim().slice(0, 30)).filter(Boolean))].slice(0, 40) };
   }
 
   // Every LinkedIn API call this page made (paths only), to see how a page loads its data.
@@ -351,6 +385,7 @@ export async function liOp(op, a = {}) {
     case "diagnose": return diagnose(a);
     case "latestPost": return latestPost(a);
     case "domComments": return domComments(a);
+    case "domProbe": return domProbe(a);
     case "netlog": return netlog();
     case "invite": return invite(a);
     case "message": return message(a);
