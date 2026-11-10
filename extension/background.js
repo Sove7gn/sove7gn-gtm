@@ -84,6 +84,21 @@ async function op(name, args = {}) {
 }
 const keepAlive = () => setInterval(() => chrome.runtime.getPlatformInfo(), 20e3);
 
+// LinkedIn's comments call needs a query id that changes when LinkedIn ships a new version. Opening one of our posts makes
+// the page use it, so it's read from there and kept until LinkedIn rejects it.
+async function commentsQid(me, extra, force) {
+  let { cqid } = await store.get("cqid");
+  if (cqid && !force) return cqid;
+  let id = (await op("latestPost", { me })).id || (extra || [])[0] || "";
+  if (!id) return "";
+  await go("https://www.linkedin.com/feed/update/urn:li:activity:" + id + "/");
+  const q = await op("findQid");
+  cqid = (q.qids || []).find((x) => /^voyagerSocialDashComments\./.test(x)) || "";
+  await store.set({ cqid, qids_seen: q.qids || [] });
+  await go("https://www.linkedin.com/feed/");
+  return cqid;
+}
+
 async function sync(fromButton) {
   if (busy) return { busy: true };
   busy = true; const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
@@ -96,7 +111,12 @@ async function sync(fromButton) {
 
     // 1. Everyone who liked or commented on our posts (every 3 hours).
     if (h.scan_engagers) {
-      const e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [] });
+      let cqid = await commentsQid(me, h.extra_posts);
+      let e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
+      if (/graphql: GET graphql answered 4/.test(e.err || "")) {                     // query id went stale: learn it again
+        cqid = await commentsQid(me, h.extra_posts, true);
+        e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
+      }
       const r = await api("engagers", { items: e.items });
       summary.engagers = r;
       await log("Checked " + e.posts + " posts: " + e.items.filter((i) => i.type !== "post").length + " likes and comments. New ICP leads: " + (r.leads_added ?? 0) + (e.err ? ". Problem: " + e.err : ""), !!e.err);
@@ -182,7 +202,9 @@ async function selfTestRun() {
   let h = {}; try { h = await api("hello", { me, version: VERSION, signed_in: me.signed_in }); } catch (_) {}
   let q = { qid: "", qids: [] };
   if (me.signed_in) { await go("https://www.linkedin.com/messaging/"); q = await op("findQid"); await go("https://www.linkedin.com/feed/"); }
-  const d = await op("diagnose", { qid: q.qid, qids: q.qids, extra_posts: h.extra_posts || [] });
+  let cqid = ""; if (me.signed_in) { try { cqid = await commentsQid(me, h.extra_posts, true); } catch (_) {} }
+  const { qids_seen = [] } = await store.get("qids_seen");
+  const d = await op("diagnose", { qid: q.qid, qids: [...new Set([...(q.qids || []), ...qids_seen])], extra_posts: h.extra_posts || [], cqid });
   const out = d.lines || [];
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
   if (d.qid) await store.set({ qid: d.qid });

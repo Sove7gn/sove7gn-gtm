@@ -97,23 +97,15 @@ export async function liOp(op, a = {}) {
         if (rs.length < 100) break;
         await jitter(800, 1600);
       }
-      // Comments.
-      for (let start = 0; start < 500; start += 100) {
-        let j; try { j = await get("feed/comments?count=100&q=comments&sortOrder=RELEVANCE&start=" + start + "&updateId=activity:" + p.id); } catch (e) { out.err = String(e.message); break; }
-        const cs = inc(j).filter((e) => /\.Comment$/.test(e.$type || ""));
-        const minis = new Map(inc(j).filter((e) => e.publicIdentifier).map((m) => [String(m.entityUrn), m]));
-        for (const c of cs) {
-          const mref = (c.commenter && (c.commenter["*miniProfile"] || (c.commenter["com.linkedin.voyager.feed.MemberActor"] || {})["*miniProfile"])) || "";
-          const m = minis.get(mref) || {};
-          const id = acoa(m.dashEntityUrn || m.entityUrn || mref);
-          if (!id || id === x.me.urn) continue;
-          out.push({ type: "comment", postId: p.id, commentary: txt(c.commentV2 || c.comment && c.comment.values && c.comment.values[0]), createdAt: c.createdTime ? new Date(c.createdTime).toISOString() : null,
-            actor: { id, linkedinUrl: m.publicIdentifier ? "https://www.linkedin.com/in/" + m.publicIdentifier : "https://www.linkedin.com/in/" + id,
-              name: [m.firstName, m.lastName].filter(Boolean).join(" "), position: m.occupation || "" } });
-          counts.comments++;
-        }
-        if (cs.length < 100) break;
-        await jitter(800, 1600);
+      // Comments (LinkedIn retired feed/comments in 2026; see commentsOf).
+      const cm = await commentsOf(p.id, x.cqid);
+      if (cm.err) out.err = cm.err;
+      out.via = cm.via;
+      for (const c of cm.list) {
+        if (c.id === x.me.urn || (x.me.pid && c.pid === x.me.pid)) continue;
+        out.push({ type: "comment", postId: p.id, commentary: c.text, createdAt: c.at,
+          actor: { id: c.id || c.pid, linkedinUrl: "https://www.linkedin.com/in/" + (c.pid || c.id), name: c.name, position: c.headline } });
+        counts.comments++;
       }
       out.push({ type: "post", id: p.id, linkedinUrl: "https://www.linkedin.com/feed/update/urn:li:activity:" + p.id + "/", content: p.content,
         postedAt: { date: new Date(p.at).toISOString() }, engagement: counts,
@@ -121,6 +113,50 @@ export async function liOp(op, a = {}) {
       await jitter(1200, 2500);
     }
     return { items: out, posts: posts.length, err: out.err || "" };
+  }
+
+  // Comments on one post: LinkedIn's web app now uses voyagerSocialDashComments, either as GraphQL (query id learned from a
+  // post page, cqid) or as a plain finder. Tries each and uses the first one LinkedIn answers.
+  async function commentsOf(postId, cqid) {
+    const enc = (v) => encodeURIComponent(v).replace(/\(/g, "%28").replace(/\)/g, "%29");
+    const act = "urn:li:activity:" + postId;
+    const sd = "urn:li:fsd_socialDetail:(" + act + "," + act + ",urn:li:highlightedReply:-)";
+    const tries = [];
+    if (cqid) tries.push({ via: "graphql", url: (st) => "graphql?includeWebMetadata=true&variables=(count:100,numReplies:0,socialDetailUrn:" + enc(sd) + ",sortOrder:RELEVANCE,start:" + st + ")&queryId=" + cqid });
+    tries.push({ via: "finder", url: (st) => "voyagerSocialDashComments?count=100&numReplies=0&q=comments&socialDetailUrn=" + enc(sd) + "&sortOrder=RELEVANCE&start=" + st });
+    let err = "";
+    for (const t of tries) {
+      const list = [], seen = new Set();
+      try {
+        for (let st = 0; st < 500; st += 100) {
+          const j = await get(t.url(st));
+          const cs = inc(j).filter((e) => /\.Comment$/.test(e.$type || ""));
+          const profs = new Map(inc(j).filter((e) => e.publicIdentifier).map((q) => [acoa(q.entityUrn), q]));
+          for (const c of cs) {
+            if (seen.has(c.entityUrn)) continue; seen.add(c.entityUrn);
+            const who = c.commenter || {};
+            const id = acoa(JSON.stringify([who.actor, who.actorUnion, who.commenterProfileId, who.navigationUrl, who.image]));
+            const prof = profs.get(id) || {};
+            const pid = prof.publicIdentifier || vanity(who.navigationUrl);
+            if (!id && !pid) continue;
+            list.push({ id, pid, name: txt(who.title) || [prof.firstName, prof.lastName].filter(Boolean).join(" "), headline: txt(who.subtitle) || prof.headline || "",
+              text: txt(c.commentary), at: c.createdAt ? new Date(c.createdAt).toISOString() : null });
+          }
+          if (cs.length < 100) break;
+          await jitter(800, 1600);
+        }
+        return { list, via: t.via, err: "" };
+      } catch (e) { err = t.via + ": " + String(e.message || e); }
+    }
+    return { list: [], via: "", err: err || "no way to read comments" };
+  }
+
+  // Our newest post's id (to open its page once and learn the comments query id).
+  async function latestPost(x) {
+    try {
+      const j = await get("identity/profileUpdatesV2?count=5&includeLongTermHistory=true&moduleKey=member-shares%3Aphone&numComments=0&q=memberShareFeed&start=0&profileUrn=" + encodeURIComponent("urn:li:fsd_profile:" + x.me.urn));
+      return { id: ((JSON.stringify(j).match(/urn:li:activity:(\d+)/) || [])[1]) || "" };
+    } catch (e) { return { id: "", err: String(e.message) }; }
   }
 
   // Who connected with us recently.
@@ -232,11 +268,10 @@ export async function liOp(op, a = {}) {
         return { ...shape(j), sample: sample(r), lockup: r && r.reactorLockup ? sample(r.reactorLockup) : null };
       });
       await step("comments", async () => {
-        const j = await get("feed/comments?count=10&q=comments&sortOrder=RELEVANCE&start=0&updateId=activity:" + postId);
-        const c = inc(j).find((e) => /\.Comment$/.test(e.$type || ""));
-        return { ...shape(j), sample: sample(c), commenter: c && c.commenter ? sample(c.commenter) : null };
+        const c = await commentsOf(postId, x.cqid);
+        return { via: c.via, count: c.list.length, err: c.err, cqid: x.cqid || "", first: c.list[0] ? { id: !!c.list[0].id, pid: !!c.list[0].pid, name: !!c.list[0].name, headline: !!c.list[0].headline, text: !!c.list[0].text, at: !!c.list[0].at } : null };
       });
-      await step("engagers_parsed", async () => { const e = await engagers({ me: m, days: 60, extra_posts: [postId] }); return { posts: e.posts, items: e.items.length, reactions: e.items.filter((i) => i.type === "reaction").length, comments: e.items.filter((i) => i.type === "comment").length, err: e.err }; });
+      await step("engagers_parsed", async () => { const e = await engagers({ me: m, days: 60, extra_posts: [postId], cqid: x.cqid }); return { posts: e.posts, items: e.items.length, reactions: e.items.filter((i) => i.type === "reaction").length, comments: e.items.filter((i) => i.type === "comment").length, err: e.err }; });
     }
     let someone = null;
     await step("connections", async () => {
@@ -276,6 +311,7 @@ export async function liOp(op, a = {}) {
     case "threads": return threads(a);
     case "findQid": return findQid();
     case "diagnose": return diagnose(a);
+    case "latestPost": return latestPost(a);
     case "invite": return invite(a);
     case "message": return message(a);
     default: throw new Error("unknown op " + op);
