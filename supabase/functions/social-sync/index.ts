@@ -38,8 +38,9 @@ Deno.serve(async (req) => {
     .eq("platform", "linkedin").is("finished_at", null).lt("started_at", new Date(Date.now() - 5 * 60e3).toISOString());
   const { data: run, error: busy } = await db.from("crm_sync_runs").insert({ platform: "linkedin" }).select("id").single();
   if (busy) return json({ skipped: "A check is already running. Give it a minute." });
+  const body = await req.json().catch(() => ({}));
   try {
-    const summary = await syncLinkedIn();
+    const summary = await syncLinkedIn(Array.isArray(body?.items) ? body.items : null);
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary }).eq("id", run.id);
     return json(summary);
   } catch (e) {
@@ -58,26 +59,20 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd
 
 type Settings = { linkedin_profile?: string; icp?: string; add_hot?: boolean; add_warm?: boolean; enabled?: boolean; owner?: string };
 
-async function syncLinkedIn() {
+// items: what the LinkedIn bot (Chrome extension, via li-bot) read in Reyansh's own LinkedIn, in the same shape Apify returns.
+// When it's there, Apify isn't called at all.
+async function syncLinkedIn(given: any[] | null = null) {
   const { data: rows } = await db.from("crm_lead_settings").select("key,value").in("key", ["automation", "stages"]);
   const set = (rows?.find((r) => r.key === "automation")?.value ?? {}) as Settings;
   const firstStage = ((rows?.find((r) => r.key === "stages")?.value ?? []) as { name: string }[])[0]?.name ?? "New";
   if (set.enabled === false) return { skipped: "Automation is switched off." };
-  if (!set.linkedin_profile) return { skipped: "No LinkedIn profile is set on the Setup page." };
-  if (!APIFY) throw new Error("APIFY_TOKEN is missing.");
+  if (!given && !set.linkedin_profile) return { skipped: "No LinkedIn profile is set on the Setup page." };
+  if (!given && !APIFY) throw new Error("APIFY_TOKEN is missing.");
 
   // 1. Our newest posts, with everyone who reacted or commented.
-  const res = await fetch("https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?timeout=110", {
-    method: "POST",
-    headers: { Authorization: "Bearer " + APIFY, "Content-Type": "application/json" },
-    body: JSON.stringify({ targetUrls: [set.linkedin_profile], maxPosts: MAX_POSTS, includeQuotePosts: true, includeReposts: false,
-      scrapeReactions: true, maxReactions: 300, scrapeComments: true, maxComments: 100 }),
-  });
-  if (!res.ok) throw new Error("Apify answered " + res.status + ": " + (await res.text()).slice(0, 200));
-  const items = await res.json() as any[];
+  const items = given ?? await apifyPosts(set.linkedin_profile!);
   const posts = items.filter((i) => i.type === "post");
   const now = new Date().toISOString();
-
   // 2. Post numbers, plus a dated copy so the tracker can show growth.
   const postRows = posts.map((p) => ({ platform: "linkedin", post_id: String(p.id), url: p.linkedinUrl ?? "", text: p.content ?? "",
     posted_at: p.postedAt?.date ?? null, likes: p.engagement?.likes ?? 0, comments: p.engagement?.comments ?? 0,
@@ -212,4 +207,17 @@ async function judge(p: any, said: string, icp: string) {
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
+}
+
+
+// Apify reads our newest posts with everyone who reacted or commented (no login). Used only when the bot sent nothing.
+async function apifyPosts(profile: string) {
+  const res = await fetch("https://api.apify.com/v2/acts/harvestapi~linkedin-profile-posts/run-sync-get-dataset-items?timeout=110", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + APIFY, "Content-Type": "application/json" },
+    body: JSON.stringify({ targetUrls: [profile], maxPosts: MAX_POSTS, includeQuotePosts: true, includeReposts: false,
+      scrapeReactions: true, maxReactions: 300, scrapeComments: true, maxComments: 100 }),
+  });
+  if (!res.ok) throw new Error("Apify answered " + res.status + ": " + (await res.text()).slice(0, 200));
+  return await res.json() as any[];
 }

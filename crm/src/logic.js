@@ -190,7 +190,7 @@ class Component extends DCLogic {
     const dow=(new Date().getDay()+6)%7;
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,geTab:'new',geQ:'',geDraft:{},geAdd:{lead:'',url:'',at:'',text:'',draft:''},geMore:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:'',rel:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
-    pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
+    pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},lbtEd:{},lbtTpl:{},lbtN:20,inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
     week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
@@ -1003,7 +1003,7 @@ class Component extends DCLogic {
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
     if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
-    if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null};
+    if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
     if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
     if(page==='gtmEngage')return{...base,ge:this.gtmEngageVals(),lis:this.lisVals()};
@@ -1296,6 +1296,56 @@ class Component extends DCLogic {
         open:()=>this.openLead(l.id,'details'),merge:async()=>{if(await AK.gtm.merge(keep.id,l.id))this.toast('Merged '+(l.name||'the duplicate')+' into '+(keep.name||'the lead')+'.',()=>AK.leadArchive(l.id,false));}}))};});
     return{groups,hasGroups:groups.length>0,noGroups:!groups.length};}
   // LinkedIn Outreach: today's numbers against LinkedIn's limits (approximate; LinkedIn changes them without notice).
+  /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
+  liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
+    const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};
+    const L=all.filter(l=>l.source==='LinkedIn'&&String(l.origin_key||'').startsWith('li-person:')&&(l.heat==='Hot'||(set.include_warm&&l.heat==='Warm')));
+    const seenMin=st.seen?(Date.now()-Date.parse(st.seen))/6e4:null;
+    const health=!st.seen?{t:'The Chrome extension hasn’t connected yet. Install it (steps at the bottom), then press Run now in it.',c:'var(--warn)'}:
+      st.signed_in===false?{t:'Chrome is signed out of LinkedIn, so the bot is waiting. Sign in to LinkedIn in Chrome.',c:'var(--bad)'}:
+      seenMin>45?{t:'The extension last checked in '+this.since(st.seen)+'. It only runs while Chrome is open.',c:'var(--warn)'}:
+      {t:'The extension is running. Last check '+this.since(st.seen)+'.',c:'var(--ok)'};
+    const save=patch=>{if(!AK.canEdit())return;AK.leadSettingSave('li_bot',{...(AK.LD.settings.li_bot||{}),...patch});};
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const card=t=>{const l=byId.get(t.lead_id)||{};const ed=(s.lbtEd||{})[t.id];const tx=ed!=null?ed:t.text;
+      return{...avatar(l.name||'?'),id:t.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),kind:kindLabel(t),text:tx,
+        chars:t.kind==='invite'?tx.length+' / 300':tx.length+' characters',
+        onText:e=>{const v=e.target.value;this.setState(x=>({lbtEd:{...(x.lbtEd||{}),[t.id]:v}}));},
+        saveText:()=>{const v=(this.state.lbtEd||{})[t.id];if(v==null||v===t.text)return;if(t.kind==='invite'&&v.length>300){this.toast('A connection note can be 300 characters at most.',true);return;}AK.lbtSet(t.id,{text:v});},
+        approve:()=>AK.lbtSet(t.id,{status:'ready'}),skip:()=>AK.lbtSet(t.id,{status:'skipped'}),retry:()=>AK.lbtSet(t.id,{status:'ready'}),
+        err:t.error||'',when:this.since(t.sent_at||t.created_at),open:()=>{if(l.linkedin)window.open(l.linkedin,'_blank','noopener');}};};
+    const review=T.filter(t=>t.status==='review'),failed=T.filter(t=>t.status==='failed'),waiting=T.filter(t=>t.status==='ready'||t.status==='sending');
+    const sent=T.filter(t=>t.status==='sent').sort((a,b)=>Date.parse(b.sent_at)-Date.parse(a.sent_at));
+    const showN=s.lbtN||20;const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const w0=Date.now()-7*864e5;
+    const notesM=sent.filter(t=>t.kind==='invite'&&t.text&&Date.parse(t.sent_at)>=m0.getTime()).length,reqW=sent.filter(t=>t.kind==='invite'&&Date.parse(t.sent_at)>=w0).length;
+    const cnt=f=>String(L.filter(f).length);const reqN=L.filter(l=>LI(l).req).length,accN=L.filter(l=>LI(l).req&&LI(l).acc).length;
+    const funnel=[{label:'ICP people who engaged',v:String(L.length),d:'Hot leads from likes and comments'},
+      {label:'Request sent',v:String(reqN),d:notesM+' / '+(set.notes_month||250)+' notes this month · '+reqW+' this week'},
+      {label:'Accepted',v:String(accN),d:reqN?Math.round(accN/reqN*100)+'% of requests':'–'},
+      {label:'In follow-ups',v:cnt(l=>LI(l).dm&&!LI(l).stop&&!LI(l).replied),d:'DM 1 sent, no reply yet'},
+      {label:'Replied',v:cnt(l=>LI(l).replied),d:'Follow-ups stop on any reply'},
+      {label:'Call booked',v:cnt(l=>/^call booked$/i.test(l.stage)),d:'From the cal.com link'},
+      {label:'No reply after all follow-ups',v:cnt(l=>LI(l).stop==='no reply'),d:'Moved to Cold lead'}];
+    const tpl=s.lbtTpl||{};const tv=k=>tpl[k]!=null?tpl[k]:/^fu\d$/.test(k)?((set.fu||[])[+k.slice(2)-1]||''):(set[k]||'');
+    const tplRow=(k,label,hint)=>({k,label,hint,v:tv(k),on:e=>{const v=e.target.value;this.setState(x=>({lbtTpl:{...(x.lbtTpl||{}),[k]:v}}));},
+      save:()=>{const v=(this.state.lbtTpl||{})[k];if(v==null)return;if(/^fu\d$/.test(k)){const fu=[...(set.fu||[])];fu[+k.slice(2)-1]=v;save({fu});}else save({[k]:v});}});
+    const tpls=[tplRow('note','Connection note','Up to 300 characters. {first} = first name, {hook} = one line the bot writes about them, {where} = LinkedIn (or X and LinkedIn).'),
+      tplRow('dm1','DM 1, after they accept','Goes out only if they haven’t replied to the note. You can use {first} and {company}.'),
+      ...[1,2,3,4,5,6,7].map(n=>tplRow('fu'+n,'Follow-up '+n,n===1?'One a day after DM 1, until they reply.':''))];
+    const mode=set.mode==='auto'?'auto':'review';const H=set.hours||{};
+    const errOn=!!(st.last_error&&st.last_error_at&&Date.now()-Date.parse(st.last_error_at)<864e5);
+    return{health:health.t,healthC:health.c,hasErr:errOn,lastErr:errOn?'Last problem ('+this.since(st.last_error_at)+'): '+st.last_error:'',
+      paused:!!set.paused,running:!set.paused,modeReview:()=>save({mode:'review'}),modeAuto:()=>save({mode:'auto'}),pause:()=>save({paused:true}),resume:()=>save({paused:false}),
+      revBg:mode==='review'?'var(--ink)':'transparent',revFg:mode==='review'?'#fff':'var(--ink-2)',autoBg:mode==='auto'?'var(--ink)':'transparent',autoFg:mode==='auto'?'#fff':'var(--ink-2)',
+      modeText:(set.paused?'Paused: nothing is sent. ':'')+(mode==='review'?'Review mode: nothing goes out until you press Approve.':'Auto mode: new messages are approved on their own and sent while Chrome is open.'),
+      hoursText:'Sends between '+(H.from!=null?H.from:10)+':00 and '+(H.to!=null?H.to:24)+':00 IST, a few at a time with random gaps. '+waiting.length+' approved and waiting to send.',
+      funnel,review:review.slice(0,showN).map(card),reviewN:String(review.length),hasReview:review.length>0,noReview:!review.length,
+      moreReview:review.length>showN,showMore:()=>this.setState({lbtN:showN+40}),
+      approveAll:()=>{if(!AK.canEdit())return;const n=review.length;AK.lbtSet(review.map(t=>t.id),{status:'ready'}).then(ok=>ok&&this.toast('Approved '+n+'. The extension sends them a few at a time.'));},
+      failed:failed.map(card),hasFailed:failed.length>0,failedN:String(failed.length),sent:sent.slice(0,8).map(card),hasSent:sent.length>0,
+      tpls,warmLabel:set.include_warm?'Warm leads too: on':'Warm leads too: off',toggleWarm:()=>save({include_warm:!set.include_warm}),
+      writing:AK.LBT.running,idle:!AK.LBT.running,write:()=>{if(AK.canEdit())AK.lbtRun();},
+      noReviewText:AK.LBT.loaded?'Nothing waiting for your approval.':'Loading…'};}
   liOutVals(){const L=this.leadsAll();const t0=new Date();t0.setHours(0,0,0,0);const today=l=>new Date(l.stage_at||0)>=t0;
     const contacted=L.filter(l=>/^contacted$/i.test(l.stage)&&today(l)).length;const fresh=L.filter(l=>/^new$/i.test(l.stage)).length;
     const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const w0=AK.weekStart(0);const at=(x,f)=>x&&new Date(x)>=f;

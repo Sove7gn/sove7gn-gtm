@@ -1,6 +1,105 @@
 <!-- LinkedIn Outreach (9 Nov): LinkedIn's daily limits next to what we did today. Spliced in by build_app.py right before
      the lead lists it sits on (gtm.html); values come from liOutVals() in logic.js (ld.liOut). -->
 <sc-if value="{{ is.liOut }}">
+<!-- LinkedIn bot (11 Nov): the Chrome extension's status and switches, the funnel, messages waiting for approval, problems,
+     what went out recently, the messages it sends, and how to install it. Values from liBotVals() in logic.js (ld.bot). -->
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+<span style="width:18px; height:18px; border-radius:5px; display:grid; place-items:center; background:#0a66c2; color:#fff; font-size:11px; font-weight:700;">in</span>
+<span style="font-size:var(--fs-md); font-weight:600;">LinkedIn bot</span>
+<span style="display:inline-flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--ink-2);"><span style="width:8px; height:8px; border-radius:50%; background:{{ ld.bot.healthC }};"></span>{{ ld.bot.health }}</span>
+<span style="margin-left:auto; display:inline-flex; padding:2px; gap:2px; border-radius:8px; box-shadow:inset 0 0 0 1px var(--hairline); background:#fff;">
+<button onClick="{{ ld.bot.modeReview }}" style="height:26px; padding:0 10px; border:0; border-radius:6px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:{{ ld.bot.revBg }}; color:{{ ld.bot.revFg }};">Review</button>
+<button onClick="{{ ld.bot.modeAuto }}" style="height:26px; padding:0 10px; border:0; border-radius:6px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:{{ ld.bot.autoBg }}; color:{{ ld.bot.autoFg }};">Auto</button>
+</span>
+<sc-if value="{{ ld.bot.running }}"><button onClick="{{ ld.bot.pause }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Pause</button></sc-if>
+<sc-if value="{{ ld.bot.paused }}"><button onClick="{{ ld.bot.resume }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:var(--bad); color:#fff;">Paused · Resume</button></sc-if>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-2);">{{ ld.bot.modeText }} {{ ld.bot.hoursText }}</span>
+<sc-if value="{{ ld.bot.hasErr }}"><span style="font-size:var(--fs-xs); color:var(--bad);">{{ ld.bot.lastErr }}</span></sc-if>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ ld.bot.funnel }}" as="k"><div style="display:flex; flex-direction:column; gap:6px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ k.label }}</span><span style="font-size:var(--fs-xl); font-weight:600; font-variant-numeric:tabular-nums;">{{ k.v }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ k.d }}</span></div></sc-for>
+</div>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.5;">Only people who liked or commented on our posts and fit the ICP get a request. After they accept: DM 1, then one follow-up a day. Any reply stops the follow-ups and moves them to In talks. Every step is saved on the lead card.</span>
+</div>
+
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+<span style="font-size:var(--fs-md); font-weight:600;">Waiting for your approval</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.bot.reviewN }}</span>
+<sc-if value="{{ ld.bot.hasReview }}"><button onClick="{{ ld.bot.approveAll }}" style="margin-left:auto; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#0a66c2; color:#fff;">Approve all {{ ld.bot.reviewN }}</button></sc-if>
+<sc-if value="{{ ld.bot.idle }}"><button onClick="{{ ld.bot.write }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Write new messages now</button></sc-if>
+<sc-if value="{{ ld.bot.writing }}"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Writing… about 30 seconds</span></sc-if>
+</div>
+<sc-if value="{{ ld.bot.noReview }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">{{ ld.bot.noReviewText }}</span></sc-if>
+<sc-for list="{{ ld.bot.review }}" as="c">
+<div style="display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; align-items:center; gap:10px;">
+<span style="width:var(--av-sm); height:var(--av-sm); flex:0 0 var(--av-sm); border-radius:50%; display:grid; place-items:center; font-size:var(--fs-3xs); font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.3;"><a href="#" onClick="{{ c.open }}" style="font-size:var(--fs-sm); font-weight:600; color:var(--ink); text-decoration:none;">{{ c.name }}</a><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.sub }}</span></div>
+<span style="font-size:var(--fs-2xs); font-weight:600; color:#0a66c2; background:#e8f1fb; padding:3px 8px; border-radius:999px; white-space:nowrap;">{{ c.kind }}</span>
+</div>
+<textarea value="{{ c.text }}" onChange="{{ c.onText }}" onBlur="{{ c.saveText }}" rows="3" aria-label="Message" style="padding:10px 12px; border:0; border-radius:8px; background:#e8f1fb; box-shadow:inset 0 0 0 1px rgba(10,102,194,.25); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea>
+<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+<button onClick="{{ c.approve }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#0a66c2; color:#fff;">Approve</button>
+<button onClick="{{ c.skip }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip this person</button>
+<span style="margin-left:auto; font-size:var(--fs-2xs); color:var(--ink-4);">{{ c.chars }}</span>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{ ld.bot.moreReview }}"><button onClick="{{ ld.bot.showMore }}" style="align-self:flex-start; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Show more</button></sc-if>
+</div>
+
+<sc-if value="{{ ld.bot.hasFailed }}">
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<span style="font-size:var(--fs-md); font-weight:600;">Didn’t go through ({{ ld.bot.failedN }})</span>
+<sc-for list="{{ ld.bot.failed }}" as="c">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 12px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline);">
+<a href="#" onClick="{{ c.open }}" style="font-size:var(--fs-sm); font-weight:600; color:var(--ink); text-decoration:none;">{{ c.name }}</a><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ c.kind }}</span>
+<span style="flex:1 1 200px; font-size:var(--fs-2xs); color:var(--bad);">{{ c.err }}</span>
+<button onClick="{{ c.retry }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Try again</button>
+<button onClick="{{ c.skip }}" style="height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip</button>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ ld.bot.hasSent }}">
+<div style="display:flex; flex-direction:column; gap:6px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<span style="font-size:var(--fs-md); font-weight:600;">Sent recently</span>
+<sc-for list="{{ ld.bot.sent }}" as="c">
+<div style="display:flex; align-items:baseline; gap:8px; font-size:var(--fs-xs); padding:4px 0; border-bottom:1px solid var(--hairline);">
+<a href="#" onClick="{{ c.open }}" style="font-weight:600; color:var(--ink); text-decoration:none; white-space:nowrap;">{{ c.name }}</a><span style="color:#0a66c2; white-space:nowrap;">{{ c.kind }}</span>
+<span style="flex:1; min-width:0; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ c.text }}</span><span style="color:var(--ink-4); white-space:nowrap;">{{ c.when }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<details style="padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<summary style="cursor:pointer; font-size:var(--fs-md); font-weight:600;">Messages the bot sends</summary>
+<div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">Changes save when you click outside the box and apply to messages written from then on (ones already waiting keep their text; edit those above).</span>
+<sc-for list="{{ ld.bot.tpls }}" as="t">
+<label style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-xs); font-weight:600;">{{ t.label }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.hint }}</span>
+<textarea value="{{ t.v }}" onChange="{{ t.on }}" onBlur="{{ t.save }}" rows="3" style="padding:10px 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></label>
+</sc-for>
+<button onClick="{{ ld.bot.toggleWarm }}" style="align-self:flex-start; height:var(--btn-h-sm); padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">{{ ld.bot.warmLabel }}</button>
+</div>
+</details>
+
+<details style="padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<summary style="cursor:pointer; font-size:var(--fs-md); font-weight:600;">Install the Chrome extension (one time, 2 minutes)</summary>
+<ol style="margin:12px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:6px; font-size:var(--fs-sm); color:var(--ink-2); line-height:1.5;">
+<li>In Chrome, open a new tab and go to <b>chrome://extensions</b></li>
+<li>Turn on <b>Developer mode</b> (switch at the top right).</li>
+<li>Click <b>Load unpacked</b> and pick the folder <b>GTM.SOVE7GN.ORG\extension</b> on your laptop.</li>
+<li>Click the puzzle icon next to the address bar and pin <b>SOVE7GN LinkedIn Bot</b>.</li>
+<li>Click the bot’s icon, paste the bot key from <b>GTM.SOVE7GN.ORG\_research\LI_BOT_KEY.txt</b>, press <b>Save</b>.</li>
+<li>Make sure you’re signed in to LinkedIn in that Chrome, then press <b>Test LinkedIn</b>, then <b>Run now</b>.</li>
+<li>Leave Chrome open. The bot keeps a pinned LinkedIn tab of its own; don’t close it.</li>
+</ol>
+</details>
+
 <div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi); opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap:var(--s-3);">
 <sc-for list="{{ ld.liOut.track }}" as="k"><div style="display:flex; flex-direction:column; gap:6px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ k.label }}</span><span style="font-size:var(--fs-xl); font-weight:600; font-variant-numeric:tabular-nums;">{{ k.v }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ k.d }}</span></div></sc-for>
