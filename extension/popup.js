@@ -14,7 +14,7 @@ async function render() {
       "<br>Last check " + ago(last.at) + " · " + queue.length + " waiting to send" + (last.in_hours ? "" : " · outside sending hours");
   $("status").innerHTML = "<b>LinkedIn</b> · " + s;
   $("xstatus").innerHTML = !xlast ? "<b>X</b> · waiting for its first check (every 3 minutes)." : !xlast.signed_in ? "<b>X</b> · signed out. Sign in at x.com in this Chrome." :
-    "<b>X</b> · " + (xlast.paused ? "paused" : "on") + " · " + (xlast.sent_today || 0) + " sent today, " + (xlast.left ?? "?") + " left · " + xqueue.length + " waiting to send" + (xlast.in_hours ? "" : " · outside sending hours (9:00 to 23:30)") + " · checked " + ago(xlast.at);
+    "<b>X</b> · " + (xlast.paused ? "paused" : "on") + " · " + (xlast.sent_today || 0) + " sent today, " + (xlast.left ?? "?") + " left · " + xqueue.length + " waiting to send" + (xlast.in_hours ? "" : " · outside sending hours") + " · checked " + ago(xlast.at);
   $("run").disabled = !!syncing; $("run").textContent = syncing ? "Running…" : "Run now";
   const testing = !!(test && test.running);
   $("test").disabled = testing; $("test").textContent = testing ? "Testing…" : "Test";

@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
 
 // ───────── settings and status ─────────
 type Bot = { mode: "review" | "auto"; paused: boolean; include_warm: boolean; week_cap: number; notes_month: number; followups: number;
-  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean };
+  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean; localTime: boolean };
 async function settings(): Promise<Bot> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
   const v = (data?.value ?? {}) as Partial<Bot>;
@@ -72,7 +72,9 @@ async function settings(): Promise<Bot> {
     notes_month: +(v.notes_month ?? 250), followups: Math.min(+(v.followups ?? 7), (v.fu ?? []).length || 7), gap_days: +(v.gap_days ?? 1),
     hours: { from: +(v.hours?.from ?? 10), to: +(v.hours?.to ?? 24) }, note: v.note ?? "", dm1: v.dm1 ?? "", fu: v.fu ?? [],
     // Fast mode (11 Nov): until rush_until, approved items go out as soon as they can (no local-time window, 30 min after the warm touch).
-    rush: !!(v as any).rush_until && Date.parse((v as any).rush_until) > Date.now() };
+    rush: !!(v as any).rush_until && Date.parse((v as any).rush_until) > Date.now(),
+    // (12 Nov) local_time false = only Reyansh's IST window counts (hours), not each person's local morning.
+    localTime: (v as any).local_time !== false };
 }
 async function saveStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
@@ -317,7 +319,7 @@ async function plan(_b: any) {
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
-    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && (set.rush || goodTime(l, t.kind)); };
+    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)); };
     const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
     const msg = (ready ?? []).filter((t) => t.kind !== "invite" && ok(t)).slice(0, 10);
     tasks = [...msg, ...inv];
