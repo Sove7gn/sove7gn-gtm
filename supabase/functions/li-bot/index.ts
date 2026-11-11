@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1065,4 +1065,96 @@ async function tips(b: any) {
     made++;
   }
   return { made };
+}
+
+// ═════════ X DMs (12 Nov): the same extension sends approved X DMs from Reyansh's signed-in X tab ═════════
+// Send today's "Send with bot" puts a row in crm_x_tasks (ready). x_plan hands out a few at a time (40 a day at most, 9:00 to
+// 23:30 IST), looking up missing X user ids through twitterapi.io. x_claim checks the person is still waiting for that message
+// (no reply, not sent by hand meanwhile). x_done writes the DM Pipeline row exactly like Mark sent / Can't DM do in the CRM.
+// Settings: crm_lead_settings x_bot { paused, cap }. Status for the CRM: x_bot_status.
+const IST_MS = 330 * 60e3;
+const sheetSerial = (d: Date, withTime: boolean) => {       // the CRM keeps sheet dates as day serials in IST, like Google Sheets
+  const t = new Date(d.getTime() + IST_MS);
+  const ms = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), withTime ? t.getUTCHours() : 0, withTime ? t.getUTCMinutes() : 0);
+  return Math.round((ms - Date.UTC(1899, 11, 30)) / 864e5 * 1e6) / 1e6;
+};
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+async function xSettings() {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+  const v: any = data?.value ?? {};
+  return { paused: !!v.paused, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), from: +(v.from ?? 9), to: +(v.to ?? 23.5) };
+}
+async function xStatus(patch: Record<string, unknown>) {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
+  await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((data?.value as any) ?? {}), ...patch } });
+}
+async function pipeRow(row: number) {
+  const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
+  const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5);
+  const r = all.find((x: any) => x.row === row);
+  if (!h || !r) return null;
+  const c: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) c[k] = String(r.cells?.[i] ?? ""); });
+  return c;
+}
+async function x_plan(b: any) {
+  const set = await xSettings(), now = Date.now();
+  await xStatus({ seen: new Date().toISOString(), me: b.me ?? null, version: b.version ?? "" });
+  await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
+  const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
+  const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
+  const { count: sentToday } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).eq("status", "sent").gte("sent_at", dayStart);
+  const left = Math.max(0, set.cap - (sentToday ?? 0));
+  const inHours = hr >= set.from && hr < set.to;
+  if (set.paused || !inHours || !left || !b.me?.signed_in) return { tasks: [], paused: set.paused, in_hours: inHours, left, sent_today: sentToday ?? 0 };
+  const { data: ready } = await db.from("crm_x_tasks").select("*").eq("status", "ready").order("created_at").limit(Math.min(6, left));
+  const tasks: any[] = [];
+  for (const t of ready ?? []) {
+    let uid = String(t.user_id ?? "");
+    if (!uid && t.handle && TWAPI) {
+      try { const r = await fetch("https://api.twitterapi.io/twitter/user/info?userName=" + encodeURIComponent(String(t.handle).replace(/^@/, "")), { headers: { "X-API-Key": TWAPI } });
+        if (r.ok) uid = String((await r.json())?.data?.id ?? ""); } catch (_) { /* tried below */ }
+      if (uid) await db.from("crm_x_tasks").update({ user_id: uid }).eq("id", t.id);
+    }
+    if (!uid) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); continue; }
+    tasks.push({ id: t.id, name: t.name, handle: t.handle, user_id: uid, kind: t.kind, text: t.text });
+  }
+  if (tasks.length) await db.from("crm_x_tasks").update({ status: "sending", claimed_at: new Date().toISOString() }).in("id", tasks.map((t) => t.id));
+  return { tasks, paused: false, in_hours: true, left, sent_today: sentToday ?? 0 };
+}
+// Right before sending: is this message still the right one? (no reply, not sent by hand, row still theirs)
+async function x_claim(b: any) {
+  const { data: t } = await db.from("crm_x_tasks").select("*").eq("id", b.id).maybeSingle();
+  if (!t || !["sending", "ready"].includes(t.status)) return { ok: false };
+  const c = await pipeRow(t.row);
+  const skip = async (why: string) => { await db.from("crm_x_tasks").update({ status: "skipped", error: why }).eq("id", t.id); return { ok: false, why }; };
+  if (!c || c["Name"] !== t.name) return await skip("Their row in the DM Pipeline moved or changed");
+  if (c["Replied on"]) return await skip("They replied");
+  const st = c["Status"] || "To send";
+  const want = t.kind === "dm" ? /^(to send|)$/i : t.kind === "fu1" ? /^sent$/i : /^fu1 sent$/i;
+  if (!want.test(st)) return await skip("Already " + st + " (sent by hand?)");
+  return { ok: true };
+}
+async function x_done(b: any) {
+  const { data: t } = await db.from("crm_x_tasks").select("*").eq("id", b.id).maybeSingle();
+  if (!t) return { error: "No such task" };
+  const c = await pipeRow(t.row); const now = new Date();
+  const write = async (cells: Record<string, unknown>) => {
+    if (!c) return "no row";
+    const { data, error } = await db.rpc("crm_call", { body: { action: "pipeline", row: t.row, name: c["Name"], company: c["Company"], cells } });
+    return error ? error.message : String(data ?? "");
+  };
+  if (b.cant) {           // their DMs are closed or need a passcode: same as the Can't DM button
+    const w = await write({ Status: "Not now", "DM result": "Not sent on X (" + new Date(now.getTime() + IST_MS).getUTCDate() + " " + MON3[new Date(now.getTime() + IST_MS).getUTCMonth()] + "): DMs closed or need a passcode" });
+    await db.from("crm_x_tasks").update({ status: "skipped", error: "Their DMs are closed or need a passcode" + (/^ok/.test(w) ? "" : " (row not updated: " + w + ")") }).eq("id", t.id);
+    return { ok: true };
+  }
+  if (!b.ok) {
+    await db.from("crm_x_tasks").update({ status: "failed", error: clip(String(b.error ?? "Failed"), 300) }).eq("id", t.id);
+    await xStatus({ last_error: clip(String(b.error ?? "Failed"), 300), last_error_at: now.toISOString() });
+    return { ok: true };
+  }
+  const cells: Record<string, unknown> = t.kind === "dm" ? { Status: "Sent", "Sent on": sheetSerial(now, true) } : t.kind === "fu1" ? { Status: "FU1 sent", "FU1 sent": sheetSerial(now, false) } : { Status: "FU2 sent", "FU2 sent": sheetSerial(now, false) };
+  const w = await write(cells);
+  await db.from("crm_x_tasks").update({ status: "sent", sent_at: now.toISOString(), error: /^ok/.test(w) ? null : "Sent, but the row didn't update: " + w }).eq("id", t.id);
+  return { ok: true };
 }

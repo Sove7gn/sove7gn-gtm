@@ -50,6 +50,17 @@ if (!existsSync(keyFile)) console.log("warning: key file missing");
 if (env.DATABASE_URL) {
   const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 1, onnotice: () => {} });
   try {
+    // X DMs (12 Nov): the queue the extension sends from. The team approves (insert) and cancels (update) from Send today.
+    await sql.unsafe(`
+      create table if not exists public.crm_x_tasks (id bigserial primary key, row int not null, name text, company text, handle text, user_id text,
+        kind text not null default 'dm', text text not null, status text not null default 'ready', error text, created_at timestamptz not null default now(),
+        claimed_at timestamptz, sent_at timestamptz, decided_by text);
+      create index if not exists crm_x_tasks_status on public.crm_x_tasks (status, created_at);
+      alter table public.crm_x_tasks enable row level security;
+      drop policy if exists team_read on public.crm_x_tasks; create policy team_read on public.crm_x_tasks for select using ((select public.crm_is_member()));
+      drop policy if exists team_add on public.crm_x_tasks; create policy team_add on public.crm_x_tasks for insert with check ((select public.crm_is_member()));
+      drop policy if exists team_edit on public.crm_x_tasks; create policy team_edit on public.crm_x_tasks for update using ((select public.crm_is_member()));`);
+    console.log("table: crm_x_tasks ready");
     await sql`select cron.unschedule(jobid) from cron.job where jobname = 'li-bot-briefs'`;
     const call = "select net.http_post(url := 'https://" + ref + ".supabase.co/functions/v1/li-bot', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"briefs\"}'::jsonb, timeout_milliseconds := 150000)";
     await sql`select cron.schedule('li-bot-briefs', '*/15 * * * *', ${call})`;

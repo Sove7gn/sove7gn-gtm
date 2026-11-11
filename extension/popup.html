@@ -3,7 +3,7 @@
 <style>
   body{width:340px;margin:0;padding:14px;font:13px/1.45 system-ui,"Segoe UI",sans-serif;color:#15171c}
   h1{font-size:14px;margin:0 0 2px;display:flex;align-items:center;gap:8px}
-  h1 i{width:16px;height:16px;border-radius:4px;background:#0a66c2;color:#fff;font:700 10px/16px system-ui;text-align:center;font-style:normal}
+  h1 i{min-width:16px;height:16px;padding:0 3px;border-radius:4px;background:#15171c;color:#fff;font:700 10px/16px system-ui;text-align:center;font-style:normal}
   .sub{color:#6a707c;font-size:12px;margin-bottom:10px}
   .row{display:flex;gap:8px;margin:8px 0}
   .card{background:#f6f5f2;border-radius:8px;padding:8px 10px;margin:8px 0}
@@ -18,8 +18,8 @@
   .hide{display:none}
 </style></head>
 <body>
-  <h1><i>in</i>SOVE7GN LinkedIn Bot</h1>
-  <div class="sub">Requests, DMs and follow-ups to ICP people who engaged with our posts. Keep Chrome open and it runs on its own.</div>
+  <h1><i>S7</i>SOVE7GN Outreach Bot</h1>
+  <div class="sub">LinkedIn requests, DMs and follow-ups, and the X DMs you approve on Send today. Keep Chrome open and it runs on its own.</div>
 
   <div id="setup" class="card hide">
     <b>Step 1: paste the bot key</b>
@@ -28,10 +28,11 @@
   </div>
 
   <div id="status" class="card">Checking…</div>
-  <div class="row"><button id="run" class="solid">Run now</button><button id="test">Test LinkedIn</button></div>
+  <div id="xstatus" class="card">X: checking…</div>
+  <div class="row"><button id="run" class="solid">Run now</button><button id="test">Test</button></div>
   <div id="test-out" class="card hide"></div>
   <ul id="logs"></ul>
-  <div class="row"><button id="crm">Open Outreach in the CRM</button></div>
+  <div class="row"><button id="crm">Open the CRM</button></div>
   <div class="sub" style="margin-top:6px"><a href="#" id="rekey">Change bot key</a></div>
 <script src="popup.js"></script>
 </body></html>

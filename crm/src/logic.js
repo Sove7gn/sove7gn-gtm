@@ -288,6 +288,19 @@ class Component extends DCLogic {
     await this.saveCells(p,cells,msg||(p.first+' moved to '+stage));
     this.setState(s=>{const x={...s.pend};delete x[id];return{pend:x};});
   }
+  // X bot (12 Nov): which message the bot would send for this row, and queueing it.
+  xKind(p){return p.due?(p.fuN===2?'fu2':'fu1'):'dm';}
+  xQueue(list){if(!AK.canEdit())return;AK.xtQueue(list.filter(p=>p&&p.c&&p.c._row).map(p=>{const nm=this.nextMsg(p);return{row:p.c._row,name:p.c.Name||p.name,company:p.c.Company||p.company,handle:p.handle,user_id:p.xid,kind:this.xKind(p),text:nm.text};}));}
+  xBotVals(L){const st=AK.XT.status||{},xs=st.x_bot_status||{},cfg=st.x_bot||{};const rows=AK.XT.rows||[];
+    const q=rows.filter(t=>t.status==='ready'||t.status==='sending').length;
+    const day=new Date();day.setHours(0,0,0,0);const sent=rows.filter(t=>t.status==='sent'&&Date.parse(t.sent_at)>=day.getTime()).length;
+    const failed=rows.filter(t=>t.status==='failed'&&Date.parse(t.created_at)>=day.getTime());
+    const pend=[...(L.ts||[]),...(L.fu||[])].filter(p=>p&&p.c&&p.c._row&&!AK.xtActive(p.c._row,this.xKind(p)));
+    const seen=xs.seen?Date.parse(xs.seen):0;const live=seen&&Date.now()-seen<20*60e3;
+    const text=!seen?'The X bot hasn’t checked in yet. Reload the extension in chrome://extensions (it’s now called SOVE7GN Outreach Bot) and allow it on x.com.':
+      (cfg.paused?'X bot paused. ':live?'X bot is on. ':'X bot last checked in '+this.since(xs.seen)+' (is Chrome open?). ')+q+' queued · '+sent+' sent today of '+(cfg.cap||40)+' · sends 9:00 to 23:30 IST, one every few minutes'+(failed.length?' · '+failed.length+' failed today: '+clip(String(failed[0].error||''),80):'');
+    return{text,dot:cfg.paused||!live?'var(--warn)':'var(--ok)',canAll:AK.canEdit()&&pend.length>0,allLabel:'Send all with bot ('+pend.length+')',all:()=>this.xQueue(pend),
+      pauseLabel:cfg.paused?'Resume X bot':'Pause X bot',pause:()=>AK.canEdit()&&AK.xtPause(!cfg.paused),canEdit:AK.canEdit()};}
   markSent(id){const p=this.findP(id);if(!p)return;
     const nx=p.due?(p.fuN===2?'Follow-up 2 sent':'Follow-up 1 sent'):({'To send':'Contacted','Contacted':'Follow-up 1 sent','Follow-up 1 sent':'Follow-up 2 sent'}[p.stage]||p.stage);
     this.setState(s=>({leaving:{...s.leaving,[id]:true}}));
@@ -491,8 +504,10 @@ class Component extends DCLogic {
   /* ---------- outbound ---------- */
   row(p,i,kind){const s=this.state;const a=avatar(p.name);const lv=!!s.leaving[p.id];const f=this.founder;const nm=this.nextMsg(p);const key=p.id+'row';const cb=this.copyBtn(key,kind==='fu'?'Copy '+nm.title.toLowerCase():'Copy message');
     let actions=[];
-    if(!f){if(kind==='send'||kind==='fu')actions=[act(p.xid?'Open DM':'Open X','ghost',stop(()=>xDm(p.xid,p.handle,nm.text))),act(cb.label,s.copied===key?'copied':'secondary',stop(()=>this.copy(nm.text,key,nm.title+' for '+p.first+' copied'))),act('Mark sent','primary',stop(()=>this.markSent(p.id)))];
-      if(kind==='send')actions.splice(1,0,act('Can’t DM','ghost',stop(()=>this.cantDM(p))));
+    if(!f){if(kind==='send'||kind==='fu'){const xk=this.xKind(p),row=(p.c||{})._row,q=row&&AK.xtActive(row,xk),last=row&&AK.xtLast(row,xk);
+        if(q)actions=[act(q.status==='sending'?'Sending now…':'Queued for the bot','ghost',stop(()=>{})),act('Cancel','ghost',stop(()=>AK.xtCancel(q.id)))];
+        else{actions=[act(last&&last.status==='failed'?'Retry with bot':'Send with bot','primary',stop(()=>this.xQueue([p]))),act(p.xid?'Open DM':'Open X','ghost',stop(()=>xDm(p.xid,p.handle,nm.text))),act('Mark sent','secondary',stop(()=>this.markSent(p.id)))];
+          if(kind==='send')actions.splice(2,0,act('Can’t DM','ghost',stop(()=>this.cantDM(p))));}}
       if(kind==='find')actions=[act('Search on X','secondary',stop(()=>{window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');this.toast('Searching X for '+p.name+'. Add the handle in the sheet.');}))];
       if(kind==='skip')actions=[act('Send anyway','ghost',stop(()=>{const any={...this.state.anyway,[p.id]:true};store.set('anyway',any);this.setState({anyway:any});this.toast(p.first+' moved to Send today (on this browser)',()=>{const x={...this.state.anyway};delete x[p.id];store.set('anyway',x);this.setState({anyway:x});this.toast('Undone');});}))];
       if(kind==='noreply')actions=[act('Mark as no reply','secondary',stop(()=>this.setStage(p.id,'Closed','Closed '+p.first+': no reply')))];
@@ -513,7 +528,7 @@ class Component extends DCLogic {
     const lr=(AK.XJ.runs['x-leads']||[]).find(r=>r.ok);const run=!!AK.XJ.running['x-leads'];const sm=lr&&lr.summary||{};
     const finder={text:run?'Looking for founders on X who just raised or are hiring for GTM… about a minute.':lr?'Lead finder: '+(sm.added_today!=null&&AK.sameDay(new Date(lr.started_at),new Date())?sm.added_today+' new people today (goal '+(sm.target||40)+'). ':'')+'Last ran '+this.since(lr.finished_at||lr.started_at)+'. Runs on its own at 7:30 and 12:30 IST.':'Lead finder: finds 30 to 40 funded founders to DM every morning at 7:30 IST.',
       idle:!run,run:()=>{if(AK.canEdit())AK.xRun('x-leads');}};
-    return{finder,groups,noDM:false,hasGroups:groups.length>0,allClear:groups.length===0,acc,hasRes:!!res&&(res.sent!=='0'||res.hasCant),res:res||{},hold:AK.dmsPaused()?DM_HOLD.on:DM_HOLD.off,clearTitle:AK.dmsPaused()?'DMs are paused':'Everything for today is sent',clearText:AK.dmsPaused()?'Nothing to send while DMs are paused. Press Resume DMs above to bring the list back.':'The lead finder adds new people every morning. Press Find more now to look straight away.',pauseLabel:AK.S.busy.has('pause')?'Saving…':AK.dmsPaused()?'Resume DMs':'Pause DMs',togglePause:()=>{if(AK.canEdit())AK.savePaused(!AK.dmsPaused());},holdDot:AK.dmsPaused()?'var(--warn, #b7791f)':'var(--ok)',skipOpen:so,skipN:String(L.skip.length),skipLabel:'Skipped for now: '+L.skip.length+(early===L.skip.length?' seed-stage people':' seed-stage or unclear-funding people'),hasSkip:L.skip.length>0,skipRot:so?'rotate(90deg)':'none',skipCta:so?'Hide':'Show',toggleSkip:()=>this.setState(st=>({more:{...st.more,skip:!st.more.skip}})),skipRows:L.skip.slice(0,s.more.skipAll?999:20).map((p,i)=>this.row(p,i,'skip')),showEveryone:()=>this.setOwner('Everyone')};}
+    return{finder,groups,noDM:false,hasGroups:groups.length>0,allClear:groups.length===0,acc,hasRes:!!res&&(res.sent!=='0'||res.hasCant),res:res||{},xb:this.xBotVals(L),hold:AK.dmsPaused()?DM_HOLD.on:DM_HOLD.off,clearTitle:AK.dmsPaused()?'DMs are paused':'Everything for today is sent',clearText:AK.dmsPaused()?'Nothing to send while DMs are paused. Press Resume DMs above to bring the list back.':'The lead finder adds new people every morning. Press Find more now to look straight away.',pauseLabel:AK.S.busy.has('pause')?'Saving…':AK.dmsPaused()?'Resume DMs':'Pause DMs',togglePause:()=>{if(AK.canEdit())AK.savePaused(!AK.dmsPaused());},holdDot:AK.dmsPaused()?'var(--warn, #b7791f)':'var(--ok)',skipOpen:so,skipN:String(L.skip.length),skipLabel:'Skipped for now: '+L.skip.length+(early===L.skip.length?' seed-stage people':' seed-stage or unclear-funding people'),hasSkip:L.skip.length>0,skipRot:so?'rotate(90deg)':'none',skipCta:so?'Hide':'Show',toggleSkip:()=>this.setState(st=>({more:{...st.more,skip:!st.more.skip}})),skipRows:L.skip.slice(0,s.more.skipAll?999:20).map((p,i)=>this.row(p,i,'skip')),showEveryone:()=>this.setOwner('Everyone')};}
   /* People who replied to or quoted our posts in the last 14 days and haven't been answered: buyers first. */
   postReplies(){const wk=Date.now()-14*864e5;const ORD={'Core buyer':0,'Good fit':1,'Related':2,'Investor':3,'Other':4};
     const VO={'DM + reply':0,'Reply only':1};

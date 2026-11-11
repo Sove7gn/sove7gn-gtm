@@ -4,7 +4,7 @@ const esc = (s) => String(s).replace(/</g, "&lt;");
 
 // Everything shown here comes from storage, so it stays right even if this window was closed while the bot worked.
 async function render() {
-  const { key, last, queue = [], logs = [], me, test, syncing } = await chrome.storage.local.get(["key", "last", "queue", "logs", "me", "test", "syncing"]);
+  const { key, last, queue = [], logs = [], me, test, syncing, xlast, xqueue = [] } = await chrome.storage.local.get(["key", "last", "queue", "logs", "me", "test", "syncing", "xlast", "xqueue"]);
   $("setup").classList.toggle("hide", !!key);
   const s = !key ? "Paste the bot key to start." :
     syncing ? "<b>Checking LinkedIn…</b> This can take a few minutes. You can close this window." :
@@ -12,10 +12,12 @@ async function render() {
     !last.signed_in ? "<b>Signed out of LinkedIn.</b> Sign in to LinkedIn in this Chrome." :
     "<b>" + (last.paused ? "Paused" : last.mode === "auto" ? "Auto mode" : "Review mode") + "</b> · signed in as " + esc((me && me.name) || "you") +
       "<br>Last check " + ago(last.at) + " · " + queue.length + " waiting to send" + (last.in_hours ? "" : " · outside sending hours");
-  $("status").innerHTML = s;
+  $("status").innerHTML = "<b>LinkedIn</b> · " + s;
+  $("xstatus").innerHTML = !xlast ? "<b>X</b> · waiting for its first check (every 3 minutes)." : !xlast.signed_in ? "<b>X</b> · signed out. Sign in at x.com in this Chrome." :
+    "<b>X</b> · " + (xlast.paused ? "paused" : "on") + " · " + (xlast.sent_today || 0) + " sent today, " + (xlast.left ?? "?") + " left · " + xqueue.length + " waiting to send" + (xlast.in_hours ? "" : " · outside sending hours (9:00 to 23:30)") + " · checked " + ago(xlast.at);
   $("run").disabled = !!syncing; $("run").textContent = syncing ? "Running…" : "Run now";
   const testing = !!(test && test.running);
-  $("test").disabled = testing; $("test").textContent = testing ? "Testing…" : "Test LinkedIn";
+  $("test").disabled = testing; $("test").textContent = testing ? "Testing…" : "Test";
   if (test) { $("test-out").classList.remove("hide"); $("test-out").innerHTML = "<b>Test " + (testing ? "running" : ago(test.at)) + "</b><br>" + test.lines.map((x) => "• " + esc(x)).join("<br>"); }
   $("logs").innerHTML = logs.slice(0, 15).map((l) => '<li class="' + (l.err ? "err" : "") + '"><small>' + ago(l.at) + "</small>" + esc(l.line) + "</li>").join("");
 }

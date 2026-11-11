@@ -390,6 +390,8 @@ f0 = src.rindex('<div style="flex:1 1 280px;', 0, f1)
 f2 = src.index('</sc-for>\n</div>', f1) + len('</sc-for>\n</div>')
 src = src[:f0] + '<sc-if value="{{ trk.hasFol }}">' + src[f0:f2] + '</sc-if>' + src[f2:]
 
+# (12 Nov) X bot bar on Send today: status, Send all with bot, Pause
+rep('<sc-if value="{{ send.hasRes }}">', '<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px; border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);"><span style="width:20px; height:20px; border-radius:5px; display:grid; place-items:center; background:#111; color:#fff; font-size:11px; font-weight:700;">𝕏</span><span style="width:8px; height:8px; border-radius:50%; background:{{ send.xb.dot }};"></span><span style="flex:1 1 300px; font-size:var(--fs-sm); color:var(--ink-2);">{{ send.xb.text }}</span><sc-if value="{{ send.xb.canAll }}"><button onClick="{{ send.xb.all }}" style="height:32px; padding:0 14px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-sm); font-weight:600; cursor:pointer;">{{ send.xb.allLabel }}</button></sc-if><sc-if value="{{ send.xb.canEdit }}"><button onClick="{{ send.xb.pause }}" style="height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); cursor:pointer;">{{ send.xb.pauseLabel }}</button></sc-if></div>\n' + '<sc-if value="{{ send.hasRes }}">')
 for word in ("Google Sheet", "Robot", "robotics", "robot "):   # WhatsApp is ours now (11 Nov: Daily brief)
     assert word not in src.replace(CONFIG_JS, ""), "client copy left in the page: " + word
 for name in ("Aktoria", "Karan", "Shreenabh"):

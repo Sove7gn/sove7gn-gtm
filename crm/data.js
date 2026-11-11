@@ -397,6 +397,7 @@ async function publicLoad(){
   if(!LIS.at||Date.now()-LIS.at>6e4){LIS.at=Date.now();lisLoad()}
   if(!LBT.at||Date.now()-LBT.at>3e4){LBT.at=Date.now();lbtLoad()}
   if(!BR.at||Date.now()-BR.at>6e4){BR.at=Date.now();briefLoad()}
+  if(!XT.at||Date.now()-XT.at>3e4){XT.at=Date.now();xtLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -1195,6 +1196,38 @@ async function lbtRun(){
   catch(e){toast("Couldn't write messages: "+(e.message||e),true)}
   finally{LBT.running=false;await lbtLoad()}
 }
+// X bot (12 Nov): "Send with bot" on Send today queues the DM in crm_x_tasks; the Chrome extension sends it from your X tab and
+// marks the row sent (or Can't DM). Rows here are the last 3 days plus anything still waiting.
+const XT={rows:[],status:{},loaded:false,at:0};
+async function xtLoad(){
+  if(!sb||!session||!member)return;
+  try{const since=new Date(Date.now()-3*864e5).toISOString();
+    const [a,b,c]=await Promise.all([sb.from("crm_x_tasks").select("*").in("status",["ready","sending"]).limit(500),
+      sb.from("crm_x_tasks").select("*").gte("created_at",since).order("created_at",{ascending:false}).limit(500),
+      sb.from("crm_lead_settings").select("key,value").in("key",["x_bot","x_bot_status"])]);
+    if(a.error)throw a.error;const m=new Map();for(const r of [...(b.data||[]),...(a.data||[])])m.set(r.id,r);XT.rows=[...m.values()];
+    XT.status={};for(const r of c.data||[])XT.status[r.key]=r.value;XT.loaded=true;emit()}
+  catch(e){XT.loaded=true;emit()}
+}
+const xtActive=(row,kind)=>XT.rows.find(t=>t.row===row&&t.kind===kind&&(t.status==="ready"||t.status==="sending"));
+const xtLast=(row,kind)=>XT.rows.filter(t=>t.row===row&&t.kind===kind).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+async function xtQueue(items){
+  if(!sb||!canEdit())return false;items=items.filter(x=>x&&x.row&&x.text&&!xtActive(x.row,x.kind));if(!items.length)return true;
+  const by=session&&session.user?session.user.email:"";
+  const rows=items.map(x=>({row:x.row,name:x.name,company:x.company||"",handle:String(x.handle||"").replace(/^@/,""),user_id:x.user_id?String(x.user_id):null,kind:x.kind,text:x.text,decided_by:by}));
+  const tmp=rows.map((r,i)=>({...r,id:"tmp"+i+Date.now(),status:"ready",created_at:new Date().toISOString()}));XT.rows=[...tmp,...XT.rows];emit();
+  const {error}=await sb.from("crm_x_tasks").insert(rows);
+  if(error){XT.rows=XT.rows.filter(r=>!String(r.id).startsWith("tmp"));emit();toast("Couldn't queue: "+error.message,true);return false}
+  toast(items.length===1?"Queued for the bot. It sends from your X tab within a few minutes.":items.length+" DMs queued. The bot sends one every few minutes from your X tab.");
+  await xtLoad();return true;
+}
+async function xtCancel(id){
+  if(!sb)return;const r=XT.rows.find(t=>t.id===id);if(r)r.status="skipped";emit();
+  const {error}=await sb.from("crm_x_tasks").update({status:"skipped",error:"Cancelled in the CRM"}).eq("id",id).in("status",["ready","sending"]);
+  if(error)toast("Couldn't cancel: "+error.message,true);await xtLoad();
+}
+async function xtPause(on){const cur=XT.status.x_bot||{};XT.status={...XT.status,x_bot:{...cur,paused:!!on}};emit();
+  const {error}=await sb.from("crm_lead_settings").upsert({key:"x_bot",value:{...cur,paused:!!on},updated_at:new Date().toISOString()});if(error)toast("Couldn't save: "+error.message,true);}
 // Daily brief (11 Nov): the daily-brief job writes one row a day at 8:00 IST (yesterday on LinkedIn, X and Instagram, and who to
 // follow up with today). The page reads the last 14; "Write it now" runs the job again for today.
 const BR={rows:[],loaded:false,err:null,running:false,at:0};
@@ -1567,7 +1600,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

@@ -1,24 +1,29 @@
-// SOVE7GN LinkedIn Bot: runs in your Chrome while it's open.
+// SOVE7GN Outreach Bot (LinkedIn + X): runs in your Chrome while it's open.
 // Every 20 minutes (sync): checks who engaged with our posts, who accepted, who replied, and asks the CRM what to send.
-// Every 2 minutes (tick): sends at most one approved request or message, with random gaps, so it looks like a person.
+// Every 2 minutes (tick): sends at most one approved LinkedIn request or message, with random gaps, so it looks like a person.
+// Every 3 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
 import { liOp } from "./linkedin.js";
+import { xOp } from "./x.js";
 
 const FN = "https://rmadxyyvdiqdujuwecdt.supabase.co/functions/v1/li-bot";
 const VERSION = chrome.runtime.getManifest().version;
 const store = chrome.storage.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
-let busy = false;
+let busy = false, xbusy = false;
 // A fresh worker means nothing is running (Chrome may have stopped the last one midway), so clear stale flags.
-store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test LinkedIn again."] } } : {}) }));
+store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test again."] } } : {}) }));
 
 function setup() {
   chrome.alarms.create("sync", { periodInMinutes: 20, delayInMinutes: 1 });
   chrome.alarms.create("tick", { periodInMinutes: 2, delayInMinutes: 2 });
+  chrome.alarms.create("xtick", { periodInMinutes: 3, delayInMinutes: 1 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : tick()));
+// An extension updated in place keeps its old alarms; make sure the X one exists.
+chrome.alarms.get("xtick").then((a) => { if (!a) chrome.alarms.create("xtick", { periodInMinutes: 3, delayInMinutes: 1 }); });
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -275,7 +280,85 @@ async function selfTestRun() {
   out.push("Connections read: " + v2.connections + " · Requests sent to you: " + v2.invites + " · People you tagged (30 days): " + v2.tagged);
   out.push("Profile viewers read: " + v2.views);
   out.push("Your pending requests: " + v2.sent_pending + " (" + v2.older_than_3_weeks + " older than 3 weeks, to withdraw" + (v2.oldest ? "; oldest sent " + v2.oldest : "") + ")");
+  try { const xm = await xop("me"); v2.x = xm.signed_in ? "signed in" : "signed out";
+    if (xm.signed_in) { const pm = await xop("canDm", { user_id: "783214" }); v2.x_dm_check = pm.known ? "works" : "error: " + (pm.error || "no answer"); }
+    out.push("X: " + (xm.signed_in ? "signed in · DM check " + v2.x_dm_check : "signed out of X in this Chrome (sign in at x.com)")); }
+  catch (e) { v2.x = "error: " + e.message; out.push("X: " + e.message); }
   out.push("Took " + Math.round((Date.now() - t0) / 1000) + " seconds.");
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: { at: new Date().toISOString(), lines: out, steps: { v2 } } }); out.push("Saved to the CRM."); } catch (e) { out.push("CRM: " + e.message); }
   return { lines: out };
+}
+
+// ═════════ X DMs (12 Nov) ═════════
+// Its own pinned X tab, so it never touches the tabs you're using.
+async function xTab() {
+  const { xTabId } = await store.get("xTabId");
+  if (xTabId) {
+    try {
+      const t = await chrome.tabs.get(xTabId);
+      if (/(^|\/\/)(x|twitter)\.com/.test(t.url || t.pendingUrl || "")) {
+        if (t.discarded || t.status !== "complete") { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); }
+        if (await xAlive(t.id)) return t.id;
+        await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(3000);
+        if (await xAlive(t.id)) return t.id;
+        await chrome.tabs.remove(t.id).catch(() => {});
+      }
+    } catch (_) {}
+  }
+  const t = await chrome.tabs.create({ url: "https://x.com/messages", active: false, pinned: true });
+  await store.set({ xTabId: t.id }); await loaded(t.id); await sleep(3000);
+  if (!(await xAlive(t.id))) throw new Error("X won't load in Chrome right now. Open x.com in a normal tab to check you're signed in.");
+  return t.id;
+}
+async function xAlive(id) {
+  try { const r = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: () => location.hostname }); return /(^|\.)x\.com$/.test((r && r[0] && r[0].result) || ""); }
+  catch (_) { return false; }
+}
+async function xop(name, args = {}) {
+  const id = await xTab();
+  const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: xOp, args: [name, args] });
+  const r = res && res[0];
+  if (!r) throw new Error("X tab didn't answer");
+  if (r.error) throw new Error(r.error.message || String(r.error));
+  return r.result;
+}
+// One approved X DM at a time: ask the CRM for a few, then send them one per tick, skipping some ticks at random.
+async function xTick() {
+  if (xbusy) return;
+  xbusy = true; const ka = keepAlive();
+  try {
+    const { key } = await store.get("key"); if (!key) return;
+    let { xqueue = [], xplanAt = 0 } = await store.get(["xqueue", "xplanAt"]);
+    xqueue = xqueue.filter((t) => Date.now() - t.handed < 50 * 60e3);
+    if (!xqueue.length && Date.now() - xplanAt > 6 * 60e3) {
+      const me = await xop("me");
+      const p = await api("x_plan", { me, version: VERSION });
+      await store.set({ xplanAt: Date.now(), xlast: { at: new Date().toISOString(), signed_in: me.signed_in, paused: p.paused, in_hours: p.in_hours, left: p.left, sent_today: p.sent_today } });
+      if (!me.signed_in) { await log("X: you're signed out of X in this Chrome. Sign in and approved DMs carry on.", true); return; }
+      xqueue = (p.tasks || []).map((t) => ({ ...t, handed: Date.now() }));
+      await store.set({ xqueue });
+      if (xqueue.length) await log("X: " + xqueue.length + " approved DMs to send over the next few minutes.");
+      return;                                                            // first send waits for the next tick
+    }
+    if (!xqueue.length) return;
+    if (Math.random() < 0.35) return;
+    const t = xqueue.shift(); await store.set({ xqueue });
+    try {
+      const c = await api("x_claim", { id: t.id });
+      if (!c.ok) { if (c.why) await log("X: skipped " + t.name + " (" + c.why + ")."); return; }
+      const perm = await xop("canDm", { user_id: t.user_id });
+      if (perm.known && !perm.can) { await api("x_done", { id: t.id, cant: true }); await log("X: " + t.name + "'s DMs are closed or need a passcode, so they're off today's list."); return; }
+      await sleep(rand(3000, 9000));
+      const r = await xop("send", { user_id: t.user_id, text: t.text });
+      await api("x_done", { id: t.id, ...r });
+      const what = { dm: "first DM", fu1: "follow-up 1", fu2: "follow-up 2" }[t.kind] || "DM";
+      if (r.ok) await log("X: sent " + what + " to " + t.name + ".");
+      else if (r.cant) await log("X: " + t.name + "'s DMs are closed (" + r.error + "), so they're off today's list.");
+      else { await log("X: couldn't send to " + t.name + ": " + r.error, true); if (r.limit) await store.set({ xqueue: [], xplanAt: Date.now() + 30 * 60e3 }); }
+    } catch (e) {
+      await log("X: sending to " + t.name + " failed: " + e.message, true);
+      try { await api("x_done", { id: t.id, ok: false, error: String(e.message || e) }); } catch (_) {}
+    }
+  } catch (e) { await log("X: " + (e.message || e), true); }
+  finally { clearInterval(ka); xbusy = false; }
 }
