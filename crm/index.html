@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=985a325a55"></script>
+<script src="./data.js?v=1dac15a6b1"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -1429,7 +1429,7 @@ class Component extends DCLogic {
     if(page!=='leadBoard')this._ldAuto=false;   // next visit to Pipeline scrolls the board into view again
     if(page==='leads')return{...base,...this.leadOverview(),dash:this.gtmDashVals()};
     if(page==='leadBoard')return{...base,...this.leadBoard()};
-    if(page==='leadList')return{...base,...this.leadList()};
+    if(page==='leadList')return{...base,...this.leadList(),tp:this.tipsVals()};
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
     if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
@@ -1613,7 +1613,7 @@ class Component extends DCLogic {
       ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
-      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),call:(()=>{const c=(!isNew&&l&&l.fields&&l.fields.call)||null;if(!c)return{has:false};const k=callKind(c,l.source);const past=c.at&&c.at<Date.now()-36e5;return{has:true,kind:k[0],kBg:k[1],kFg:k[2],when:callWhen(c.at)+(past?' (past)':''),state:c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',hasState:c.status==='declined'||c.status==='cancelled',src:'From '+(c.src||'Gmail')+(c.how?', matched by '+c.how:''),hasMeet:!!c.meet,meet:c.meet||'',openMeet:()=>window.open(c.meet,'_blank','noopener'),copyMeet:()=>this.copy(c.meet,'lm'+l.id,'Meet link copied.'),noMeet:!c.meet};})(),
+      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),tip:!isNew&&l&&((l.fields||{}).tips||{}).at?{has:true,...this.tipItem(l)}:{has:false,canWrite:!isNew&&!!l&&l.source==='LinkedIn'&&AK.canEdit(),write:()=>l&&AK.liTips(l.id)},call:(()=>{const c=(!isNew&&l&&l.fields&&l.fields.call)||null;if(!c)return{has:false};const k=callKind(c,l.source);const past=c.at&&c.at<Date.now()-36e5;return{has:true,kind:k[0],kBg:k[1],kFg:k[2],when:callWhen(c.at)+(past?' (past)':''),state:c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',hasState:c.status==='declined'||c.status==='cancelled',src:'From '+(c.src||'Gmail')+(c.how?', matched by '+c.how:''),hasMeet:!!c.meet,meet:c.meet||'',openMeet:()=>window.open(c.meet,'_blank','noopener'),copyMeet:()=>this.copy(c.meet,'lm'+l.id,'Meet link copied.'),noMeet:!c.meet};})(),
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
 
@@ -1796,6 +1796,27 @@ class Component extends DCLogic {
   briefAddCall(c){const ig=String(c.ig||'').replace(/^@/,'');const clipping=c.kind==='clipping';
     AK.leadCreate({name:c.name||c.email,email:c.email||'',phone:c.phone||'',instagram:ig?'@'+ig:'',source:clipping||ig?'Instagram':'Other',direction:'Inbound',stage:'Call booked',
       source_detail:'Booked a call ('+(c.from||'Gmail')+')',fields:{call:{at:c.at||null,meet:c.meet||'',kind:c.kind||'',status:c.status||'booked',src:c.from||'Gmail',how:'added from the Daily brief'}}});}
+  /* 3 tips (12 Nov): one item per lead whose tips are written (fields.tips). Edit, copy, open the chat, mark sent. */
+  tipItem(l){const s=this.state;const t=(l.fields||{}).tips||{};const dr=(s.tipDraft||{})[l.id];const text=dr!=null?dr:(t.text||'');
+    const li=(l.fields||{}).li||{};const chat=li.urn?'https://www.linkedin.com/messaging/compose/?recipient='+encodeURIComponent(li.urn):(l.linkedin||'');
+    const NAMES={midbound:'Midbound tracking',crm:'One CRM for every channel',posts:'Three kinds of posts',abtest:'A/B tested DMs',warm:'Warm up before outbound'};
+    return{id:l.id,...avatar(l.name),name:l.name,sub:[l.role,l.company].filter(Boolean).join(' · '),why:t.why||'',hasWhy:!!t.why,
+      picked:(t.picked||[]).map(p=>({label:NAMES[p]||p})),text,rows:String(Math.min(18,Math.max(8,text.split('\n').length+2))),
+      meta:'Written '+this.since(t.at)+(t.edited_at?' · edited '+this.since(t.edited_at):'')+(t.sent_at?' · sent '+this.since(t.sent_at):''),
+      sent:!!t.sent_at,notSent:!t.sent_at,dirty:dr!=null&&dr!==(t.text||''),
+      setText:e=>{const v=e.target.value;this.setState(x=>({tipDraft:{...(x.tipDraft||{}),[l.id]:v}}));},
+      save:()=>{const v=((this.state.tipDraft||{})[l.id]);if(v==null)return;AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text:v,edited_at:new Date().toISOString()}}}).then(()=>this.setState(x=>{const n={...(x.tipDraft||{})};delete n[l.id];return{tipDraft:n};}));},
+      copy:()=>this.copy(text,'tip'+l.id,'Tips copied. Paste them in the LinkedIn chat.'),copyLabel:this.copyBtn('tip'+l.id,'Copy').label,
+      hasChat:!!chat,openChat:()=>window.open(chat,'_blank','noopener'),
+      markSent:()=>{AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text,sent_at:new Date().toISOString()}}});AK.leadNote(l.id,'message','Sent the 3 tips on LinkedIn:\n'+text);},
+      rewrite:()=>AK.liTips(l.id),openLead:()=>this.openLead(l.id),canEdit:AK.canEdit()};}
+  tipsVals(){const s=this.state;const L=(AK.LD.rows||[]).filter(l=>!l.archived&&((l.fields||{}).tips||{}).at);
+    const todo=L.filter(l=>!l.fields.tips.sent_at).sort((a,b)=>Date.parse(b.fields.tips.at)-Date.parse(a.fields.tips.at));
+    const done=L.filter(l=>l.fields.tips.sent_at);const showSent=!!s.tipsSent;
+    const items=(showSent?[...todo,...done]:todo).map(l=>this.tipItem(l));
+    return{has:L.length>0,items,hasItems:items.length>0,n:String(todo.length),sentN:String(done.length),hasSent:done.length>0,
+      sentLabel:showSent?'Hide sent':'Show sent ('+done.length+')',toggleSent:()=>this.setState(x=>({tipsSent:!x.tipsSent})),
+      open:s.tipsOpen!==false,toggle:()=>this.setState(x=>({tipsOpen:x.tipsOpen===false})),arrow:s.tipsOpen!==false?'▾':'▸'};}
   dossierVals(){const s=this.state;const L=this.leadsAll().filter(isGtmCall).sort((a,b)=>new Date(b.stage_at||0)-new Date(a.stage_at||0));
     const sel=L.find(l=>l.id===s.dosId)||L[0];
     const items=L.map(l=>{const b=(l.fields||{}).brief||{};const on=sel&&l.id===sel.id;return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),src:l.source,when:'Booked '+this.since(l.stage_at),
@@ -3328,6 +3349,26 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-if>
 
 <sc-if value="{{ is.leadList }}">
+<sc-if value="{{ ld.tp.has }}"><section style="display:flex; flex-direction:column; gap:10px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><button onClick="{{ ld.tp.toggle }}" style="display:inline-flex; align-items:center; gap:8px; padding:0; border:0; background:transparent; cursor:pointer; font-family:inherit;"><span style="font-size:var(--fs-sm); color:var(--ink-3);">{{ ld.tp.arrow }}</span><span style="width:20px; height:20px; border-radius:5px; display:grid; place-items:center; background:#0a66c2; color:#fff; font-size:11px; font-weight:700;">in</span><span style="font-size:var(--fs-md); font-weight:600; color:var(--ink);">3 tips to send</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.tp.n }} waiting</span></button>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3);">For people who said yes to our 3 ideas. Picked from our 5 for what they sell and who buys it. Read, edit, copy, send on LinkedIn, then Mark sent.</span>
+<sc-if value="{{ ld.tp.hasSent }}"><button onClick="{{ ld.tp.toggleSent }}" style="margin-left:auto; height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-2); font-size:var(--fs-xs); cursor:pointer;">{{ ld.tp.sentLabel }}</button></sc-if></div>
+<sc-if value="{{ ld.tp.open }}"><div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap:10px;"><sc-for list="{{ ld.tp.items }}" as="t">
+<div style="display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span style="width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ t.avBg }}; color:{{ t.avFg }};">{{ t.ini }}</span><span style="flex:1 1 200px; display:flex; flex-direction:column; line-height:1.3;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ t.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.sub }}</span></span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.meta }}</span></div>
+<div style="display:flex; flex-wrap:wrap; gap:5px;"><sc-for list="{{ t.picked }}" as="pk"><span style="padding:2px 8px; border-radius:999px; font-size:var(--fs-3xs); font-weight:700; background:#e8f1fb; color:#0a66c2;">{{ pk.label }}</span></sc-for><sc-if value="{{ t.hasWhy }}"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.why }}</span></sc-if></div>
+<textarea value="{{ t.text }}" onChange="{{ t.setText }}" rows="{{ t.rows }}" aria-label="The 3 tips" style="width:100%; box-sizing:border-box; padding:10px 12px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea>
+<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+<button onClick="{{ t.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:var(--ink); color:#fff;">{{ t.copyLabel }}</button>
+<sc-if value="{{ t.hasChat }}"><button onClick="{{ t.openChat }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#0a66c2; color:#fff;">Open LinkedIn chat ↗</button></sc-if>
+<sc-if value="{{ t.dirty }}"><button onClick="{{ t.save }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500; box-shadow:inset 0 0 0 1px var(--ink-3); font-weight:600;">Save edits</button></sc-if>
+<sc-if value="{{ t.notSent }}"><button onClick="{{ t.markSent }}" title="Logs the message on the lead and moves it to Sent" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:var(--ok-soft); color:var(--ok-ink);">Mark sent ✓</button></sc-if>
+<button onClick="{{ t.rewrite }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500;">Write again</button>
+<button onClick="{{ t.openLead }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500;">Lead</button>
+</div>
+</div>
+</sc-for></div></sc-if>
+</section></sc-if>
 <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; opacity:{{ E.op }}; transition:opacity 400ms var(--ease);">
 <input value="{{ ld.f.q }}" onChange="{{ ld.f.onQ }}" placeholder="Search leads" aria-label="Search leads" style="flex:0 1 240px; min-width:150px; height:34px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
 <select value="{{ ld.f.heat }}" onChange="{{ ld.f.onHeat }}" aria-label="Hot or warm" style="height:34px; padding:0 10px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ ld.f.heats }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
@@ -5135,6 +5176,22 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </button>
 </sc-for>
 </div>
+<sc-if value="{{ lp.tip.has }}"><div style="margin:0 var(--s-5) var(--s-3);"><span style="display:block; margin-bottom:6px; font-size:var(--fs-sm); font-weight:600;">3 tips for them</span>
+<div style="display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); ">
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span style="width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ lp.tip.avBg }}; color:{{ lp.tip.avFg }};">{{ lp.tip.ini }}</span><span style="flex:1 1 200px; display:flex; flex-direction:column; line-height:1.3;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ lp.tip.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ lp.tip.sub }}</span></span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ lp.tip.meta }}</span></div>
+<div style="display:flex; flex-wrap:wrap; gap:5px;"><sc-for list="{{ lp.tip.picked }}" as="pk"><span style="padding:2px 8px; border-radius:999px; font-size:var(--fs-3xs); font-weight:700; background:#e8f1fb; color:#0a66c2;">{{ pk.label }}</span></sc-for><sc-if value="{{ lp.tip.hasWhy }}"><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ lp.tip.why }}</span></sc-if></div>
+<textarea value="{{ lp.tip.text }}" onChange="{{ lp.tip.setText }}" rows="{{ lp.tip.rows }}" aria-label="The 3 tips" style="width:100%; box-sizing:border-box; padding:10px 12px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea>
+<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+<button onClick="{{ lp.tip.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:var(--ink); color:#fff;">{{ lp.tip.copyLabel }}</button>
+<sc-if value="{{ lp.tip.hasChat }}"><button onClick="{{ lp.tip.openChat }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#0a66c2; color:#fff;">Open LinkedIn chat ↗</button></sc-if>
+<sc-if value="{{ lp.tip.dirty }}"><button onClick="{{ lp.tip.save }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500; box-shadow:inset 0 0 0 1px var(--ink-3); font-weight:600;">Save edits</button></sc-if>
+<sc-if value="{{ lp.tip.notSent }}"><button onClick="{{ lp.tip.markSent }}" title="Logs the message on the lead and moves it to Sent" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:var(--ok-soft); color:var(--ok-ink);">Mark sent ✓</button></sc-if>
+<button onClick="{{ lp.tip.rewrite }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500;">Write again</button>
+<button onClick="" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500;">Lead</button>
+</div>
+</div>
+</div></sc-if>
+<sc-if value="{{ lp.tip.canWrite }}"><div style="margin:0 var(--s-5) var(--s-3);"><button onClick="{{ lp.tip.write }}" title="Looks up what they sell and who buys, picks the 3 best of our 5 tips and writes the LinkedIn message" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-weight:500;">Write their 3 tips</button></div></sc-if>
 <sc-if value="{{ lp.call.has }}"><div style="margin:0 var(--s-5) var(--s-3); padding:10px 14px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
 <span style="padding:2px 8px; border-radius:999px; font-size:var(--fs-3xs); font-weight:700; background:{{ lp.call.kBg }}; color:{{ lp.call.kFg }};">{{ lp.call.kind }}</span>
 <span style="font-size:var(--fs-sm); font-weight:600;">{{ lp.call.when }}</span>

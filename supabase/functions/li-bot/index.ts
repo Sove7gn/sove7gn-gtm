@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -935,5 +935,74 @@ async function briefs(b: any) {
     await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call dossier ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Leads > Call dossiers.", by_email: "automation" });
     made++;
   }
-  return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made };
+  // The 15 minute job also writes the 3 tips for anyone who said yes to them.
+  const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
+  return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
+}
+
+// ───────── 3 tips: when someone says yes to "I have 3 small ideas that could bring in more inbound" ─────────
+// (12 Nov) Five things we do in our GTM service. For each person we look up what their company sells and who buys it, pick the
+// 3 that fit them best, tweak each with an example for their company, and write the LinkedIn message. It lands on the lead
+// (fields.tips) for Reyansh to read, edit and send from Leads > All leads. Runs with the 15 minute job and from the CRM.
+// The five can be changed in settings (li_bot.tips).
+const TIPS = [
+  { id: "midbound", title: "Track midbound", text: "Everyone who likes, comments on or replies to your posts, or views your profile, is a warm lead. Check each one against your ideal customer every day and send good fits a personal reply and a DM the same day. Most founders never follow up on these and they convert far better than cold." },
+  { id: "crm", title: "One data matrix for every channel", text: "Put X, LinkedIn, email and your other tools (calendar, forms, product signups) into one CRM, so every person has one history: what they engaged with, what you sent, where they are. Then one morning list tells you who to follow up with today." },
+  { id: "posts", title: "Three kinds of posts", text: "Rotate three post types on LinkedIn and X: account tagging posts (a list of 4 to 6 companies or founders your buyers care about, tagged, which works as a lead magnet and gets them to engage), founder led posts (lessons from building), and data centric posts (numbers, teardowns, benchmarks from your space)." },
+  { id: "abtest", title: "A/B test your DMs", text: "Run 2 or 3 DM scripts side by side for midbound and outbound (for example a direct pitch, asking for advice, and giving value first), track reply rate per script, and keep the winner once each has about 15 sends." },
+  { id: "warm", title: "Warm up before outbound", text: "Before a cold request or DM, visit their profile and like a recent post a few hours earlier, send in their local morning, and follow up a few times until they reply. Acceptance and reply rates go up a lot compared with sending cold." },
+];
+async function tips(b: any) {
+  const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
+  const list: any[] = Array.isArray((bs?.value as any)?.tips) && (bs?.value as any).tips.length >= 3 ? (bs?.value as any).tips : TIPS;
+  let leads: any[] = [];
+  if (b.force_id) {
+    leads = (await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").eq("id", b.force_id)).data ?? [];
+  } else {
+    // People who replied after we offered the ideas (the note or a DM said "ideas" or "tips"), with no tips written yet.
+    const { data: offered } = await db.from("crm_li_tasks").select("lead_id").eq("status", "sent").or("text.ilike.%idea%,text.ilike.%tips%").limit(2000);
+    const ids = [...new Set((offered ?? []).map((t: any) => t.lead_id))];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").in("id", ids.slice(i, i + 200)).eq("archived", false);
+      leads.push(...(data ?? []).filter((l: any) => l.fields?.li?.replied && !l.fields?.tips?.at && l.fields?.li?.reply_label !== "not_interested"));
+    }
+    leads = leads.slice(0, +(b.limit ?? 4));
+  }
+  let made = 0;
+  for (const l of leads) {
+    const ic = l.fields?.li_icp ?? {}, I = l.fields?.gtm?.intel ?? {}, v = (k: string) => I[k]?.v ?? "";
+    let co: any = l.fields?.brief?.company ?? {};
+    if (EXA && !co.product && (l.company || ic.one_liner)) {
+      try {
+        const schema = { type: "object", properties: { product: { type: "string", description: "what they sell" }, customers: { type: "string", description: "who buys it: roles, company types" },
+          how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" }, channels: { type: "string", description: "where they post or show up: LinkedIn, X, blog, events" }, stage: { type: "string", description: "funding stage and team size" } } };
+        const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " startup", numResults: 6, outputSchema: schema,
+            systemPrompt: "What does this startup sell and who buys it? Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " + (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only facts from the results." }) });
+        if (res.ok) co = (await res.json()).output?.content ?? {};
+      } catch (_) { /* tips still get written from what we know */ }
+    }
+    const { data: ev } = await db.from("crm_lead_events").select("at,kind,text").eq("lead_id", l.id).in("kind", ["message", "note"]).order("at", { ascending: false }).limit(6);
+    const facts = ["Name: " + l.name, l.role ? "Role: " + l.role : "", l.company ? "Company: " + l.company : "", ic.one_liner ? "What they build: " + ic.one_liner : v("description") ? "What they build: " + v("description") : "",
+      ic.funding ? "Funding: " + ic.funding : "", ...Object.entries(co).filter(([, x]) => x).map(([k, x]) => k.replace(/_/g, " ") + ": " + clip(String(x), 300)),
+      (ev ?? []).length ? "Latest messages:\n" + (ev ?? []).map((e: any) => clip(String(e.text), 240)).join("\n") : ""].filter(Boolean).join("\n");
+    const prompt = "Reyansh (founder of SOVE7GN, a GTM studio) told this LinkedIn connection he had 3 small ideas that could bring them more inbound, and they said yes. " +
+      "Here are the 5 things we do for clients:\n" + list.map((t: any, i: number) => (i + 1) + ". [" + t.id + "] " + t.title + ": " + t.text).join("\n") + "\n\n" +
+      "About them:\n" + facts + "\n\n" +
+      "Pick the 3 that would help THIS company most, given what they sell and who their buyers are. Rewrite each so it is about them: name their buyers, " +
+      "give one concrete example for their company (for account tagging posts, say which kind of accounts they'd tag; for midbound, who would be engaging; and so on). " +
+      "Then write the LinkedIn message Reyansh sends: start 'Hey " + (String(l.name || "").replace(/[^\p{L}\s]/gu, " ").trim().split(/\s+/)[0] || "there") + ", here they are:', then the 3 numbered ideas " +
+      "(each 2 or 3 short sentences, a short bold-free title first), then one short closing line offering to share how we set these up if useful. No pitch, no prices, no links, " +
+      "plain words, sounds like a founder typing, no dashes as punctuation, no emojis, under 1,300 characters in total.\n" +
+      "Answer with JSON only: {\"picked\": [3 ids], \"why\": \"one line on why these 3\", \"message\": \"the message\"}";
+    const r = await llmMany([{ id: "t", prompt }]).catch(() => ({} as Record<string, string>));
+    const j = parseJson(r.t ?? "") ?? {};
+    const text = String(j.message ?? "").replace(/\s*[—–]\s*/g, ", ").trim();
+    if (!text) continue;
+    const fields = { ...(l.fields ?? {}), tips: { at: now(), text: text.slice(0, 2000), picked: Array.isArray(j.picked) ? j.picked.slice(0, 3) : [], why: String(j.why ?? "").slice(0, 300), company: co } };
+    await db.from("crm_leads").update({ fields }).eq("id", l.id);
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "3 tips written for them (" + (fields.tips.picked.join(", ") || "picked for them") + "). Read, edit and send from Leads > All leads.", by_email: "automation" });
+    made++;
+  }
+  return { made };
 }

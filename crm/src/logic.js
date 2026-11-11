@@ -1012,7 +1012,7 @@ class Component extends DCLogic {
     if(page!=='leadBoard')this._ldAuto=false;   // next visit to Pipeline scrolls the board into view again
     if(page==='leads')return{...base,...this.leadOverview(),dash:this.gtmDashVals()};
     if(page==='leadBoard')return{...base,...this.leadBoard()};
-    if(page==='leadList')return{...base,...this.leadList()};
+    if(page==='leadList')return{...base,...this.leadList(),tp:this.tipsVals()};
     if(page==='leadAdd')return{...base,...this.leadAddVals()};
     if(page==='leadSetup')return{...base,...this.leadSetupVals(),icp:this.gtmSetupVals()};
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
@@ -1196,7 +1196,7 @@ class Component extends DCLogic {
       ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
-      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),call:(()=>{const c=(!isNew&&l&&l.fields&&l.fields.call)||null;if(!c)return{has:false};const k=callKind(c,l.source);const past=c.at&&c.at<Date.now()-36e5;return{has:true,kind:k[0],kBg:k[1],kFg:k[2],when:callWhen(c.at)+(past?' (past)':''),state:c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',hasState:c.status==='declined'||c.status==='cancelled',src:'From '+(c.src||'Gmail')+(c.how?', matched by '+c.how:''),hasMeet:!!c.meet,meet:c.meet||'',openMeet:()=>window.open(c.meet,'_blank','noopener'),copyMeet:()=>this.copy(c.meet,'lm'+l.id,'Meet link copied.'),noMeet:!c.meet};})(),
+      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),tip:!isNew&&l&&((l.fields||{}).tips||{}).at?{has:true,...this.tipItem(l)}:{has:false,canWrite:!isNew&&!!l&&l.source==='LinkedIn'&&AK.canEdit(),write:()=>l&&AK.liTips(l.id)},call:(()=>{const c=(!isNew&&l&&l.fields&&l.fields.call)||null;if(!c)return{has:false};const k=callKind(c,l.source);const past=c.at&&c.at<Date.now()-36e5;return{has:true,kind:k[0],kBg:k[1],kFg:k[2],when:callWhen(c.at)+(past?' (past)':''),state:c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',hasState:c.status==='declined'||c.status==='cancelled',src:'From '+(c.src||'Gmail')+(c.how?', matched by '+c.how:''),hasMeet:!!c.meet,meet:c.meet||'',openMeet:()=>window.open(c.meet,'_blank','noopener'),copyMeet:()=>this.copy(c.meet,'lm'+l.id,'Meet link copied.'),noMeet:!c.meet};})(),
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
 
@@ -1379,6 +1379,27 @@ class Component extends DCLogic {
   briefAddCall(c){const ig=String(c.ig||'').replace(/^@/,'');const clipping=c.kind==='clipping';
     AK.leadCreate({name:c.name||c.email,email:c.email||'',phone:c.phone||'',instagram:ig?'@'+ig:'',source:clipping||ig?'Instagram':'Other',direction:'Inbound',stage:'Call booked',
       source_detail:'Booked a call ('+(c.from||'Gmail')+')',fields:{call:{at:c.at||null,meet:c.meet||'',kind:c.kind||'',status:c.status||'booked',src:c.from||'Gmail',how:'added from the Daily brief'}}});}
+  /* 3 tips (12 Nov): one item per lead whose tips are written (fields.tips). Edit, copy, open the chat, mark sent. */
+  tipItem(l){const s=this.state;const t=(l.fields||{}).tips||{};const dr=(s.tipDraft||{})[l.id];const text=dr!=null?dr:(t.text||'');
+    const li=(l.fields||{}).li||{};const chat=li.urn?'https://www.linkedin.com/messaging/compose/?recipient='+encodeURIComponent(li.urn):(l.linkedin||'');
+    const NAMES={midbound:'Midbound tracking',crm:'One CRM for every channel',posts:'Three kinds of posts',abtest:'A/B tested DMs',warm:'Warm up before outbound'};
+    return{id:l.id,...avatar(l.name),name:l.name,sub:[l.role,l.company].filter(Boolean).join(' · '),why:t.why||'',hasWhy:!!t.why,
+      picked:(t.picked||[]).map(p=>({label:NAMES[p]||p})),text,rows:String(Math.min(18,Math.max(8,text.split('\n').length+2))),
+      meta:'Written '+this.since(t.at)+(t.edited_at?' · edited '+this.since(t.edited_at):'')+(t.sent_at?' · sent '+this.since(t.sent_at):''),
+      sent:!!t.sent_at,notSent:!t.sent_at,dirty:dr!=null&&dr!==(t.text||''),
+      setText:e=>{const v=e.target.value;this.setState(x=>({tipDraft:{...(x.tipDraft||{}),[l.id]:v}}));},
+      save:()=>{const v=((this.state.tipDraft||{})[l.id]);if(v==null)return;AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text:v,edited_at:new Date().toISOString()}}}).then(()=>this.setState(x=>{const n={...(x.tipDraft||{})};delete n[l.id];return{tipDraft:n};}));},
+      copy:()=>this.copy(text,'tip'+l.id,'Tips copied. Paste them in the LinkedIn chat.'),copyLabel:this.copyBtn('tip'+l.id,'Copy').label,
+      hasChat:!!chat,openChat:()=>window.open(chat,'_blank','noopener'),
+      markSent:()=>{AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text,sent_at:new Date().toISOString()}}});AK.leadNote(l.id,'message','Sent the 3 tips on LinkedIn:\n'+text);},
+      rewrite:()=>AK.liTips(l.id),openLead:()=>this.openLead(l.id),canEdit:AK.canEdit()};}
+  tipsVals(){const s=this.state;const L=(AK.LD.rows||[]).filter(l=>!l.archived&&((l.fields||{}).tips||{}).at);
+    const todo=L.filter(l=>!l.fields.tips.sent_at).sort((a,b)=>Date.parse(b.fields.tips.at)-Date.parse(a.fields.tips.at));
+    const done=L.filter(l=>l.fields.tips.sent_at);const showSent=!!s.tipsSent;
+    const items=(showSent?[...todo,...done]:todo).map(l=>this.tipItem(l));
+    return{has:L.length>0,items,hasItems:items.length>0,n:String(todo.length),sentN:String(done.length),hasSent:done.length>0,
+      sentLabel:showSent?'Hide sent':'Show sent ('+done.length+')',toggleSent:()=>this.setState(x=>({tipsSent:!x.tipsSent})),
+      open:s.tipsOpen!==false,toggle:()=>this.setState(x=>({tipsOpen:x.tipsOpen===false})),arrow:s.tipsOpen!==false?'▾':'▸'};}
   dossierVals(){const s=this.state;const L=this.leadsAll().filter(isGtmCall).sort((a,b)=>new Date(b.stage_at||0)-new Date(a.stage_at||0));
     const sel=L.find(l=>l.id===s.dosId)||L[0];
     const items=L.map(l=>{const b=(l.fields||{}).brief||{};const on=sel&&l.id===sel.id;return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),src:l.source,when:'Booked '+this.since(l.stage_at),

@@ -1212,6 +1212,14 @@ async function briefRun(){
   catch(e){toast("Couldn't write the brief: "+(e.message||e),true)}
   finally{BR.running=false;await briefLoad();leadsLoad()}
 }
+// 3 tips (12 Nov): li-bot looks up what they sell and who buys, picks the 3 best of our 5 tips and writes the LinkedIn message.
+async function liTips(id){
+  if(!sb)return false;toast("Writing their 3 tips. About 30 seconds.");
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"tips",force_id:id}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    toast(data&&data.made?"3 tips ready.":"Couldn't write them yet. Try again in a minute.",!(data&&data.made));leadsLoad();return true}
+  catch(e){toast("Couldn't write the tips: "+(e.message||e),true);return false}
+}
 // Call brief (11 Nov): li-bot researches the lead and writes the call plan and pitch (it also runs every 15 minutes on its own).
 async function liBrief(id){
   if(!sb)return false;toast("Writing the call brief. About a minute.");
@@ -1559,7 +1567,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,BR,briefLoad,briefRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
