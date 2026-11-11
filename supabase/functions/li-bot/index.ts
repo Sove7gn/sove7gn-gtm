@@ -864,12 +864,26 @@ async function sortReply(l: Lead, text: string): Promise<{ label: string; draft:
   return { label, draft: String(j.draft ?? "").replace(/\s*[—–]\s*/g, ", ").slice(0, 600) };
 }
 
-// ───────── call brief: when a call is booked (any channel), research them and write the call plan and pitch ─────────
+// ───────── call brief: when a GTM call is booked, research them and write the call plan ─────────
+// (12 Nov, Reyansh's format) We don't open with a pitch. Reyansh says what he's building in 1 or 2 lines, walks them through the
+// inbound / midbound / outbound system on X, LinkedIn and email, asks what they think and what's hard for them right now, drops a
+// real result, and reads whether they'd want a pilot. Results come from PROOF (or li_bot.proof in settings), never made up.
+const SYSTEM_TEXT = [
+  "What SOVE7GN is building: a GTM engine for funded B2B founders that runs their inbound, midbound and outbound on X, LinkedIn and email, so the founder gets sales calls without hiring a marketing or SDR team.",
+  "INBOUND (people come to them): founder content on X and LinkedIn, about 3 posts a day built on formats that already went viral for others in their space, plus tracking what each post brings in.",
+  "MIDBOUND (people who already showed interest): everyone who likes, comments, replies or views their profile is checked against their ideal customer; good fits get a personal reply and a DM the same day.",
+  "OUTBOUND (people who don't know them yet): every day we find recently funded founders and buyers who fit, warm them up first (profile visit, a like), then a LinkedIn request with a note, X DMs and cold email from separate domains, with follow-ups until they reply, and the calls go on the founder's calendar.",
+  "Everything lands in one CRM with a morning brief of who to follow up with.",
+].join("\n");
+const PROOF = ["For a YC founder we got 100K views on TikTok and several sales calls booked, completely inbound."];
+
 async function briefs(b: any) {
   const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key,notes,source,website,pitch,closed_for").eq("archived", false)
     .in("stage", ["Call booked", "Proposal sent"]).in("source", ["LinkedIn", "X"]).limit(200);
   // Only calls booked for the GTM service (clipping and UGC leads don't get one).
-  const gtm = (data ?? []).filter((l: any) => !/clip|ugc|reel/i.test(String(l.pitch ?? "") + " " + String(l.closed_for ?? "")));
+  const gtm = (data ?? []).filter((l: any) => !/clip|ugc|reel/i.test(String(l.pitch ?? "") + " " + String(l.closed_for ?? "")) && l.fields?.call?.kind !== "clipping");
+  const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
+  const proof: string[] = Array.isArray((bs?.value as any)?.proof) && (bs?.value as any).proof.length ? (bs?.value as any).proof : PROOF;
   const todo = gtm.filter((l: any) => !l.fields?.brief?.at || b.force_id === l.id).slice(0, +(b.limit ?? 3));
   let made = 0;
   for (const l of todo as any[]) {
@@ -894,15 +908,28 @@ async function briefs(b: any) {
       ic.funding ? "Latest round: " + ic.funding : "", v("employees") ? "Team size: " + v("employees") : "", [ic.hq_city, ic.hq_country].filter(Boolean).length ? "Based in: " + [ic.hq_city, ic.hq_country].filter(Boolean).join(", ") : "",
       v("accelerator") ? "Accelerator: " + v("accelerator") : "", "How they found us: " + (SRC_LABEL[src] ?? src) + (l.source_detail ? " (" + l.source_detail + ")" : ""), angle ? "Message angle that got the call: " + (ANGLE_LABEL[angle] ?? angle) : "",
       ...Object.entries(co).filter(([, x]) => x).map(([k, x]) => k.replace(/_/g, " ") + ": " + clip(String(x), 400)), convo ? "Conversation so far:\n" + convo : ""].filter(Boolean).join("\n");
-    const prompt = "Write a call brief for Reyansh, founder of SOVE7GN. SOVE7GN is a done-for-you GTM growth studio for funded B2B and B2B2C founders: founder content on LinkedIn and X, warm-signal outreach (people who engage), " +
-      "cold outbound, and booked sales calls. Retainers are $5,000 to $20,000 a month. Never invent numbers, clients or results we don't have.\n\n" +
-      "This call came from " + (pitchLed ? "a direct GTM pitch: they know we sell a GTM service, so after a short discovery, pitch the service and a pilot." :
-        "an advice ask: they think Reyansh wants advice. Run it as: thank them, explain in 2 lines what SOVE7GN is building, ask about their GTM (how they get customers today, what works, where it breaks), reflect their bottlenecks back, then offer a small paid pilot that fixes the biggest one.") + "\n\n" +
-      "Facts:\n" + facts + "\n\n" +
-      "Write plain text with these headings, short bullets, plain words, no dashes as punctuation, no hashtags:\n" +
-      "WHO THEY ARE\nTHE COMPANY\nWHY THEY TOOK THE CALL\nTHEIR LIKELY GTM BOTTLENECKS (3)\nCALL SCRIPT (minute by minute, with the exact opening line)\nTHE PITCH (what we'd do for them in the first 30 days, tied to their bottlenecks)\nPILOT OFFER AND NEXT STEP\nQUESTIONS TO ASK (5)\nOBJECTIONS AND ANSWERS (3)";
+    const prompt = "Write a call brief for Reyansh, founder of SOVE7GN, for a 30 minute call. Do NOT open with a pitch. Reyansh frames it as: I'm building this, " +
+      "I'd love your honest take. He explains it in 1 or 2 lines, walks them through how it works, asks what they think and what's hard for them right now, " +
+      "shares a real result, and only then checks whether they'd want to try a pilot. Make every part specific to this person and their company.\n\n" +
+      "What we're building (use these facts, don't add features):\n" + SYSTEM_TEXT + "\n\n" +
+      "Real results we can mention (use only these, word for word in meaning, never invent clients, numbers or results):\n" + proof.map((x) => "- " + x).join("\n") + "\n\n" +
+      "How the call came about: " + (pitchLed ? "they know we offer a GTM service." : "they think Reyansh mainly wants their advice, so the advice framing is real: ask first, listen, then show.") + "\n\n" +
+      "Facts about them:\n" + facts + "\n\n" +
+      "Write plain text with exactly these headings, short bullets, plain words, no dashes as punctuation, no hashtags, no emojis:\n" +
+      "THE 1 OR 2 LINE INTRO (what Reyansh says SOVE7GN is building, in his words, starting with 'I'm building')\n" +
+      "WHO THEY ARE AND THE COMPANY (4 bullets max)\n" +
+      "WHY THEY TOOK THE CALL\n" +
+      "CALL FLOW (minute by minute: 0 to 3 open and intro; 3 to 12 walk through inbound, midbound and outbound on X, LinkedIn and email with one example each made for their company; " +
+      "12 to 22 their opinion and their problems; 22 to 25 the result we can share; 25 to 30 pilot check and next step. Give the exact line Reyansh says at each step.)\n" +
+      "HOW THE SYSTEM WOULD LOOK FOR THEM (inbound, midbound, outbound: 2 bullets each, specific to their buyers)\n" +
+      "QUESTIONS FOR THEIR OPINION AND THEIR PROBLEMS (6, open questions about how they get customers today, what works, what breaks, who does it)\n" +
+      "THEIR LIKELY GTM PROBLEMS (3, from the facts, each with what in our system would fix it)\n" +
+      "RESULTS TO MENTION (from the list above only, and the moment in the call to say each)\n" +
+      "IS THERE A PILOT HERE (signs they'd want one, the question that tests it, and how to offer a 30 day pilot on their biggest problem if the signs are there; if not, the softer next step)\n" +
+      "OBJECTIONS AND ANSWERS (3)";
     const r = await llmMany([{ id: "b", prompt }]).catch(() => ({} as Record<string, string>));
-    const text = String(r.b ?? "").replace(/\s*[—–]\s*/g, ", ").trim();
+    // Headings come back with the instructions in brackets ("CALL FLOW (minute by minute ...)"): keep the heading only.
+    const text = String(r.b ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/^([A-Z0-9][A-Z0-9 ,'’]+?)\s*\([^\n]*\)\s*$/gm, "$1").trim();
     if (!text) continue;
     await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), brief: { at: now(), text: text.slice(0, 12000), mode: pitchLed ? "pitch" : "advice", company: co } } }).eq("id", l.id);
     await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call dossier ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Leads > Call dossiers.", by_email: "automation" });
