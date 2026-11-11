@@ -1801,7 +1801,7 @@ class Component extends DCLogic {
     const li=(l.fields||{}).li||{};const chat=li.urn?'https://www.linkedin.com/messaging/compose/?recipient='+encodeURIComponent(li.urn):(l.linkedin||'');
     const NAMES={midbound:'Midbound tracking',crm:'One CRM for every channel',posts:'Three kinds of posts',abtest:'A/B tested DMs',warm:'Warm up before outbound'};
     return{id:l.id,...avatar(l.name),name:l.name,sub:[l.role,l.company].filter(Boolean).join(' · '),why:t.why||'',hasWhy:!!t.why,
-      picked:(t.picked||[]).map(p=>({label:NAMES[p]||p})),text,rows:String(Math.min(18,Math.max(8,text.split('\n').length+2))),
+      picked:(t.picked||[]).map(p=>({label:NAMES[p]||p})),text,rows:String(Math.min(26,Math.max(10,Math.ceil(text.length/72)+text.split('\n').length))),
       meta:'Written '+this.since(t.at)+(t.edited_at?' · edited '+this.since(t.edited_at):'')+(t.sent_at?' · sent '+this.since(t.sent_at):''),
       sent:!!t.sent_at,notSent:!t.sent_at,dirty:dr!=null&&dr!==(t.text||''),
       setText:e=>{const v=e.target.value;this.setState(x=>({tipDraft:{...(x.tipDraft||{}),[l.id]:v}}));},
