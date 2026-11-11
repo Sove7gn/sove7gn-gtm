@@ -295,6 +295,7 @@
 <button onClick="{{ ld.dos.rewrite }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline);">Write it again</button>
 <button onClick="{{ ld.dos.open }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline);">Open lead</button>
 </div>
+<div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ ld.dos.facts }}" as="f"><button onClick="{{ f.go }}" style="height:26px; padding:0 10px; border:0; border-radius:999px; background:{{ f.bg }}; color:{{ f.fg }}; font-size:var(--fs-2xs); font-weight:600; cursor:pointer;">{{ f.label }}</button></sc-for></div>
 <sc-if value="{{ ld.dos.waiting }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Researching them and writing the dossier. Within 15 minutes, or press Write it again.</span></sc-if>
 <sc-if value="{{ ld.dos.hasText }}"><div style="white-space:pre-wrap; font-size:var(--fs-sm); line-height:1.6; color:var(--ink);">{{ ld.dos.text }}</div></sc-if>
 </div>

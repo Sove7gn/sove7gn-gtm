@@ -521,6 +521,7 @@ async function calBooking(req: Request) {
 // One Exa search per person with a structured answer (Exa allows at most 10 fields). Facts go into the lead's intelligence card (fields.gtm.intel) with
 // the page they came from, so the CRM's ICP score counts them as evidence. A short line about them goes in fields.li_icp.
 const EXA = Deno.env.get("EXA_API_KEY") ?? "";   // also used by people() and briefs()
+const TWAPI = Deno.env.get("TWITTERAPI_KEY") ?? "";   // X follower counts for call dossiers
 const ROUNDS = ["Pre-seed", "Seed", "Series A", "Series B", "Series C", "Series D+", "Bootstrapped", "Grant / other"];
 const MODELS = ["B2B", "B2B2C", "B2C", "Marketplace", "Services / agency"];
 async function enrich(b: any) {
@@ -890,50 +891,99 @@ async function briefs(b: any) {
   for (const l of todo as any[]) {
     const { data: ev } = await db.from("crm_lead_events").select("at,kind,text,by_email").eq("lead_id", l.id).order("at", { ascending: true }).limit(40);
     const ic = l.fields?.li_icp ?? {}, I = l.fields?.gtm?.intel ?? {}, li = l.fields?.li ?? {}, v = (k: string) => I[k]?.v ?? "";
+    // (12 Nov, locked by Reyansh) The dossier is a script he reads out, in a fixed order: key facts, the idea (one line, then
+    // inbound, midbound, outbound and how they feed each other through one CRM), questions about their business, then the pilot.
+    // The model only fills the parts about them; the order and our wording live here so every dossier reads the same way.
     let co: any = {};
-    if (EXA && (l.company || ic.one_liner)) {
+    if (EXA && (l.company || ic.one_liner || l.name)) {
       try {
-        const schema = { type: "object", properties: { product: { type: "string" }, customers: { type: "string", description: "who buys it" }, traction: { type: "string", description: "revenue, users, customers, growth if stated" },
-          recent_news: { type: "string" }, how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" }, team: { type: "string" },
-          competitors: { type: "string" }, founder_background: { type: "string" }, hiring: { type: "string", description: "open roles, especially sales, marketing, growth" } } };
+        const schema = { type: "object", properties: {
+          product: { type: "string", description: "what they sell, in one sentence" }, customers: { type: "string", description: "who buys it" },
+          total_raised: { type: "string", description: "total funding and the latest round with amount, month and lead investor" }, team_size: { type: "string" },
+          milestones: { type: "string", description: "recent launches, customers, revenue, users, awards, accelerator" },
+          how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" },
+          x_handle: { type: "string", description: "the founder's personal X (Twitter) handle, without @" }, x_followers: { type: "string" },
+          linkedin_followers: { type: "string", description: "followers on the founder's LinkedIn profile" }, recent_news: { type: "string" } } };
         const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
-          body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " startup", numResults: 8, outputSchema: schema,
-            systemPrompt: "Research this startup for a sales call. Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " + (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only state facts from the results." }) });
+          body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " founder", numResults: 8, outputSchema: schema,
+            systemPrompt: "Research this startup and its founder for a sales call. Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " +
+              (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only state facts from the results; leave a field empty if it isn't there." }) });
         if (res.ok) co = (await res.json()).output?.content ?? {};
-      } catch (_) { /* brief still gets written from what we have */ }
+        // Research says "Not available" or "Unknown" when it found nothing: treat that as empty.
+        for (const k of Object.keys(co)) if (/^(not (available|found|stated|known|specified|provided|disclosed)|unknown|n\/?a|none|null)\b/i.test(String(co[k] ?? "").trim())) co[k] = "";
+      } catch (_) { /* the dossier still gets written from what we have */ }
     }
+    // Their X: the handle on the lead first, then what research found; followers read live from X when we can.
+    const xh = String(l.x_handle || (/^@?[A-Za-z0-9_]{2,15}$/.test(String(co.x_handle ?? "").trim()) ? co.x_handle : "") || "").replace(/^@/, "").replace(/^https?:\/\/(x|twitter)\.com\//i, "").split(/[/?\s]/)[0];
+    let xFollowers = co.x_followers ? String(co.x_followers) : "";
+    if (xh && TWAPI) {
+      try { const r = await fetch("https://api.twitterapi.io/twitter/user/info?userName=" + encodeURIComponent(xh), { headers: { "X-API-Key": TWAPI } });
+        // 0 followers almost always means research guessed the wrong handle: then show no count.
+        if (r.ok) { const u = (await r.json())?.data; if (u?.followers != null) xFollowers = Number(u.followers) > 0 ? Number(u.followers).toLocaleString("en-US") : ""; } } catch (_) { /* keep research's number */ }
+    }
+    const liUrl = l.linkedin || (li.pid ? "https://www.linkedin.com/in/" + li.pid : "");
     const src = srcOf(l as Lead), angle = li.angle || "";
     const convo = (ev ?? []).filter((e: any) => ["message", "note", "meeting", "call", "engaged"].includes(e.kind)).map((e: any) => String(e.at).slice(0, 10) + " " + clip(String(e.text), 300)).join("\n");
     const pitchLed = angle === "pitch" || /gtm|growth|service|pricing|proposal|pilot/i.test(convo);
     const facts = ["Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : ""), ic.one_liner ? "What they build: " + ic.one_liner : (v("description") ? "What they build: " + v("description") : ""),
       ic.funding ? "Latest round: " + ic.funding : "", v("employees") ? "Team size: " + v("employees") : "", [ic.hq_city, ic.hq_country].filter(Boolean).length ? "Based in: " + [ic.hq_city, ic.hq_country].filter(Boolean).join(", ") : "",
-      v("accelerator") ? "Accelerator: " + v("accelerator") : "", "How they found us: " + (SRC_LABEL[src] ?? src) + (l.source_detail ? " (" + l.source_detail + ")" : ""), angle ? "Message angle that got the call: " + (ANGLE_LABEL[angle] ?? angle) : "",
+      v("accelerator") ? "Accelerator: " + v("accelerator") : "", "How they found us: " + (SRC_LABEL[src] ?? src) + (l.source_detail ? " (" + l.source_detail + ")" : ""),
       ...Object.entries(co).filter(([, x]) => x).map(([k, x]) => k.replace(/_/g, " ") + ": " + clip(String(x), 400)), convo ? "Conversation so far:\n" + convo : ""].filter(Boolean).join("\n");
-    const prompt = "Write a call brief for Reyansh, founder of SOVE7GN, for a 30 minute call. Do NOT open with a pitch. Reyansh frames it as: I'm building this, " +
-      "I'd love your honest take. He explains it in 1 or 2 lines, walks them through how it works, asks what they think and what's hard for them right now, " +
-      "shares a real result, and only then checks whether they'd want to try a pilot. Make every part specific to this person and their company.\n\n" +
-      "What we're building (use these facts, don't add features):\n" + SYSTEM_TEXT + "\n\n" +
-      "Real results we can mention (use only these, word for word in meaning, never invent clients, numbers or results):\n" + proof.map((x) => "- " + x).join("\n") + "\n\n" +
-      "How the call came about: " + (pitchLed ? "they know we offer a GTM service." : "they think Reyansh mainly wants their advice, so the advice framing is real: ask first, listen, then show.") + "\n\n" +
-      "Facts about them:\n" + facts + "\n\n" +
-      "Write plain text with exactly these headings, short bullets, plain words, no dashes as punctuation, no hashtags, no emojis:\n" +
-      "THE 1 OR 2 LINE INTRO (what Reyansh says SOVE7GN is building, in his words, starting with 'I'm building')\n" +
-      "WHO THEY ARE AND THE COMPANY (4 bullets max)\n" +
-      "WHY THEY TOOK THE CALL\n" +
-      "CALL FLOW (minute by minute: 0 to 3 open and intro; 3 to 12 walk through inbound, midbound and outbound on X, LinkedIn and email with one example each made for their company; " +
-      "12 to 22 their opinion and their problems; 22 to 25 the result we can share; 25 to 30 pilot check and next step. Give the exact line Reyansh says at each step.)\n" +
-      "HOW THE SYSTEM WOULD LOOK FOR THEM (inbound, midbound, outbound: 2 bullets each, specific to their buyers)\n" +
-      "QUESTIONS FOR THEIR OPINION AND THEIR PROBLEMS (6, open questions about how they get customers today, what works, what breaks, who does it)\n" +
-      "THEIR LIKELY GTM PROBLEMS (3, from the facts, each with what in our system would fix it)\n" +
-      "RESULTS TO MENTION (from the list above only, and the moment in the call to say each)\n" +
-      "IS THERE A PILOT HERE (signs they'd want one, the question that tests it, and how to offer a 30 day pilot on their biggest problem if the signs are there; if not, the softer next step)\n" +
-      "OBJECTIONS AND ANSWERS (3)";
+    const first = String(l.name || "").replace(/[^\p{L}\s]/gu, " ").trim().split(/\s+/)[0] || "there";
+    const company = l.company || "your company";
+    const prompt = "Reyansh (founder of SOVE7GN, a GTM growth studio for seed to Series C founders) has a sales call with " + l.name + (l.company ? " of " + l.company : "") + ". " +
+      "Fill in the parts of his call script that are about them. Every value must be complete, natural spoken sentences he can read out word for word: no fragments, no bullet stubs, " +
+      "no labels like 'Inbound:' at the start, no dashes as punctuation, no emojis. Only use facts below; never invent numbers, customers or news.\n\n" +
+      "Facts:\n" + facts + "\n\n" +
+      "Answer with JSON only:\n" +
+      "{\"replace_what\": \"what we replace for a company at their stage, as a phrase that fits after 'We essentially replace', e.g. 'the marketing hire and the SDR you would otherwise need'\",\n" +
+      " \"inbound_example\": \"one or two sentences starting 'For " + company + ", ...' with a post idea their buyers would care about\",\n" +
+      " \"midbound_example\": \"one sentence starting 'For you, that would be ...' naming who would be engaging and what we'd send them\",\n" +
+      " \"outbound_example\": \"one sentence starting 'For " + company + ", we would go after ...' naming the exact kind of buyer\",\n" +
+      " \"congrats\": \"one or two sentences opening the questions: 'I wanted to understand more about " + company + ". I read up on it, and congrats on ...' naming a real recent raise, launch or milestone from the facts (if there is none, praise something specific they built)\",\n" +
+      " \"questions\": [\"6 full questions, in order, that get them to explain how they do GTM now, how many leads come in inbound each month and from where, who does sales and content, what they've tried that didn't work, what happens to people who engage with their posts, and what a great quarter would look like; make them specific to their business so they end up explaining why they need this\"],\n" +
+      " \"listen_for\": [\"3 short problems they are likely to mention, in their words\"]}";
     const r = await llmMany([{ id: "b", prompt }]).catch(() => ({} as Record<string, string>));
-    // Headings come back with the instructions in brackets ("CALL FLOW (minute by minute ...)"): keep the heading only.
-    const text = String(r.b ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/^([A-Z0-9][A-Z0-9 ,'’]+?)\s*\([^\n]*\)\s*$/gm, "$1").trim();
-    if (!text) continue;
-    await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), brief: { at: now(), text: text.slice(0, 12000), mode: pitchLed ? "pitch" : "advice", company: co } } }).eq("id", l.id);
-    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call dossier ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Leads > Call dossiers.", by_email: "automation" });
+    const j = parseJson(r.b ?? "") ?? {};
+    const clean = (x: unknown) => String(x ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/\s+/g, " ").trim();
+    if (!clean(j.replace_what) || !Array.isArray(j.questions)) continue;
+    const pilot = String((bs?.value as any)?.pilot || "So here's what I'd suggest. Let's do a one month pilot and see how it works. We take care of one social handle for you, X or LinkedIn, whichever matters more for " + company + ", and we guarantee 30 sales calls in that month. If it works, we talk about running all three channels. Does that sound worth trying?");
+    const cnt = (x: unknown) => clean(x).replace(/\s*followers?\.?$/i, "");
+    co.linkedin_followers = cnt(co.linkedin_followers); xFollowers = cnt(xFollowers);
+    const keyFacts = [
+      "X: " + (xh ? "@" + xh + (xFollowers ? ", " + xFollowers + " followers" : "") + " · https://x.com/" + xh : "not found yet"),
+      "LinkedIn: " + (co.linkedin_followers ? clean(co.linkedin_followers) + " followers" : "followers not found") + (liUrl ? " · " + liUrl : ""),
+      "Raised: " + (clean(co.total_raised) || clean(ic.funding) || "not found"),
+      co.team_size || v("employees") ? "Team: " + clean(co.team_size || v("employees")) : "",
+      co.product || ic.one_liner ? "They sell: " + clean(co.product || ic.one_liner) + (co.customers ? " Buyers: " + clean(co.customers) : "") : "",
+      co.milestones ? "Milestones: " + clean(co.milestones) : "",
+      co.how_they_sell_today ? "How they sell today: " + clean(co.how_they_sell_today) : "",
+    ].filter(Boolean).map((x) => "• " + x).join("\n");
+    const text = [
+      "KEY FACTS", keyFacts, "",
+      "PART 1: THE IDEA (read this out)",
+      "Thanks for making the time, " + first + ". Before I ask about " + company + ", let me quickly tell you what we're building.",
+      "We're building a GTM growth studio for founders from seed to Series C. We essentially replace " + clean(j.replace_what) + ", and we run your content and outreach for you, so you get a steady flow of organic sales calls booked through X, LinkedIn and email.",
+      "Let me go one level deeper. We focus on three channels.",
+      "The first is inbound. We write and post founder content on X and LinkedIn, around three posts a day, built on formats that have already gone viral in your space, so the right buyers start coming to you. The output is a growing audience of buyers and people reaching out on their own. " + clean(j.inbound_example),
+      "The second is midbound. Everyone who likes, comments, replies or views your profile is already warm, and most founders never follow up with them. We check each one against your ideal customer every day and send the good fits a personal reply and a DM the same day. The output is real conversations with people who already know you. " + clean(j.midbound_example),
+      "The third is outbound. Every day we find recently funded founders and buyers who fit, warm them up first with a profile visit and a like, then reach out with a LinkedIn note, an X DM and cold email from separate domains, and follow up until they reply. The output is sales calls on your calendar. " + clean(j.outbound_example),
+      "And finally, all three run into one CRM, and they push each other. Your posts give outbound something to reference, so cold messages land warmer. Outbound brings new people to your profile, who then see your posts. And everyone who engages with a post becomes midbound and gets a DM. Every morning you get one list of who to follow up with across X, LinkedIn and email.",
+      "That's the whole idea. Happy to answer anything.",
+      "If they ask for proof, have these ready:\n" + ["The Aktoria case study.", ...proof].map((x) => "• " + x).join("\n"),
+      "",
+      "PART 2: QUESTIONS ABOUT THEIR BUSINESS",
+      clean(j.congrats),
+      ...j.questions.slice(0, 7).map((q: unknown, i: number) => (i + 1) + ". " + clean(q)),
+      "Listen for: " + (Array.isArray(j.listen_for) ? j.listen_for.map((x: unknown) => clean(x).replace(/[.;]+$/, "")).join("; ") : "") + ".",
+      "",
+      "PART 3: THE PILOT (read this out)",
+      "From what you've told me, [repeat the 2 or 3 problems they just named]. These are exactly the problems we've solved for the founders we work with. " + (proof[1] ?? proof[0] ?? ""),
+      pilot,
+    ].join("\n\n").replace(/\n{3,}/g, "\n\n");
+    const factsOut = { x_handle: xh, x_followers: xFollowers, li_followers: clean(co.linkedin_followers), raised: clean(co.total_raised) || clean(ic.funding), linkedin: liUrl };
+    await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), brief: { at: now(), text: text.slice(0, 12000), mode: pitchLed ? "pitch" : "advice", company: co, facts: factsOut, v: 3 } } }).eq("id", l.id);
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call dossier ready (script: the idea, questions, the pilot). Leads > Call dossiers.", by_email: "automation" });
     made++;
   }
   // The 15 minute job also writes the 3 tips for anyone who said yes to them.
