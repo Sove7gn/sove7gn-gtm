@@ -846,9 +846,11 @@ async function sortReply(l: Lead, text: string): Promise<{ label: string; draft:
 
 // ───────── call brief: when a call is booked (any channel), research them and write the call plan and pitch ─────────
 async function briefs(b: any) {
-  const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key,notes,source,website").eq("archived", false)
-    .in("stage", ["Call booked"]).limit(200);
-  const todo = (data ?? []).filter((l: any) => !l.fields?.brief?.at || b.force_id === l.id).slice(0, +(b.limit ?? 3));
+  const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key,notes,source,website,pitch,closed_for").eq("archived", false)
+    .in("stage", ["Call booked", "Proposal sent"]).in("source", ["LinkedIn", "X"]).limit(200);
+  // Only calls booked for the GTM service (clipping and UGC leads don't get one).
+  const gtm = (data ?? []).filter((l: any) => !/clip|ugc|reel/i.test(String(l.pitch ?? "") + " " + String(l.closed_for ?? "")));
+  const todo = gtm.filter((l: any) => !l.fields?.brief?.at || b.force_id === l.id).slice(0, +(b.limit ?? 3));
   let made = 0;
   for (const l of todo as any[]) {
     const { data: ev } = await db.from("crm_lead_events").select("at,kind,text,by_email").eq("lead_id", l.id).order("at", { ascending: true }).limit(40);
@@ -883,8 +885,8 @@ async function briefs(b: any) {
     const text = String(r.b ?? "").replace(/\s*[—–]\s*/g, ", ").trim();
     if (!text) continue;
     await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), brief: { at: now(), text: text.slice(0, 12000), mode: pitchLed ? "pitch" : "advice", company: co } } }).eq("id", l.id);
-    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call brief ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Open the lead to read it.", by_email: "automation" });
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Call dossier ready (" + (pitchLed ? "pitch call" : "advice call, pitch a pilot") + "). Leads > Call dossiers.", by_email: "automation" });
     made++;
   }
-  return { made, waiting: (data ?? []).filter((l: any) => !l.fields?.brief?.at).length - made };
+  return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made };
 }
