@@ -1130,6 +1130,15 @@ async function x_claim(b: any) {
   const c = await pipeRow(t.row);
   const skip = async (why: string) => { await db.from("crm_x_tasks").update({ status: "skipped", error: why }).eq("id", t.id); return { ok: false, why }; };
   if (!c || c["Name"] !== t.name) return await skip("Their row in the DM Pipeline moved or changed");
+  // (12 Nov) No "Hey Not," messages, no cold DM to someone we're already talking to, and nobody twice.
+  if (/^(not specified|unknown|n\/?a|none|null|-)?$/i.test(String(t.name ?? "").trim()) || !/^[\p{L}]{2,}/u.test(String(t.name ?? "").trim())) return await skip("No real name on their row");
+  const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase();
+  const { data: talk } = await db.from("crm_leads").select("name,stage,source,x_handle").eq("archived", false).in("stage", ["In talks", "Call booked", "Proposal sent", "Won"]).limit(2000);
+  const hit = (talk ?? []).find((l: any) => String(l.name ?? "").toLowerCase().trim() === String(t.name).toLowerCase().trim() || (h && String(l.x_handle ?? "").replace(/^@/, "").toLowerCase() === h));
+  if (hit) return await skip("Already talking to them (" + hit.stage + " on " + hit.source + ")");
+  const { count: dup } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).neq("id", t.id).eq("kind", t.kind).eq("status", "sent")
+    .or("name.eq." + JSON.stringify(t.name) + (h ? ",handle.ilike." + h : "")).gte("created_at", new Date(Date.now() - 14 * 864e5).toISOString());
+  if ((dup ?? 0) > 0) return await skip("Already sent this message to them");
   if (c["Replied on"]) return await skip("They replied");
   const st = c["Status"] || "To send";
   const want = t.kind === "dm" ? /^(to send|)$/i : t.kind === "fu1" ? /^sent$/i : /^fu1 sent$/i;
