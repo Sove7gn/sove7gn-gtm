@@ -53,7 +53,8 @@ rep('<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewpo
     '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
     '<meta name="robots" content="noindex">\n<title>' + BRAND + ' CRM</title>\n'
     '<style>.ak-board::-webkit-scrollbar{height:10px}.ak-board::-webkit-scrollbar-thumb{background:rgba(19,20,24,.22);border-radius:6px}'
-    '.ak-board::-webkit-scrollbar-track{background:rgba(19,20,24,.05);border-radius:6px}.ak-board{scrollbar-color:rgba(19,20,24,.25) rgba(19,20,24,.05)}</style>\n'
+    '.ak-board::-webkit-scrollbar-track{background:rgba(19,20,24,.05);border-radius:6px}.ak-board{scrollbar-color:rgba(19,20,24,.25) rgba(19,20,24,.05)}'
+    '.ak-nav .ak-nav-i{opacity:0;transition:opacity .15s}.ak-nav:hover .ak-nav-i,.ak-nav:focus-visible .ak-nav-i{opacity:1}@media (hover:none){.ak-nav .ak-nav-i{opacity:1}}</style>\n'
     '<script src="' + SUPABASE_JS + '"></script>\n<script>' + CONFIG_JS + '</script>\n'
     '<script>\n' + gtm_js + '\n</script>\n<script src="./data.js?v=' + DATA_V + '"></script>\n<script>\n' + logic + '\n</script>\n<script src="./support.js"></script>\n'
     '<script>\n'
@@ -70,10 +71,15 @@ s2 = src.index('</script>', s1)
 src = src[:s1] + "\nconst Component=window.AK_LOGIC(DCLogic,React);\n" + src[s2:]
 
 # ---------- chrome ----------
+# (11 Nov) X pipeline cards: the owner initial only matters with more than one X account
+rep('<span title="{{ k.owner }}" style="width:20px; height:20px; flex:0 0 20px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:700; color:var(--ink-2); background:var(--n-soft);">{{ k.ownerIni }}</span>', '<sc-if value="{{ k.manyOwners }}"><span title="{{ k.owner }}" style="width:20px; height:20px; flex:0 0 20px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:700; color:var(--ink-2); background:var(--n-soft);">{{ k.ownerIni }}</span></sc-if>')
 # sidebar (9 Nov): an (i) next to every page; hovering it says what the page shows
+# (11 Nov) the (i) only shows while the row is hovered, so the sidebar doesn't look full of badges
+rep('<button onClick="{{ pg.go }}" style="display:flex; align-items:center; gap:10px; width:100%; height:34px;',
+    '<button onClick="{{ pg.go }}" class="ak-nav" style="display:flex; align-items:center; gap:10px; width:100%; height:34px;')
 rep('<span style="flex:1;">{{ pg.label }}</span>',
     '<span style="flex:1;">{{ pg.label }}</span>'
-    '<sc-if value="{{ pg.hasInfo }}"><span onMouseEnter="{{ pg.tipShow }}" onMouseLeave="{{ pg.tipHide }}" onClick="{{ pg.tipShow }}" aria-label="{{ pg.info }}" '
+    '<sc-if value="{{ pg.hasInfo }}"><span onMouseEnter="{{ pg.tipShow }}" onMouseLeave="{{ pg.tipHide }}" onClick="{{ pg.tipShow }}" aria-label="{{ pg.info }}" class="ak-nav-i" '
     'style="position:relative; flex:0 0 16px; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; font-family:var(--font-mono); font-size:9.5px; font-weight:600; color:var(--ink-4); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i'
     '<sc-if value="{{ pg.tipOn }}"><span role="tooltip" style="position:absolute; right:-4px; top:{{ pg.tipTop }}; bottom:{{ pg.tipBottom }}; z-index:200; width:196px; padding:10px 12px; border-radius:10px; background:var(--ink); color:#fff; '
     'font-family:var(--font-sans, inherit); font-size:12px; font-weight:400; line-height:1.45; text-align:left; white-space:normal; box-shadow:0 10px 30px -10px rgba(0,0,0,.45); pointer-events:none;">{{ pg.info }}</span></sc-if></span></sc-if>')
@@ -183,7 +189,7 @@ rep('<div style="display:flex; flex-direction:column; gap:8px; flex:1 1 240px; m
     '<sc-if value="{{ send.res.hasCant }}">\n<div style="display:flex; flex-direction:column; gap:8px; flex:1 1 240px; min-width:0;">\n<span style="display:flex; align-items:center; gap:6px; font-size:var(--fs-xs); color:var(--ink-3);">Couldn’t send')
 rep('color:var(--bad-ink); font-variant-numeric:tabular-nums;">6</span>\n<div style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs); color:var(--ink-2);">\n<span><b style="font-family:var(--font-mono); font-weight:500;">4</b> · their DMs need a passcode</span>\n<span><b style="font-family:var(--font-mono); font-weight:500;">2</b> · they only take DMs from people they follow</span>\n</div>\n</div>\n</div>',
     'color:var(--bad-ink); font-variant-numeric:tabular-nums;">{{ send.res.cant }}</span>\n<div style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs); color:var(--ink-2);">\n<sc-for list="{{ send.res.why }}" as="w"><span><b style="font-family:var(--font-mono); font-weight:500;">{{ w.n }}</b> · {{ w.label }}</span></sc-for>\n</div>\n</div>\n</div>\n</sc-if>')
-rep('<span style="font-size:var(--fs-xs); color:var(--ink-3);">Each account, yesterday</span>', '<span style="font-size:var(--fs-xs); color:var(--ink-3);">Each account, {{ send.res.dayLow }}</span>')
+rep('<span style="font-size:var(--fs-xs); color:var(--ink-3);">Each account, yesterday</span>', '<sc-if value="{{ send.res.hasAcc }}"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Each account, {{ send.res.dayLow }}</span></sc-if>')
 rep('<span style="font-size:var(--fs-sm); font-weight:500; color:var(--ink-2);">Skipped for now: {{ send.skipN }} seed-stage people</span>',
     '<span style="font-size:var(--fs-sm); font-weight:500; color:var(--ink-2);">{{ send.skipLabel }}</span>')
 rep('Seed and pre-seed companies rarely have budget for remote operators yet. They stay out of the list unless you choose Send anyway.',
@@ -306,7 +312,8 @@ rep('Copy one and send it on WhatsApp.', 'Copy one and get it answered first.')
 rep('font-weight:600; letter-spacing:-0.015em;">Pilot goals</h2>', 'font-weight:600; letter-spacing:-0.015em;">Today</h2>')
 rep('<span style="font-size:var(--fs-sm); font-weight:500;">Inbound inquiries a week</span>', '<span style="font-size:var(--fs-sm); font-weight:500;">Replies a week</span>')
 rep('>Open sheet<', '>Database<')
-rep('New replies show up here as soon as the sheet updates.', 'New replies show up here as soon as they come in.')
+rep('New replies show up here as soon as the sheet updates.', '{{ home.emptySub }}')
+rep('<span style="font-size:var(--fs-md); font-weight:600;">All done for now</span>', '<span style="font-size:var(--fs-md); font-weight:600;">{{ home.emptyTitle }}</span>')
 rep('rarely have budget for remote operators yet,', 'rarely have budget for us yet,')
 rep('Robotics leaders come first, then robotics, investors and everyone else.', 'Good fits come first, then related people, investors and everyone else.')
 rep('>Drive folder ↗<', '>Media folder ↗<')

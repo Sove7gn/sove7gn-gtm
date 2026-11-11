@@ -10,7 +10,7 @@
      rel:     {acq, conn}                acquisition source override; LinkedIn connection: connected / pending / none
      touches: [{id, at, dir, ch, type, text, tpl, angle}] outreach and replies, newest last
      opp:     {why, angle, hook, msg}    our own notes on the opportunity (not facts)
-   Unknown is never scored as positive: a dimension with no evidence scores 0 and is shown as UNKNOWN. */
+   Unknown is never scored as positive: a dimension with no evidence scores 0 and is shown as Unknown. */
 (function(root){
 'use strict';
 const DAY=864e5;
@@ -159,7 +159,7 @@ function score(l,cfg,now){
   const dim=(key,pts,state,why,used)=>{const w=W[key]||0;const U2=(used||[]).filter(Boolean);const kinds=U2.map(u=>u.kind||'derived');
     D[key]={key,label:DIMS.find(x=>x[0]===key)[1],w,pts:pts==null?null:Math.max(0,Math.min(w,Math.round(pts))),state,why,
       kind:['inference','derived','manual','fact'].find(k=>kinds.includes(k))||'',src:U2.map(u=>u.src).filter(Boolean)[0]||'',kinds};};
-  const U=(key,why)=>dim(key,null,'unknown',why||'UNKNOWN',[]);
+  const U=(key,why)=>dim(key,null,'unknown',why||'Unknown',[]);
   // 1. authority
   { const t=low([val('title'),val('authority')].join(' '));const f=val('founder');
     if(f==='Yes'||/founder|ceo|chief executive/.test(t)||val('authority')==='Founder / CEO')dim('authority',W.authority,'yes','Founder / CEO: owns the growth budget',[ev('founder')||ev('title')||ev('authority')]);
@@ -172,7 +172,7 @@ function score(l,cfg,now){
     if(m&&!cfg.models.includes(m))dim('industry',0,'no',m+' (we sell to '+cfg.models.join(' / ')+')',[ev('model')]);
     else if(m&&sw)dim('industry',W.industry,'yes',m+' '+clip(val('industry')||'software',30),[ev('model'),ev('industry')||ev('description')]);
     else if(m)dim('industry',W.industry*.4,'partial',m+', but not clearly software / AI / deep tech',[ev('model')]);
-    else if(has(ind)&&sw)dim('industry',W.industry*.5,'partial','Software / AI, business model UNKNOWN',[ev('industry')||ev('description')]);
+    else if(has(ind)&&sw)dim('industry',W.industry*.5,'partial','Software / AI, business model unknown',[ev('industry')||ev('description')]);
     else if(has(val('industry')))dim('industry',0,'no','Industry: '+clip(val('industry'),40),[ev('industry')]);
     else U('industry'); }
   // 3. employees
@@ -188,7 +188,7 @@ function score(l,cfg,now){
     else dim('stage',0,'no',r,[ev('round')]); }
   // 5. funding recency
   { const d=parseDay(val('date'));
-    if(!d)U('recency',val('round')?'Round date UNKNOWN':'UNKNOWN');else{const mo=(now-d)/(30.44*DAY);const when=Math.max(0,Math.round(mo))+(Math.round(mo)===1?' month ago':' months ago');
+    if(!d)U('recency',val('round')?'Round date unknown':'Unknown');else{const mo=(now-d)/(30.44*DAY);const when=Math.max(0,Math.round(mo))+(Math.round(mo)===1?' month ago':' months ago');
       if(mo<=cfg.recencyMonths)dim('recency',W.recency,'yes','Raised '+when,[ev('date')]);else if(mo<=12)dim('recency',W.recency*.4,'partial','Raised '+when,[ev('date')]);
       else dim('recency',0,'no','Last raise '+when,[ev('date')]);} }
   // 6. founder-led GTM
@@ -197,7 +197,7 @@ function score(l,cfg,now){
   { const h=val('hom'),s=val('sdr'),ms=has(val('mkt_size'))?Number(val('mkt_size')):null;const half=W.no_team/2;let p=0,known=0,bits=[],used=[];
     if(h==='No'||ms===0){p+=half;known++;bits.push('no Head of Marketing');used.push(ev('hom')||ev('mkt_size'));}else if(h==='Yes'){known++;bits.push('has a Head of Marketing');used.push(ev('hom'));}
     if(s==='None'){p+=half;known++;bits.push('no SDRs');used.push(ev('sdr'));}else if(s){known++;bits.push('SDRs: '+s);used.push(ev('sdr'));}
-    if(!known)U('no_team');else dim('no_team',p,p>=W.no_team?'yes':p>0?'partial':'no',bits.join(', ')+(known<2?' (other half UNKNOWN)':''),used); }
+    if(!known)U('no_team');else dim('no_team',p,p>=W.no_team?'yes':p>0?'partial':'no',bits.join(', ')+(known<2?' (other half unknown)':''),used); }
   // 8. growth signals: GTM hiring, a launch or an expansion in the last 6 months
   { const s=sig.filter(x=>['hiring','launch','expansion'].includes(x.type)&&(!x.date||now-x.date<=183*DAY));const hire=val('hiring');
     if(s.length)dim('growth',W.growth,'yes',s.map(x=>SIGNALS[x.type]).filter((v,i,a)=>a.indexOf(v)===i).join(', '),s.map(x=>({kind:x.kind,src:x.src})));
@@ -225,9 +225,9 @@ function score(l,cfg,now){
   const reasons=dims.filter(d=>d.pts&&d.pts>=d.w*.5).sort((a,b)=>b.pts-a.pts).map(d=>d.why);
   const gaps=dims.filter(d=>d.pts==null).sort((a,b)=>b.w-a.w).map(d=>d.label);
   return{score:pts,max:pts+unk,unknown:unk,conf,confLabel:conf>=70?'High':conf>=40?'Medium':'Low',band,label:BAND[band].label,icp:['high','strong','research'].includes(band),dq:dq||'',dims,reasons,gaps,
-    explain:(dq?'Disqualified by hand: '+dq+'. ':'')+pts+' of 100 from evidence; '+unk+' points UNKNOWN'+(gaps.length?' ('+gaps.slice(0,4).join(', ')+(gaps.length>4?'…':'')+')':'')+'. Confidence '+conf+'%.'};
+    explain:(dq?'Disqualified by hand: '+dq+'. ':'')+pts+' of 100 from evidence; '+unk+' points unknown'+(gaps.length?' ('+gaps.slice(0,4).join(', ')+(gaps.length>4?'…':'')+')':'')+'. Confidence '+conf+'%.'};
 }
-const BAND={high:{label:'High priority',tone:'ok'},strong:{label:'Strong fit',tone:'in'},research:{label:'Research',tone:'warn'},unverified:{label:'Needs research',tone:'neutral'},excluded:{label:'Excluded',tone:'ghost'},disqualified:{label:'Disqualified',tone:'bad'}};
+const BAND={high:{label:'High priority',tone:'ok'},strong:{label:'Strong fit',tone:'in'},research:{label:'Possible fit',tone:'warn'},unverified:{label:'Not checked yet',tone:'neutral'},excluded:{label:'Excluded',tone:'ghost'},disqualified:{label:'Disqualified',tone:'bad'}};
 
 /* ---------- buying signals and the Buying Window Radar ---------- */
 // Explicit signals from the card, plus the ones the evidence implies (a dated round, open GTM roles, no marketing lead, low posting).
@@ -368,7 +368,7 @@ function messages(l,c,me){
 function whyUs(l,c){const sc=c?c.score:score(l);const d=Object.fromEntries(sc.dims.map(x=>[x.key,x]));const bits=[];
   if(d.no_team&&d.no_team.pts)bits.push('no marketing team yet');if(d.founder_led&&d.founder_led.pts)bits.push('GTM is founder-led');if(d.organic_gap&&d.organic_gap.pts)bits.push('weak organic presence');
   if(d.recency&&d.recency.state==='yes')bits.push('fresh capital to deploy');if(d.growth&&d.growth.pts)bits.push('growth signals');
-  return bits.length?'They likely need us: '+bits.join(', ')+'.':'UNKNOWN until their GTM team and presence are researched.';}
+  return bits.length?'They likely need us: '+bits.join(', ')+'.':'Unknown until their GTM team and presence are researched.';}
 
 /* ---------- analytics over classified leads ---------- */
 // c = classify() result, l = the lead. Legacy outreach (before drafts were logged) is grouped by what source_detail says was sent.
@@ -376,14 +376,14 @@ function templateOf(l,c){const t=[...c.touches].reverse().find(x=>x.dir==='out'&
   return /post-engager/i.test(sd)?'Reyansh DM · post engager':/group chat with Naman/i.test(sd)?'Group chat with Naman (old pitch)':/DM from Reyansh/i.test(sd)?'Reyansh DM · new connection':c.contacted?'Not logged':'';}
 function angleOf(c){const t=[...c.touches].reverse().find(x=>x.dir==='out'&&x.angle);return t?(ANGLES[t.angle]||{}).label||t.angle:c.contacted?'Not logged':'';}
 function personaOf(l){const E=evidence(l);const t=low([E.title&&E.title.v,E.authority&&E.authority.v].join(' '));
-  return /founder|ceo/.test(t)?'Founder / CEO':/\bc[a-z]o\b|chief|president/.test(t)?'Other C-suite':has(t)?'Other role':'UNKNOWN';}
+  return /founder|ceo/.test(t)?'Founder / CEO':/\bc[a-z]o\b|chief|president/.test(t)?'Other C-suite':has(t)?'Other role':'Unknown';}
 function funnelRow(name,list){
   const n=list.length,sent=list.filter(x=>x.c.contacted).length,resp=list.filter(x=>x.c.contacted&&x.c.engaged).length,pos=list.filter(x=>x.c.contacted&&x.c.positive).length;
   const meet=list.filter(x=>['Meeting booked','Qualified','Proposal','Won'].includes(x.c.status)).length,won=list.filter(x=>x.c.status==='Won').length;
   const pct=(a,b)=>b?Math.round(a/b*100)+'%':'–';
   return{name,n,sent,resp,pos,meet,won,respRate:pct(resp,sent),posRate:pct(pos,sent),meetRate:pct(meet,n),winRate:pct(won,n)};
 }
-function groupBy(items,keyOf,order){const m=new Map();for(const x of items){const k=keyOf(x)||'UNKNOWN';(m.get(k)||m.set(k,[]).get(k)).push(x);}
+function groupBy(items,keyOf,order){const m=new Map();for(const x of items){const k=keyOf(x)||'Unknown';(m.get(k)||m.set(k,[]).get(k)).push(x);}
   const keys=[...m.keys()].sort((a,b)=>order?(order.indexOf(a)<0?99:order.indexOf(a))-(order.indexOf(b)<0?99:order.indexOf(b)):m.get(b).length-m.get(a).length);
   return keys.map(k=>funnelRow(k,m.get(k)));}
 

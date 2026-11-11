@@ -29,6 +29,10 @@ const cors = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 const now = () => new Date().toISOString();
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
+// LinkedIn pages put badges inside the name ("Ed Cooke Verified Profile 2nd", "Jo Lee • 3rd+"): keep the name only.
+const cleanName = (n: unknown) => String(n ?? "").replace(/\b(Verified|Premium)( Profile)?\b/gi, " ").replace(/[•·]?\s*\b(1st|2nd|3rd\+?)(?=\s|$)/gi, " ")
+  .replace(/\((he|she|they)\/[a-z]+\)/gi, " ").replace(/\s+/g, " ").trim();
+const sameName = (a: unknown, b: unknown) => { const k = (x: unknown) => cleanName(x).toLowerCase().replace(/[^a-z]/g, ""); return !!k(a) && k(a) === k(b); };
 const ACTIVE = /^(new|contacted|follow up)$/i;     // stages the bot may still message in
 
 async function allowed(req: Request): Promise<boolean> {
@@ -668,6 +672,8 @@ async function scripts(): Promise<Scripts> {
 }
 function opener(sc: Scripts, l: Lead): string {
   const li = l.fields?.li ?? {};
+  // They wrote the post we commented on (their reply sat under their own post): don't call it "a comment on <them>'s post".
+  if (srcOf(l) === "niche" && sameName(li.post_author, l.name)) return "saw your recent post and the conversation under it, and liked your take.";
   return (sc.openers[srcOf(l)] ?? sc.openers.outbound).replaceAll("{post_author}", li.post_author || "a founder");
 }
 function firstDM(sc: Scripts, l: Lead, angle: string): string {
@@ -747,8 +753,9 @@ async function people(b: any) {
   const byId = new Map<string, Lead>(); for (const l of leads) for (const k of idsOf(l)) byId.set(k, l);
   let added = 0, touched = 0, judged = 0;
   const at = now(), what = (p: any) => kind === "viewed" ? "Viewed your LinkedIn profile" : kind === "inbound" ? "Sent you a LinkedIn connection request" + (p.message ? ": “" + clip(p.message, 300) + "”" : "") :
-    kind === "tagged" ? "Tagged in your LinkedIn post" + (p.post_text ? ": “" + clip(p.post_text, 80) + "”" : "") : "Commented on " + (p.post_author || "a founder") + "'s post we commented on" + (p.said ? ": “" + clip(p.said, 200) + "”" : "");
+    kind === "tagged" ? "Tagged in your LinkedIn post" + (p.post_text ? ": “" + clip(p.post_text, 80) + "”" : "") : (sameName(p.post_author, p.name) ? "Replied under their own post, which we commented on" : "Commented on " + (p.post_author || "a founder") + "'s post we commented on") + (p.said ? ": “" + clip(p.said, 200) + "”" : "");
   for (const p of list) {
+    p.name = cleanName(p.name); if (p.post_author) p.post_author = cleanName(p.post_author);
     if (meKeys.has(String(p.urn ?? "").toLowerCase()) || meKeys.has(String(p.pid ?? "").toLowerCase())) continue;
     const l = byId.get(String(p.urn ?? "").toLowerCase()) ?? byId.get(String(p.pid ?? "").toLowerCase());
     if (l) {   // already a lead: note the touch once

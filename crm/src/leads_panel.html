@@ -95,7 +95,7 @@
 
 <section style="display:flex; flex-direction:column; gap:8px;">
 <span style="font-size:var(--fs-2xs); font-weight:600; letter-spacing:var(--tr-caps); text-transform:uppercase; color:var(--ink-3);">Intelligence card</span>
-<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Fill from public sources (company site, press, Crunchbase, job boards) and paste the link. Nothing is scraped from LinkedIn. Values without a link count as weaker evidence; empty means UNKNOWN.</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); line-height:1.45;">Fill from public sources (company site, press, Crunchbase, job boards) and paste the link. Nothing is scraped from LinkedIn. Values without a link count as weaker evidence; empty means unknown.</span>
 <sc-if value="{{ lp.g.hasResearch }}"><div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ lp.g.research }}" as="r"><button onClick="{{ r.go }}" style="height:28px; padding:0 12px; border:0; border-radius:8px; font-size:var(--fs-xs); font-weight:600; cursor:pointer; white-space:nowrap; background:var(--glass-strong); color:var(--ink); box-shadow:var(--shadow-sm), var(--hi);">{{ r.label }} ↗</button></sc-for></div></sc-if>
 <sc-for list="{{ lp.g.groups }}" as="g">
 <span style="font-size:var(--fs-xs); font-weight:600; color:var(--ink-2); margin-top:4px;">{{ g.label }}</span>

@@ -5,7 +5,7 @@
 </sc-if>
 <sc-if value="{{ is.leads }}">
 <sc-if value="{{ ld.hasErr }}"><div style="padding:12px 14px; border-radius:var(--r-md); background:var(--bad-soft); color:var(--bad-ink); box-shadow:inset 0 0 0 1px var(--bad-line); font-size:var(--fs-sm);">Couldn’t load leads: {{ ld.err }}</div></sc-if>
-<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 148px), 1fr)); gap:var(--s-3); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
 <sc-for list="{{ ld.kpis }}" as="k" hint-placeholder-count="5">
 <div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); backdrop-filter:var(--blur); -webkit-backdrop-filter:var(--blur); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi);">
 <span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ k.label }}</span>
@@ -159,7 +159,7 @@
 </div>
 <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
 <sc-if value="{{ k.hasRel }}"><span title="We reached out first, then they engaged" style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ k.relP.bg }}; color:{{ k.relP.fg }}; box-shadow:{{ k.relP.bd }};">{{ k.relP.label }}</span></sc-if>
-<sc-if value="{{ k.hasIcp }}"><span title="ICP score from evidence (UNKNOWN counts as 0)" style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ k.icpP.bg }}; color:{{ k.icpP.fg }}; box-shadow:{{ k.icpP.bd }};">{{ k.icpP.label }}</span></sc-if>
+<sc-if value="{{ k.hasIcp }}"><span title="ICP score from evidence (unknown counts as 0)" style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:600; white-space:nowrap; background:{{ k.icpP.bg }}; color:{{ k.icpP.fg }}; box-shadow:{{ k.icpP.bd }};">{{ k.icpP.label }}</span></sc-if>
 <sc-if value="{{ k.hasHeat }}"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:700; background:{{ k.heat.bg }}; color:{{ k.heat.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ k.heat.dot }};"></span>{{ k.heat.label }}</span></sc-if>
 <sc-if value="{{ k.hasGroup }}"><span style="display:inline-flex; align-items:center; gap:5px; height:20px; padding:0 7px; border-radius:6px; font-size:var(--fs-3xs); font-weight:600; background:{{ k.group.bg }}; color:{{ k.group.fg }};"><span style="width:6px; height:6px; border-radius:50%; background:{{ k.group.dot }};"></span>{{ k.group.label }}</span></sc-if>
 <sc-for list="{{ k.cats }}" as="c"><span style="display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:var(--r-pill); font-size:var(--fs-3xs); font-weight:500; background:{{ c.bg }}; color:{{ c.fg }};">{{ c.label }}</span></sc-for>

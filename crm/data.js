@@ -880,7 +880,7 @@ function whyFor(t,all){
   if(p){
     const type=p["Post type"],sameType=all.filter(x=>x.plan&&x.plan["Post type"]===type&&x.rate!=null),allR=all.filter(x=>x.rate!=null);
     if(type&&sameType.length>=2&&allR.length>=4){const tm=median(sameType.map(x=>x.rate)),om=median(allR.map(x=>x.rate));
-      if(tm&&om)out.push(type+" posts average "+r1(tm)+" per 1K views, against "+r1(om)+" for everything we post.")}
+      if(tm&&om&&Math.abs(tm-om)/om>=.1)out.push((/posts?$/i.test(type)?type.replace(/post$/i,"posts"):type+" posts")+" get "+r1(tm)+" per 1K views on average, against "+r1(om)+" for everything we post.")}
     const o=originalFor(p);
     if(o&&o._rank)out.push("It copies "+(o._comp?o._comp.Name:o.Competitor)+"'s #"+o._rank.comp+" post"+(o._rank.comp<=3?" (a proven format)":"")+".");
     const media=String(p["Media needed"]||"");
