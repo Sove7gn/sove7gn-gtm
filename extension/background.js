@@ -278,6 +278,9 @@ async function selfTestRun() {
   if (me.signed_in) {
     try { v2.invites = (await op("invitesReceived")).people.length; } catch (e) { v2.invites = "error: " + e.message; }
     try { v2.tagged = (await op("tagged", { me, days: 30 })).people.length; } catch (e) { v2.tagged = "error: " + e.message; }
+    for (const [k, u] of [["views_page", "https://www.linkedin.com/me/profile-views/"], ["sent_page", "https://www.linkedin.com/mynetwork/invitation-manager/sent/"], ["received_page", "https://www.linkedin.com/mynetwork/invitation-manager/received/"]]) {
+      try { await go(u); v2[k] = await op("pageProbe"); } catch (e) { v2[k] = { err: String(e.message || e) }; }
+    }
     try { await go("https://www.linkedin.com/me/profile-views/"); await sleep(2500); const pv = await op("domPeople", { me }); v2.views = pv.people.length; v2.views_sample = pv.people.slice(0, 2).map((p) => ({ name: !!p.name, headline: !!p.headline, id: !!(p.urn || p.pid) })); } catch (e) { v2.views = "error: " + e.message; }
     try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; } catch (e) { v2.sent_pending = "error: " + e.message; }
     try { const c = (await op("connections"))[0]; if (c) { const lk = await op("likeLatest", { urn: c.urn, dry: true }); v2.like_check = lk.reason || (lk.post ? "found a post" : "?"); } } catch (e) { v2.like_check = "error: " + e.message; }

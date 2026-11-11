@@ -378,11 +378,14 @@ export async function liOp(op, a = {}) {
   // ───────── v2 (11 Nov): new sources, warm touch, accepting requests, withdrawing old ones ─────────
   // People listed on the page open in this tab (profile viewers, invitation cards...): one entry per profile link, with the
   // name and headline read from the card around it.
-  function domPeople(x) {
+  async function domPeople(x) {
+    for (let i = 0; i < 24 && document.querySelectorAll("a[href*='/in/']").length < 4; i++) await sleep(500);
+    for (let i = 0; i < 4; i++) { window.scrollTo(0, document.body.scrollHeight); await sleep(900); }
     const meKeys = new Set([String(x.me && x.me.urn || "").toLowerCase(), String(x.me && x.me.pid || "").toLowerCase()]);
     const prof = (h) => (acoa(h) || vanity(h) || "").toLowerCase();
     const seen = new Map();
-    for (const a of document.querySelectorAll("main a[href*='/in/'], [role=main] a[href*='/in/']")) {
+    for (const a of document.querySelectorAll("a[href*='/in/']")) {
+      if (a.closest("header, nav, aside, footer, [role=navigation], [role=banner], [role=complementary]")) continue;
       const k = prof(a.href); if (!k || meKeys.has(k) || seen.has(k)) continue;
       let card = a; for (let i = 0; i < 6 && card.parentElement && card.innerText.length < 40; i++) card = card.parentElement;
       card = a.closest("li") || card;
@@ -443,7 +446,8 @@ export async function liOp(op, a = {}) {
   // On "Sent invitations": withdraw requests older than maxDays (oldest first), up to limit. dry = only count them.
   async function domWithdraw(x) {
     const maxDays = x.maxDays || 21, limit = x.limit || 25, out = [];
-    for (let i = 0; i < 20 && !document.querySelector("button"); i++) await sleep(500);
+    const isW = (b) => /^withdraw/i.test((b.innerText || "").trim()) || /^withdraw/i.test(b.getAttribute("aria-label") || "");
+    for (let i = 0; i < 24 && ![...document.querySelectorAll("button, [role=button]")].some(isW); i++) await sleep(500);
     for (let i = 0; i < 12; i++) {                                      // load the whole list
       window.scrollTo(0, document.body.scrollHeight); await sleep(900);
       const more = [...document.querySelectorAll("button")].find((b) => /show more|load more|see more/i.test(b.innerText || "") && b.offsetParent);
@@ -451,7 +455,7 @@ export async function liOp(op, a = {}) {
     }
     const days = (t) => { const m = String(t).match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago/i); if (!m) return /yesterday/i.test(t) ? 1 : 0;
       return +m[1] * ({ minute: 0, hour: 0, day: 1, week: 7, month: 30, year: 365 })[m[2].toLowerCase()]; };
-    const btns = [...document.querySelectorAll("button")].filter((b) => /^withdraw/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+    const btns = [...document.querySelectorAll("button, [role=button]")].filter(isW).filter((b, i, a) => !a.some((o) => o !== b && o.contains(b)));
     const items = btns.map((b) => { let c = b; for (let i = 0; i < 8 && c.parentElement && !c.querySelector("a[href*='/in/']"); i++) c = c.parentElement;
       const a = c.querySelector("a[href*='/in/']"); return { b, a, age: days(c.innerText || ""), name: a ? (a.innerText || "").split("\n")[0].trim() : "", ageText: ((c.innerText || "").match(/\d+\s*\w+\s*ago/i) || [""])[0] }; })
       .filter((it) => it.age >= maxDays).sort((p, q) => q.age - p.age);
@@ -459,11 +463,22 @@ export async function liOp(op, a = {}) {
     for (const it of items.slice(0, limit)) {
       it.b.scrollIntoView({ block: "center" }); it.b.click(); await sleep(900 + Math.random() * 600);
       const dlg = document.querySelector("[role=dialog], [role=alertdialog]");
-      const ok = dlg && [...dlg.querySelectorAll("button")].find((b) => /^withdraw/i.test((b.innerText || "").trim()));
+      const ok = dlg && [...dlg.querySelectorAll("button, [role=button]")].find((b) => /^withdraw/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
       if (ok) { ok.click(); await sleep(1500 + Math.random() * 1500); }
       out.push({ urn: it.a ? acoa(it.a.href) : "", pid: it.a ? vanity(it.a.href) : "", name: it.name, age: it.ageText });
     }
     return { eligible: items.length, total: btns.length, withdrawn: out };
+  }
+
+  // How the page open in this tab is built (for fixing a reader): links to people, buttons, and one sample card.
+  async function pageProbe() {
+    for (let i = 0; i < 20 && document.querySelectorAll("a[href*='/in/']").length < 4; i++) await sleep(500);
+    window.scrollTo(0, document.body.scrollHeight); await sleep(1500);
+    const people = [...document.querySelectorAll("a[href*='/in/']")].filter((a) => !a.closest("header, nav, [role=navigation]"));
+    const btn = [...new Set([...document.querySelectorAll("button, [role=button]")].map((b) => ((b.innerText || b.getAttribute("aria-label") || "").trim().split("\n")[0]).slice(0, 30)).filter(Boolean))].slice(0, 50);
+    let card = people[3] || people[0]; for (let i = 0; card && i < 6 && card.innerText.length < 60; i++) card = card.parentElement;
+    return { href: location.href.split("?")[0], title: document.title.slice(0, 60), people_links: people.length, has_main: !!document.querySelector("main"), iframes: document.querySelectorAll("iframe").length,
+      buttons: btn, sample: card ? card.innerText.replace(/\s+/g, " ").slice(0, 300) : "", text_start: (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 400) };
   }
 
   // People we tagged in our posts (from the same list of our posts the engagers scan reads).
@@ -497,6 +512,7 @@ export async function liOp(op, a = {}) {
     case "domProbe": return domProbe(a);
     case "netlog": return netlog();
     case "domPeople": return domPeople(a);
+    case "pageProbe": return pageProbe();
     case "invitesReceived": return invitesReceived();
     case "acceptInvite": return acceptInvite(a);
     case "likeLatest": return likeLatest(a);
