@@ -1350,10 +1350,10 @@ class Component extends DCLogic {
     const C=b.calls||{};const gm=C.gmail||'not connected';
     const callAt=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})+' IST':'Time not known yet';
     const upAll=(C.upcoming||[]).map(c=>{const l=byId.get(c.id)||{};const call=(l.fields||{}).call||{};const meet=call.meet||c.meet||'';const at=call.at||c.at||null;
-      return{...avatar(c.name),name:c.name,sub:[c.sub,c.source].filter(Boolean).join(' · '),when:callAt(at),hasMeet:!!meet,openMeet:()=>window.open(meet,'_blank','noopener'),copyMeet:()=>this.copy(meet,'meet'+c.id,'Meet link copied.'),openLead:()=>this.openLead(c.id),known:!!(at||meet),soon:at&&at-Date.now()<864e5&&at>Date.now()};})
+      return{...avatar(c.name),name:c.name,sub:[call.status==='declined'?'Declined':'',c.sub,c.source].filter(Boolean).join(' · '),when:callAt(at),hasMeet:!!meet,openMeet:()=>window.open(meet,'_blank','noopener'),copyMeet:()=>this.copy(meet,'meet'+c.id,'Meet link copied.'),openLead:()=>this.openLead(c.id),known:!!(at||meet),soon:at&&at-Date.now()<864e5&&at>Date.now()};})
       .sort((a,b2)=>(b2.soon?1:0)-(a.soon?1:0));
     const up=upAll.filter(c=>c.known),noTime=upAll.length-up.length;
-    const strays=(C.found||[]).filter(c=>!c.lead_id).map(c=>({...avatar(c.name),name:c.name,sub:[c.email,c.from].filter(Boolean).join(' · '),when:callAt(c.at),hasMeet:!!c.meet,openMeet:()=>window.open(c.meet,'_blank','noopener')}));
+    const strays=(C.found||[]).filter(c=>!c.lead_id).sort((a,b2)=>(b2.at||0)-(a.at||0)).map(c=>({...avatar(c.name),name:c.name,sub:[c.status==='declined'?'Declined':'',c.email,c.from].filter(Boolean).join(' · '),when:callAt(c.at),hasMeet:!!c.meet,openMeet:()=>window.open(c.meet,'_blank','noopener')}));
     const LI=list((b.linkedin||{}).follow,'li',8),X=list((b.x||{}).follow,'x',8),IG=list((b.instagram||{}).stale,'ig',8);
     const txtL=(t,arr)=>arr.length?'\n'+t+'\n'+arr.map(x=>'- '+x.name+(x.sub?' ('+x.sub+')':'')+': '+x.why+(x.chan==='WhatsApp'&&x.phone?' [WhatsApp '+x.phone+']':' ['+x.chan+']')).join('\n'):'';
     const statsT=a=>(a||[]).map(x=>x.label+' '+x.v).join(' · ');

@@ -67,8 +67,20 @@ const sub = (l: Lead) => [l.role, l.company].filter(Boolean).join(" · ");
 const liLink = (l: Lead) => l.linkedin || (l.fields?.li?.pid ? "https://www.linkedin.com/in/" + l.fields.li.pid : "");
 
 // ───────── Gmail: booking emails -> calls with their Meet links ─────────
-type Call = { name: string; email: string; at: number | null; meet: string; title: string; from: string; lead_id?: string; lead_name?: string };
-async function gmailCalls(leads: Lead[]): Promise<{ status: string; calls: Call[] }> {
+// Three kinds of email carry a call (checked on founders@ on 11 Nov):
+//  1. cal.com "Your event has been scheduled": Who: <name> - Organizer / <email>, Where: <Meet link> (no time; the cal.com hook has it)
+//  2. our own reminders (SENT): "Reminder: our call today at 8:15pm IST", the lead's email in To, the Meet link in the body
+//  3. Google Calendar replies: "Declined: <title> @ Tue 10 Nov 2026 5:30pm - 6pm (IST)" (also Accepted / Invitation)
+type Call = { name: string; email: string; at: number | null; meet: string; title: string; from: string; status: string; lead_id?: string; lead_name?: string; msg_at: number };
+const OURS = /@sove7gn\.org$|calendly|@cal\.com|google\.com|noreply|no-reply|calendar-notification/i;
+const emailsIn = (s: string) => [...new Set((String(s).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []).map((e) => e.toLowerCase()))];
+// "8:15pm" on an IST day -> ms
+function istAt(dayMs: number, hm: string): number | null {
+  const m = hm.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i); if (!m) return null;
+  let h = +m[1] % 12; if (/pm/i.test(m[3])) h += 12;
+  const d = new Date(dayMs + IST); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, +(m[2] ?? 0)) - IST;
+}
+async function gmailCalls(leads: Lead[], dry = false): Promise<{ status: string; calls: Call[] }> {
   if (!COMPOSIO) return { status: "not connected", calls: [] };
   let alias = "";
   try {
@@ -77,49 +89,79 @@ async function gmailCalls(leads: Lead[]): Promise<{ status: string; calls: Call[
     alias = acc ? acc.alias || acc.id : "";
   } catch (_) { return { status: "error", calls: [] }; }
   if (!alias) return { status: "not connected", calls: [] };
-  let msgs: any[] = [];
+  const msgs = new Map<string, any>();
   try {
-    const q = "newer_than:3d (meet.google.com OR from:calendly.com OR from:cal.com OR subject:(invitation OR booked OR \"new event\" OR scheduled))";
-    const out = await mcp("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: { query: q, max_results: 40, include_payload: false, verbose: true }, account: alias }], sync_response_to_workbench: false });
-    const r = (out?.data?.results ?? [])[0]; msgs = r?.response?.data?.messages ?? r?.response?.data?.data?.messages ?? [];
+    // One simple search each: Gmail's search through Composio returned nothing for one combined OR query.
+    const qs = ["newer_than:4d meet.google.com", "newer_than:4d from:cal.com", "newer_than:4d from:calendly.com"];
+    // One search per call: several in one call come back as a cut-down preview.
+    for (const query of qs) {
+      const out = await mcp("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", arguments: { query, max_results: 25, include_payload: false, verbose: true }, account: alias }], sync_response_to_workbench: false });
+      const r = (out?.data?.results ?? [])[0];
+      for (const m of r?.response?.data?.messages ?? r?.response?.data_preview?.messages ?? []) if (m?.messageId) msgs.set(m.messageId, m);
+    }
   } catch (_) { return { status: "error", calls: [] }; }
-  const byEmail = new Map(leads.filter((l) => l.email).map((l) => [l.email.toLowerCase(), l]));
-  const byName = new Map(leads.filter((l) => l.name).map((l) => [l.name.toLowerCase().trim(), l]));
-  const calls: Call[] = [], seen = new Set<string>();
-  for (const m of msgs) {
-    const subject = String(m.subject ?? ""), body = String(m.messageText ?? m.preview?.body ?? m.snippet ?? ""), from = String(m.sender ?? m.from ?? "");
-    const text = subject + "\n" + body;
-    const meet = (text.match(/https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i) ?? [])[0] ?? "";
-    if (!meet && !/calendly|cal\.com|invitation|booked|scheduled/i.test(from + subject)) continue;
+  const byEmail = new Map(leads.filter((l) => l.email).map((l) => [l.email.toLowerCase().trim(), l]));
+  const byName = new Map(leads.filter((l) => l.name && l.name.trim().includes(" ")).map((l) => [l.name.toLowerCase().trim(), l]));
+  // Reminders only say "Hi Roshan,": match a first name when exactly one lead we're talking to has it (most Instagram leads have no email saved).
+  const fn = (n: string) => String(n || "").toLowerCase().replace(/[^a-z ]/g, " ").trim().split(/\s+/)[0] || "";
+  const firstCount = new Map<string, Lead[]>();
+  for (const l of leads) if (TALKING.has(l.stage) && fn(l.name).length >= 3) firstCount.set(fn(l.name), [...(firstCount.get(fn(l.name)) ?? []), l]);
+  const byFirst = (n: string) => { const a = firstCount.get(fn(n)); return a && a.length === 1 ? a[0] : undefined; };
+  const found: Call[] = [];
+  for (const m of msgs.values()) {
+    const subject = String(m.subject ?? ""), body = String(m.messageText ?? m.preview?.body ?? "").replace(/\r/g, ""), from = String(m.sender ?? "");
+    const sent = (m.labelIds ?? []).includes("SENT"), msgAt = Date.parse(m.messageTimestamp ?? "") || Date.now();
     if (/cancel/i.test(subject)) continue;
-    const emails = [...new Set((text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []).map((e) => e.toLowerCase()))]
-      .filter((e) => !/calendly|cal\.com|google\.com|sove7gn|noreply|no-reply|calendar-notification/i.test(e));
-    let lead = emails.map((e) => byEmail.get(e)).find(Boolean);
-    let name = (body.match(/(?:Invitee|Name|Attendee)s?:?\s*\n?\s*([A-Z][\w.'-]+(?: [A-Z][\w.'-]+){0,3})/) ?? [])[1] ??
-      (subject.match(/(?:with|between)\s+([A-Z][\w.'-]+(?: [A-Z][\w.'-]+){0,3})/) ?? [])[1] ?? "";
-    if (!lead && name) lead = byName.get(name.toLowerCase().trim());
-    const whenM = text.match(/(\w+day,?\s+)?(\w+ \d{1,2},? \d{4}|\d{1,2} \w+ \d{4})[^\n]{0,20}?(\d{1,2}:\d{2}\s*(?:am|pm)?)/i);
-    const at = whenM ? Date.parse(whenM[2] + " " + whenM[3]) || null : null;
-    const key = meet || subject + (emails[0] ?? "");
-    if (seen.has(key)) continue; seen.add(key);
-    calls.push({ name: lead?.name || name || emails[0] || "Someone", email: emails[0] ?? "", at, meet, title: clip(subject, 120), from: /calendly/i.test(from) ? "Calendly" : /cal\.com/i.test(from) ? "cal.com" : "Gmail",
-      lead_id: lead?.id, lead_name: lead?.name });
+    const meet = ((subject + "\n" + body).match(/https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}/i) ?? [])[0] ?? "";
+    let name = "", email = "", at: number | null = null, status = "booked", src = "Gmail";
+    if (/cal\.com/i.test(from) || /event has been scheduled/i.test(body)) {                       // 1. cal.com
+      src = "cal.com";
+      const who = body.split(/\nWho:\n/)[1]?.split(/\nWhere:|\nAdditional notes:|\nDescription/)[0] ?? "";
+      const lines = who.split("\n").map((x) => x.trim()).filter(Boolean);
+      for (let i = 0; i < lines.length; i++) if (/@/.test(lines[i]) && !OURS.test(lines[i])) { email = lines[i].toLowerCase(); name = (lines[i - 1] ?? "").replace(/\s*-\s*Organizer$/i, "").trim(); break; }
+    } else if (sent && /^Reminder:.*call/i.test(subject)) {                                       // 2. our reminder
+      email = emailsIn(m.to ?? "").find((e) => !OURS.test(e)) ?? "";
+      name = (body.match(/^Hi ([^,\n]+),/) ?? [])[1] ?? "";
+      if (/^(there|all|team|everyone)$/i.test(name.trim())) name = "";
+      const t = subject.match(/(today|tomorrow) at (\d{1,2}(?::\d{2})?\s*[ap]m)/i);
+      if (t) at = istAt(msgAt + (/tomorrow/i.test(t[1]) ? DAY : 0), t[2]);
+    } else if (/^(Declined|Accepted|Tentatively accepted|Invitation|Updated invitation):/i.test(subject)) {   // 3. calendar replies
+      status = /^Declined/i.test(subject) ? "declined" : "booked";
+      const t = subject.match(/@ \w{3} (\d{1,2} \w{3} \d{4}) (\d{1,2}(?::\d{2})?\s*[ap]m)/i);
+      if (t) at = istAt(Date.parse(t[1] + " 12:00 GMT+0530"), t[2]);
+      email = (sent ? emailsIn(m.to ?? "") : emailsIn(from)).find((e) => !OURS.test(e)) ?? "";
+      name = sent ? "" : from.replace(/<.*$/, "").replace(/"/g, "").trim();
+    } else continue;
+    if (!email && !name) continue;
+    const lead = (email && byEmail.get(email)) || (name && byName.get(name.toLowerCase().trim())) || (name && !name.includes(" ") ? byFirst(name) : undefined) || undefined;
+    if (!name && email) name = email.split("@")[0];
+    found.push({ name: lead?.name || name || email, email, at, meet, title: clip(subject, 120), from: src, status, lead_id: lead?.id, lead_name: lead?.name, msg_at: msgAt });
   }
-  // Save the Meet link on the lead, and move them to Call booked if they weren't further along.
+  // One call per person: the newest email wins, but keep a Meet link or time an older one had.
+  const per = new Map<string, Call>();
+  for (const c of found.sort((a, b) => a.msg_at - b.msg_at)) {
+    const k = c.lead_id || c.email || c.name.toLowerCase(); const o = per.get(k);
+    per.set(k, o ? { ...c, meet: c.meet || o.meet, at: c.at ?? o.at, email: c.email || o.email } : c);
+  }
+  const calls = [...per.values()].filter((c) => c.lead_id || !/^reyansh( juneja)?$/i.test(c.name.trim()));   // our own test bookings
+  // Save the call on the lead (and their email if we only had their name), and move them to Call booked if they weren't further along.
   for (const c of calls) {
-    if (!c.lead_id) continue;
+    if (!c.lead_id || dry) continue;
     const l = leads.find((x) => x.id === c.lead_id)!; const old = l.fields?.call ?? {};
-    if (old.meet === c.meet && old.at === c.at) continue;
-    const fields = { ...(l.fields ?? {}), call: { ...old, meet: c.meet || old.meet || "", at: c.at ?? old.at ?? null, title: c.title, src: c.from, seen: new Date().toISOString() } };
-    const early = ["New", "Contacted", "In talks", "Follow up", "Cold lead"].includes(l.stage);
-    await db.from("crm_leads").update({ fields, ...(early ? { stage: "Call booked" } : {}) }).eq("id", l.id);
-    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "meeting", text: "Call booking found in Gmail" + (c.meet ? ": " + c.meet : "") + (early ? " (moved to Call booked)" : ""), by_email: "gmail" });
+    const next = { ...old, meet: c.meet || old.meet || "", at: c.at ?? old.at ?? null, title: c.title, src: old.src === "cal.com" ? old.src : c.from, status: c.status, seen: new Date().toISOString() };
+    if (old.meet === next.meet && old.at === next.at && old.status === next.status) continue;
+    const early = c.status !== "declined" && ["New", "Contacted", "In talks", "Follow up", "Cold lead"].includes(l.stage);
+    await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), call: next }, ...(early ? { stage: "Call booked" } : {}), ...(!l.email && c.email ? { email: c.email } : {}) }).eq("id", l.id);
+    l.fields = { ...(l.fields ?? {}), call: next }; if (early) l.stage = "Call booked";
+    const what = c.status === "declined" ? "Declined the call invite" : "Call found in Gmail";
+    const when = next.at ? " for " + new Date(next.at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) + " IST" : "";
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "meeting", text: what + when + (next.meet ? ": " + next.meet : "") + (early ? " (moved to Call booked)" : ""), by_email: "gmail" });
   }
   return { status: "connected", calls };
 }
 
 // ───────── the brief ─────────
-async function build() {
+async function build(dry = false) {
   const now = Date.now(), today = istDay(now);
   const start = Date.parse(today + "T00:00:00Z") - IST - DAY, end = start + DAY;          // yesterday, IST
   const inY = (t: number | null) => t != null && t >= start && t < end;
@@ -222,8 +264,9 @@ async function build() {
     .sort((a, b) => (rank[a.sub.split(" · ")[0]] ?? 9) - (rank[b.sub.split(" · ")[0]] ?? 9) || (a.days! - b.days!));
 
   // Calls
-  const gm = await gmailCalls(leads);
-  const upcoming = leads.filter((l) => l.stage === "Call booked").map((l) => ({ id: l.id, name: l.name, sub: sub(l), source: l.source, at: l.fields?.call?.at ?? null, meet: l.fields?.call?.meet ?? "" }))
+  const gm = await gmailCalls(leads, dry);
+  if (dry) return { dry: true, gmail: gm.status, calls: gm.calls } as any;
+  const upcoming = leads.filter((l) => l.stage === "Call booked").map((l) => ({ id: l.id, name: l.name, sub: sub(l), source: l.source, at: l.fields?.call?.at ?? null, meet: l.fields?.call?.meet ?? "", status: l.fields?.call?.status ?? "" }))
     .sort((a, b) => (a.at ?? 9e15) - (b.at ?? 9e15));
 
   const totalCalls = li.calls + xs.calls + igs.calls;
@@ -251,6 +294,8 @@ async function build() {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (!(await allowed(req))) return json({ error: "Only the team can run this." }, 401);
-  try { const b = await build(); return json({ ok: true, day: b.day, follow: b.overall[4].v, gmail: b.calls.gmail }); }
+  let body: any = {}; try { body = await req.json(); } catch (_) { /* cron sends {} */ }
+  try { if (body.dry) return json(await build(true));
+    const b = await build(); return json({ ok: true, day: b.day, follow: b.overall[4].v, gmail: b.calls.gmail }); }
   catch (e) { return json({ error: String((e as Error).message ?? e).slice(0, 300) }, 500); }
 });
