@@ -249,50 +249,33 @@ async function tick() {
 // Checks each LinkedIn call without saving or sending anything, and saves the details to the CRM so they can be fixed.
 // Waits for a run in progress, keeps Chrome from stopping the worker midway, and keeps the result for the popup.
 async function selfTest() {
+  if (busy) await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Waiting for the bot's current check to finish, then testing. You can close this window."] } });
   for (let i = 0; busy && i < 90; i++) await sleep(2000);
   busy = true; const ka = keepAlive();
-  await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Testing… about 30 seconds. You can close this window."] } });
+  await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Testing… about 40 seconds. You can close this window."] } });
   try { const r = await selfTestRun(); await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); return r; }
   catch (e) { const r = { lines: ["Test stopped: " + (e.message || e)] }; await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); try { await api("status", { error: "self-test: " + (e.message || e) }); } catch (_) {} return r; }
   finally { clearInterval(ka); busy = false; }
 }
 async function selfTestRun() {
+  // Quick check (about 30 to 40 seconds): only what isn't proven yet. Reads only; nothing is clicked or sent.
+  const t0 = Date.now(), v2 = {}, out = [];
   const me = await op("me");
-  let h = {}; try { h = await api("hello", { me, version: VERSION, signed_in: me.signed_in }); } catch (_) {}
-  let q = { qid: "", qids: [] };
-  if (me.signed_in) { await go("https://www.linkedin.com/messaging/"); q = await op("findQid"); await go("https://www.linkedin.com/feed/"); }
-  let cqid = ""; if (me.signed_in) { try { cqid = await commentsQid(me, h.extra_posts, true); } catch (_) {} }
-  const { qids_seen = [] } = await store.get("qids_seen");
-  let domTest = null, net = null;
-  if (me.signed_in) {
-    try {
-      const lp = (h.probe && h.probe.post) || (await op("latestPost", { me })).id || (h.extra_posts || [])[0];
-      if (lp) { await go("https://www.linkedin.com/feed/update/urn:li:activity:" + lp + "/"); const r = await op("domComments", { me }); net = await op("netlog");
-        const pr = await op("domProbe", { names: (h.probe && h.probe.names) || [] });
-        domTest = { post: lp, expected: h.probe ? h.probe.names.length : null, found: r.found, anchors: r.anchors, read: r.list.length, probe: pr,
-          first: r.list[0] ? { id: !!r.list[0].id, pid: !!r.list[0].pid, name: r.list[0].name.slice(0, 20), headline: !!r.list[0].headline, text: !!r.list[0].text } : null };
-        await go("https://www.linkedin.com/feed/"); }
-    } catch (x) { domTest = { err: String(x.message || x) }; }
-  }
-  const v2 = {};
-  if (me.signed_in) {
-    try { v2.invites = (await op("invitesReceived")).people.length; } catch (e) { v2.invites = "error: " + e.message; }
-    try { v2.tagged = (await op("tagged", { me, days: 30 })).people.length; } catch (e) { v2.tagged = "error: " + e.message; }
-    for (const [k, u] of [["views_page", "https://www.linkedin.com/me/profile-views/"], ["sent_page", "https://www.linkedin.com/mynetwork/invitation-manager/sent/"], ["received_page", "https://www.linkedin.com/mynetwork/invitation-manager/received/"]]) {
-      try { await go(u); v2[k] = await op("pageProbe"); } catch (e) { v2[k] = { err: String(e.message || e) }; }
-    }
-    try { await go("https://www.linkedin.com/me/profile-views/"); await sleep(2500); const pv = await op("domPeople", { me }); v2.views = pv.people.length; v2.views_sample = pv.people.slice(0, 2).map((p) => ({ name: !!p.name, headline: !!p.headline, id: !!(p.urn || p.pid) })); } catch (e) { v2.views = "error: " + e.message; }
-    try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; } catch (e) { v2.sent_pending = "error: " + e.message; }
-    try { const c = (await op("connections"))[0]; if (c) { const lk = await op("likeLatest", { urn: c.urn, dry: true }); v2.like_check = lk.reason || (lk.post ? "found a post" : "?"); } } catch (e) { v2.like_check = "error: " + e.message; }
-    await go("https://www.linkedin.com/feed/");
-  }
-  const d = await op("diagnose", { qid: q.qid, qids: [...new Set([...(q.qids || []), ...qids_seen])], extra_posts: h.extra_posts || [], cqid });
-  d.steps.page_comments = domTest; d.steps.post_page_calls = net; d.steps.v2 = v2;
-  const out = d.lines || [];
-  out.push("Requests sent to you: " + v2.invites + " · People you tagged (30 days): " + v2.tagged + " · Profile viewers read: " + v2.views);
+  out.push(me.signed_in ? "Signed in as " + me.name : "Not signed in to LinkedIn");
+  if (!me.signed_in) return { lines: out };
+  try { await api("hello", { me, version: VERSION, signed_in: true }); } catch (_) {}
+  try { v2.connections = (await op("connections")).length; } catch (e) { v2.connections = "error: " + e.message; }
+  try { v2.invites = (await op("invitesReceived")).people.length; } catch (e) { v2.invites = "error: " + e.message; }
+  try { v2.tagged = (await op("tagged", { me, days: 30 })).people.length; } catch (e) { v2.tagged = "error: " + e.message; }
+  try { await go("https://www.linkedin.com/me/profile-views/"); v2.views_page = await op("pageProbe"); const pv = await op("domPeople", { me }); v2.views = pv.people.length;
+    v2.views_sample = pv.people.slice(0, 2).map((p) => ({ name: !!p.name, headline: !!p.headline, id: !!(p.urn || p.pid) })); } catch (e) { v2.views = "error: " + e.message; }
+  try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); v2.sent_page = await op("pageProbe"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; } catch (e) { v2.sent_pending = "error: " + e.message; }
+  if (!v2.invites) { try { await go("https://www.linkedin.com/mynetwork/invitation-manager/received/"); v2.received_page = await op("pageProbe"); } catch (_) {} }
+  await go("https://www.linkedin.com/feed/");
+  out.push("Connections read: " + v2.connections + " · Requests sent to you: " + v2.invites + " · People you tagged (30 days): " + v2.tagged);
+  out.push("Profile viewers read: " + v2.views);
   out.push("Your pending requests: " + v2.sent_pending + " (" + v2.older_than_3_weeks + " older than 3 weeks, to withdraw)");
-  if (domTest) out.splice(3, 0, "Comments on a post with known comments (read from the page): " + (domTest.err ? "problem: " + domTest.err : domTest.read + " read"));
-  try { await api("status", { note: "self-test " + new Date().toISOString(), diag: d }); out.push("CRM: connected, details saved"); } catch (e) { out.push("CRM: " + e.message); }
-  if (d.qid) await store.set({ qid: d.qid });
+  out.push("Took " + Math.round((Date.now() - t0) / 1000) + " seconds.");
+  try { await api("status", { note: "self-test " + new Date().toISOString(), diag: { at: new Date().toISOString(), lines: out, steps: { v2 } } }); out.push("Saved to the CRM."); } catch (e) { out.push("CRM: " + e.message); }
   return { lines: out };
 }
