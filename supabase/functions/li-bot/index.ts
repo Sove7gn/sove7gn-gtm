@@ -64,13 +64,15 @@ Deno.serve(async (req) => {
 
 // ───────── settings and status ─────────
 type Bot = { mode: "review" | "auto"; paused: boolean; include_warm: boolean; week_cap: number; notes_month: number; followups: number;
-  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[] };
+  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean };
 async function settings(): Promise<Bot> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
   const v = (data?.value ?? {}) as Partial<Bot>;
   return { mode: v.mode === "auto" ? "auto" : "review", paused: !!v.paused, include_warm: !!v.include_warm, week_cap: +(v.week_cap ?? 150),
     notes_month: +(v.notes_month ?? 250), followups: Math.min(+(v.followups ?? 7), (v.fu ?? []).length || 7), gap_days: +(v.gap_days ?? 1),
-    hours: { from: +(v.hours?.from ?? 10), to: +(v.hours?.to ?? 24) }, note: v.note ?? "", dm1: v.dm1 ?? "", fu: v.fu ?? [] };
+    hours: { from: +(v.hours?.from ?? 10), to: +(v.hours?.to ?? 24) }, note: v.note ?? "", dm1: v.dm1 ?? "", fu: v.fu ?? [],
+    // Fast mode (11 Nov): until rush_until, approved items go out as soon as they can (no local-time window, 30 min after the warm touch).
+    rush: !!(v as any).rush_until && Date.parse((v as any).rush_until) > Date.now() };
 }
 async function saveStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
@@ -315,13 +317,13 @@ async function plan(_b: any) {
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
-    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && goodTime(l, t.kind); };
+    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && (set.rush || goodTime(l, t.kind)); };
     const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
     const msg = (ready ?? []).filter((t) => t.kind !== "invite" && ok(t)).slice(0, 10);
     tasks = [...msg, ...inv];
     if (tasks.length) {
       // A request goes out at least 3 hours after the warm touch (visit their profile, like their latest post).
-      tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > 3 * 3600e3; })
+      tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > (set.rush ? 0.5 : 3) * 3600e3; })
         .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, warm: t.kind === "invite" && !l.fields?.li?.warm, inv: l.fields?.li?.inv ?? null }; });
       if (tasks.length) await db.from("crm_li_tasks").update({ status: "sending" }).in("id", tasks.map((t) => t.id));
     }
