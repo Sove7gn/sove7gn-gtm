@@ -192,8 +192,8 @@ async function state(b: any) {
     li.replied = t.them_at; li.stop = "replied"; if (t.urn) li.urn = t.urn;
     const sr = await sortReply(l, String(t.them_text ?? "")).catch(() => ({ label: "other", draft: "" }));
     li.reply_label = sr.label; li.draft = sr.draft;
-    const move: Record<string, unknown> = !ACTIVE.test(l.stage) ? {} : sr.label === "not_interested" ? { stage: "Lost" } :
-      sr.label === "not_now" ? { stage: "Follow up", next_step: "Check back in on LinkedIn", next_date: new Date(Date.now() + 30 * 86400e3).toISOString().slice(0, 10) } : { stage: "In talks" };
+    // Every reply goes to In talks and Reyansh takes it from there; the label and drafted answer are hints on the card.
+    const move: Record<string, unknown> = ACTIVE.test(l.stage) ? { stage: "In talks" } : {};
     await saveLi(l, li, move);
     await stopTasks(l.id, "They replied");
     await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on LinkedIn: “" + clip(String(t.them_text ?? ""), 600) + "”", by_email: "linkedin" });
