@@ -875,7 +875,8 @@ const SYSTEM_TEXT = [
   "OUTBOUND (people who don't know them yet): every day we find recently funded founders and buyers who fit, warm them up first (profile visit, a like), then a LinkedIn request with a note, X DMs and cold email from separate domains, with follow-ups until they reply, and the calls go on the founder's calendar.",
   "Everything lands in one CRM with a morning brief of who to follow up with.",
 ].join("\n");
-const PROOF = ["For a YC founder we got 100K views on TikTok and several sales calls booked, completely inbound."];
+const PROOF = ["For a YC founder we got 100K views on TikTok and several sales calls booked, completely inbound.",
+  "We set up an entire GTM funnel for a YC company and got them 30+ sales calls booked within 2 weeks (100K+ views on X), purely with organic inbound, midbound and outbound automations."];
 
 async function briefs(b: any) {
   const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key,notes,source,website,pitch,closed_for").eq("archived", false)
@@ -952,6 +953,7 @@ const TIPS = [
   { id: "abtest", title: "A/B test your DMs", text: "Run 2 or 3 DM scripts side by side for midbound and outbound (for example a direct pitch, asking for advice, and giving value first), track reply rate per script, and keep the winner once each has about 15 sends." },
   { id: "warm", title: "Warm up before outbound", text: "Before a cold request or DM, visit their profile and like a recent post a few hours earlier, send in their local morning, and follow up a few times until they reply. Acceptance and reply rates go up a lot compared with sending cold." },
 ];
+const TIPS_CASE = "BTW, we set up an entire GTM funnel for a YC company got them 30+ sales calls booked within 2 weeks (100K+ Views on X) - purely doing organic inbound/midbound/outbound automations.";
 async function tips(b: any) {
   const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
   const list: any[] = Array.isArray((bs?.value as any)?.tips) && (bs?.value as any).tips.length >= 3 ? (bs?.value as any).tips : TIPS;
@@ -992,12 +994,20 @@ async function tips(b: any) {
       "Pick the 3 that would help THIS company most, given what they sell and who their buyers are. Rewrite each so it is about them: name their buyers, " +
       "give one concrete example for their company (for account tagging posts, say which kind of accounts they'd tag; for midbound, who would be engaging; and so on). " +
       "Then write the LinkedIn message Reyansh sends: start 'Hey " + (String(l.name || "").replace(/[^\p{L}\s]/gu, " ").trim().split(/\s+/)[0] || "there") + ", here they are:', then the 3 numbered ideas " +
-      "(each 2 or 3 short sentences, a short bold-free title first), then one short closing line offering to share how we set these up if useful. No pitch, no prices, no links, " +
-      "plain words, sounds like a founder typing, no dashes as punctuation, no emojis, under 1,300 characters in total.\n" +
+      "(each 2 or 3 short sentences, a short title first). End EACH idea with a short bracket that names the GTM play behind it in our words, so we sound like we know the playbook, " +
+      "for example '(midbound automation)', '(lead magnet posts to create midbound traffic)', '(outbound to people you expect at an upcoming event, then use those data points as posts for inbound)'. " +
+      "The bracket can add a smart twist that connects inbound, midbound and outbound. Stop after the 3rd idea: no closing line, we add our own. " +
+      "No pitch, no prices, no links, plain words, sounds like a founder typing, no dashes as punctuation, no emojis, under 1,200 characters in total.\n" +
+      "Style example (another founder, don't copy the content):\n" +
+      "1. Follow up with warm signals (midbound automation). Check who engages with your posts or views your profile, especially immunotherapy researchers and R&D leaders. If one comments on your readout post, send a personal note the same day.\n" +
+      "2. Post for the teams you want to reach. Rotate founder lessons, data teardowns, and posts tagging 4 to 6 labs or companies your buyers follow. (lead magnet posts to create midbound traffic)\n\n" +
       "Answer with JSON only: {\"picked\": [3 ids], \"why\": \"one line on why these 3\", \"message\": \"the message\"}";
     const r = await llmMany([{ id: "t", prompt }]).catch(() => ({} as Record<string, string>));
     const j = parseJson(r.t ?? "") ?? {};
-    const text = String(j.message ?? "").replace(/\s*[—–]\s*/g, ", ").trim();
+    // Every message ends with our case study, word for word (Reyansh's line, 12 Nov; li_bot.tips_case overrides it).
+    const caseLine = String((bs?.value as any)?.tips_case || TIPS_CASE);
+    const body = String(j.message ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/\n+(happy to|let me know|if useful|would love)[^\n]*$/i, "").replace(/\n+(?=\d\.\s)/g, "\n\n").replace(/\n{3,}/g, "\n\n").trim();
+    const text = body ? body + "\n\n" + caseLine : "";
     if (!text) continue;
     const fields = { ...(l.fields ?? {}), tips: { at: now(), text: text.slice(0, 2000), picked: Array.isArray(j.picked) ? j.picked.slice(0, 3) : [], why: String(j.why ?? "").slice(0, 300), company: co } };
     await db.from("crm_leads").update({ fields }).eq("id", l.id);
