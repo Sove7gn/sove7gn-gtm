@@ -444,30 +444,37 @@ export async function liOp(op, a = {}) {
   }
 
   // On "Sent invitations": withdraw requests older than maxDays (oldest first), up to limit. dry = only count them.
+  // LinkedIn's new page shows "Withdraw" as plain text inside a clickable element and loads the list as you scroll its own
+  // box, so: scroll every scrollable box to the end (and press "Show more" / "Next" if there is one), then find "Withdraw" by text.
   async function domWithdraw(x) {
     const maxDays = x.maxDays || 21, limit = x.limit || 25, out = [];
-    const isW = (b) => /^withdraw/i.test((b.innerText || "").trim()) || /^withdraw/i.test(b.getAttribute("aria-label") || "");
-    for (let i = 0; i < 24 && ![...document.querySelectorAll("button, [role=button]")].some(isW); i++) await sleep(500);
-    for (let i = 0; i < 12; i++) {                                      // load the whole list
-      window.scrollTo(0, document.body.scrollHeight); await sleep(900);
-      const more = [...document.querySelectorAll("button")].find((b) => /show more|load more|see more/i.test(b.innerText || "") && b.offsetParent);
-      if (more) { more.click(); await sleep(1500); } else if (i > 2) break;
+    const leafW = () => [...document.querySelectorAll("main *")].filter((e) => !e.children.length && /^withdraw$/i.test((e.textContent || "").trim()));
+    const clickable = (e) => e.closest("button, a, [role=button], [tabindex]") || e;
+    for (let i = 0; i < 24 && !leafW().length; i++) await sleep(500);
+    const boxes = () => [...document.querySelectorAll("main, main *")].filter((e) => e.scrollHeight > e.clientHeight + 80 && /(auto|scroll)/.test(getComputedStyle(e).overflowY));
+    let last = -1;
+    for (let i = 0; i < 40; i++) {
+      window.scrollTo(0, document.body.scrollHeight); for (const bx of boxes()) bx.scrollTop = bx.scrollHeight;
+      await sleep(900);
+      const more = [...document.querySelectorAll("main button, main [role=button]")].find((b) => /^(show more|load more|see more)/i.test((b.innerText || "").trim()) && b.offsetParent);
+      if (more) { more.click(); await sleep(1500); }
+      const n = leafW().length; if (n === last && !more) break; last = n;
     }
     const days = (t) => { const m = String(t).match(/(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago/i); if (!m) return /yesterday/i.test(t) ? 1 : 0;
       return +m[1] * ({ minute: 0, hour: 0, day: 1, week: 7, month: 30, year: 365 })[m[2].toLowerCase()]; };
-    const btns = [...document.querySelectorAll("button, [role=button]")].filter(isW).filter((b, i, a) => !a.some((o) => o !== b && o.contains(b)));
-    const items = btns.map((b) => { let c = b; for (let i = 0; i < 8 && c.parentElement && !c.querySelector("a[href*='/in/']"); i++) c = c.parentElement;
-      const a = c.querySelector("a[href*='/in/']"); return { b, a, age: days(c.innerText || ""), name: a ? (a.innerText || "").split("\n")[0].trim() : "", ageText: ((c.innerText || "").match(/\d+\s*\w+\s*ago/i) || [""])[0] }; })
+    const items = leafW().map((w) => { let c = w; for (let i = 0; i < 10 && c.parentElement && !c.querySelector("a[href*='/in/']"); i++) c = c.parentElement;
+      const a = c.querySelector("a[href*='/in/']"); const txtc = c.innerText || "";
+      return { w, a, age: days(txtc), name: a ? (a.innerText || "").split("\n").map((t) => t.trim()).filter(Boolean)[0] || "" : txtc.split("\n")[0], ageText: (txtc.match(/\d+\s*\w+\s*ago/i) || [""])[0] }; })
       .filter((it) => it.age >= maxDays).sort((p, q) => q.age - p.age);
-    if (x.dry) return { eligible: items.length, total: btns.length, withdrawn: [] };
+    if (x.dry) return { eligible: items.length, total: leafW().length, withdrawn: [], oldest: items[0] ? items[0].ageText : "" };
     for (const it of items.slice(0, limit)) {
-      it.b.scrollIntoView({ block: "center" }); it.b.click(); await sleep(900 + Math.random() * 600);
-      const dlg = document.querySelector("[role=dialog], [role=alertdialog]");
-      const ok = dlg && [...dlg.querySelectorAll("button, [role=button]")].find((b) => /^withdraw/i.test((b.innerText || b.getAttribute("aria-label") || "").trim()));
+      const btn = clickable(it.w); btn.scrollIntoView({ block: "center" }); await sleep(400); btn.click(); await sleep(900 + Math.random() * 600);
+      const dlg = document.querySelector("[role=dialog], [role=alertdialog], .artdeco-modal");
+      const ok = dlg && [...dlg.querySelectorAll("*")].filter((e) => !e.children.length && /^withdraw$/i.test((e.textContent || "").trim())).map(clickable).pop();
       if (ok) { ok.click(); await sleep(1500 + Math.random() * 1500); }
-      out.push({ urn: it.a ? acoa(it.a.href) : "", pid: it.a ? vanity(it.a.href) : "", name: it.name, age: it.ageText });
+      out.push({ urn: it.a ? acoa(it.a.href) : "", pid: it.a ? vanity(it.a.href) : "", name: it.name, age: it.ageText, confirmed: !!ok });
     }
-    return { eligible: items.length, total: btns.length, withdrawn: out };
+    return { eligible: items.length, total: leafW().length, withdrawn: out };
   }
 
   // How the page open in this tab is built (for fixing a reader): links to people, buttons, and one sample card.

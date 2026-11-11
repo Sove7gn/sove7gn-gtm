@@ -267,14 +267,14 @@ async function selfTestRun() {
   try { v2.connections = (await op("connections")).length; } catch (e) { v2.connections = "error: " + e.message; }
   try { v2.invites = (await op("invitesReceived")).people.length; } catch (e) { v2.invites = "error: " + e.message; }
   try { v2.tagged = (await op("tagged", { me, days: 30 })).people.length; } catch (e) { v2.tagged = "error: " + e.message; }
-  try { await go("https://www.linkedin.com/me/profile-views/"); v2.views_page = await op("pageProbe"); const pv = await op("domPeople", { me }); v2.views = pv.people.length;
+  try { await go("https://www.linkedin.com/me/profile-views/"); const pv = await op("domPeople", { me }); v2.views = pv.people.length;
     v2.views_sample = pv.people.slice(0, 2).map((p) => ({ name: !!p.name, headline: !!p.headline, id: !!(p.urn || p.pid) })); } catch (e) { v2.views = "error: " + e.message; }
-  try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); v2.sent_page = await op("pageProbe"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; } catch (e) { v2.sent_pending = "error: " + e.message; }
-  if (!v2.invites) { try { await go("https://www.linkedin.com/mynetwork/invitation-manager/received/"); v2.received_page = await op("pageProbe"); } catch (_) {} }
+  try { await go("https://www.linkedin.com/mynetwork/invitation-manager/sent/"); const w = await op("domWithdraw", { maxDays: 21, dry: true }); v2.sent_pending = w.total; v2.older_than_3_weeks = w.eligible; v2.oldest = w.oldest;
+    if (!w.total) v2.sent_page = await op("pageProbe"); } catch (e) { v2.sent_pending = "error: " + e.message; }
   await go("https://www.linkedin.com/feed/");
   out.push("Connections read: " + v2.connections + " · Requests sent to you: " + v2.invites + " · People you tagged (30 days): " + v2.tagged);
   out.push("Profile viewers read: " + v2.views);
-  out.push("Your pending requests: " + v2.sent_pending + " (" + v2.older_than_3_weeks + " older than 3 weeks, to withdraw)");
+  out.push("Your pending requests: " + v2.sent_pending + " (" + v2.older_than_3_weeks + " older than 3 weeks, to withdraw" + (v2.oldest ? "; oldest sent " + v2.oldest : "") + ")");
   out.push("Took " + Math.round((Date.now() - t0) / 1000) + " seconds.");
   try { await api("status", { note: "self-test " + new Date().toISOString(), diag: { at: new Date().toISOString(), lines: out, steps: { v2 } } }); out.push("Saved to the CRM."); } catch (e) { out.push("CRM: " + e.message); }
   return { lines: out };
