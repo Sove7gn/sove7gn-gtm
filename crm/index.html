@@ -714,7 +714,7 @@ class Component extends DCLogic {
     const failed=rows.filter(t=>t.status==='failed'&&Date.parse(t.created_at)>=day.getTime());
     const pend=[...(L.ts||[]),...(L.fu||[])].filter(p=>p&&p.c&&p.c._row&&!AK.xtActive(p.c._row,this.xKind(p)));
     const seen=xs.seen?Date.parse(xs.seen):0;const live=seen&&Date.now()-seen<20*60e3;
-    const text=!seen?'The X bot hasn’t checked in yet. Reload the extension in chrome://extensions (it’s now called SOVE7GN Outreach Bot) and allow it on x.com.':
+    const text=!AK.XT.loaded?'Checking the X bot…':!seen?'The X bot hasn’t checked in yet. Reload the extension in chrome://extensions (it’s now called SOVE7GN Outreach Bot) and allow it on x.com.':
       (cfg.paused?'X bot paused. ':live?'X bot is on. ':'X bot last checked in '+this.since(xs.seen)+' (is Chrome open?). ')+q+' queued · '+sent+' sent today of '+(cfg.cap||40)+' · sends 9:00 to 23:30 IST, one every few minutes'+(failed.length?' · '+failed.length+' failed today: '+clip(String(failed[0].error||''),80):'');
     return{text,dot:cfg.paused||!live?'var(--warn)':'var(--ok)',canAll:AK.canEdit()&&pend.length>0,allLabel:'Send all with bot ('+pend.length+')',all:()=>this.xQueue(pend),
       pauseLabel:cfg.paused?'Resume X bot':'Pause X bot',pause:()=>AK.canEdit()&&AK.xtPause(!cfg.paused),canEdit:AK.canEdit()};}
@@ -923,8 +923,8 @@ class Component extends DCLogic {
     let actions=[];
     if(!f){if(kind==='send'||kind==='fu'){const xk=this.xKind(p),row=(p.c||{})._row,q=row&&AK.xtActive(row,xk),last=row&&AK.xtLast(row,xk);
         if(q)actions=[act(q.status==='sending'?'Sending now…':'Queued for the bot','ghost',stop(()=>{})),act('Cancel','ghost',stop(()=>AK.xtCancel(q.id)))];
-        else{actions=[act(last&&last.status==='failed'?'Retry with bot':'Send with bot','primary',stop(()=>this.xQueue([p]))),act(p.xid?'Open DM':'Open X','ghost',stop(()=>xDm(p.xid,p.handle,nm.text))),act('Mark sent','secondary',stop(()=>this.markSent(p.id)))];
-          if(kind==='send')actions.splice(2,0,act('Can’t DM','ghost',stop(()=>this.cantDM(p))));}}
+        // The extension sends it, marks it sent, and marks closed or passcode DMs Can't DM, so the row only needs the one button.
+        else actions=[act(last&&last.status==='failed'?'Retry with bot':'Send with bot','primary',stop(()=>this.xQueue([p])))];}
       if(kind==='find')actions=[act('Search on X','secondary',stop(()=>{window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');this.toast('Searching X for '+p.name+'. Add the handle in the sheet.');}))];
       if(kind==='skip')actions=[act('Send anyway','ghost',stop(()=>{const any={...this.state.anyway,[p.id]:true};store.set('anyway',any);this.setState({anyway:any});this.toast(p.first+' moved to Send today (on this browser)',()=>{const x={...this.state.anyway};delete x[p.id];store.set('anyway',x);this.setState({anyway:x});this.toast('Undone');});}))];
       if(kind==='noreply')actions=[act('Mark as no reply','secondary',stop(()=>this.setStage(p.id,'Closed','Closed '+p.first+': no reply')))];
