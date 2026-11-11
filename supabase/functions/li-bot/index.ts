@@ -257,7 +257,7 @@ async function plan(_b: any) {
       continue;
     }
     if (li.acc && !li.dm) {
-      if (!isOurs(l) || twin(l, "dm")) continue;                            // the first message opens with how we met
+      if ((!isOurs(l) && !li.req) || twin(l, "dm")) continue;              // anyone who accepted our request (or engaged with us); opens with how we met
       const t = had("dm");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
       if (!t) { const angle = li.angle || await nextAngle(sc, angleLeads); if (!li.angle) { li.angle = angle; await saveLi(l, li); angleLeads.push(l); }
@@ -650,7 +650,7 @@ const DEF_OPENERS: Record<string, string> = {
   inbound: "thanks for the connection request!",
   tagged: "hope you liked the post I tagged you in.",
   niche: "saw your comment on {post_author}'s post and liked your take.",
-  outbound: "thought I'd reach out.",
+  outbound: "thanks for connecting!",
 };
 const DEF_ANGLES: Record<string, string> = {
   advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
@@ -673,11 +673,16 @@ function opener(sc: Scripts, l: Lead): string {
 function firstDM(sc: Scripts, l: Lead, angle: string): string {
   return fill("Hey {first}, " + opener(sc, l) + "\n\n" + (sc.angles[angle] ?? sc.angles.advice), l);
 }
-// The angle with the fewest first messages so far (among those switched on), so A, B and C get an even test.
+// Which angle the next first message uses. Until every angle has 15 sent, the one with the fewest (an even test). After
+// that it learns: 70% of the time the angle with the best reply rate so far, 30% the others (so a late bloomer can still win).
 async function nextAngle(sc: Scripts, leads: Lead[]): Promise<string> {
-  const n: Record<string, number> = {}; for (const a of sc.on) n[a] = 0;
-  for (const l of leads) { const a = l.fields?.li?.angle; if (a && n[a] != null) n[a]++; }
-  return sc.on.slice().sort((a, b) => n[a] - n[b])[0];
+  const n: Record<string, number> = {}, r: Record<string, number> = {};
+  for (const a of sc.on) { n[a] = 0; r[a] = 0; }
+  for (const l of leads) { const x = l.fields?.li ?? {}; const a = x.angle; if (!a || n[a] == null) continue; n[a]++; if (x.dm && x.replied) r[a]++; }
+  if (sc.on.some((a) => n[a] < 15)) return sc.on.slice().sort((a, b) => n[a] - n[b])[0];
+  const rate = (a: string) => (r[a] + 1) / (n[a] + 2);
+  const best = sc.on.slice().sort((a, b) => rate(b) - rate(a))[0], rest = sc.on.filter((a) => a !== best);
+  return !rest.length || Math.random() < 0.7 ? best : rest[Math.floor(Math.random() * rest.length)];
 }
 
 // ───────── their local time ─────────
