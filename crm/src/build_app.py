@@ -390,7 +390,7 @@ f0 = src.rindex('<div style="flex:1 1 280px;', 0, f1)
 f2 = src.index('</sc-for>\n</div>', f1) + len('</sc-for>\n</div>')
 src = src[:f0] + '<sc-if value="{{ trk.hasFol }}">' + src[f0:f2] + '</sc-if>' + src[f2:]
 
-for word in ("Google Sheet", "WhatsApp", "Robot", "robotics", "robot "):
+for word in ("Google Sheet", "Robot", "robotics", "robot "):   # WhatsApp is ours now (11 Nov: Daily brief)
     assert word not in src.replace(CONFIG_JS, ""), "client copy left in the page: " + word
 for name in ("Aktoria", "Karan", "Shreenabh"):
     left = [m.start() for m in re.finditer(name, src) if "CRM_CONFIG" not in src[max(0, m.start() - 4000):m.start()][-200:]]

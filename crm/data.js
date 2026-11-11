@@ -396,6 +396,7 @@ async function publicLoad(){
   if(!XJ.loadedAt||Date.now()-XJ.loadedAt>6e4){XJ.loadedAt=Date.now();xRunsLoad()}
   if(!LIS.at||Date.now()-LIS.at>6e4){LIS.at=Date.now();lisLoad()}
   if(!LBT.at||Date.now()-LBT.at>3e4){LBT.at=Date.now();lbtLoad()}
+  if(!BR.at||Date.now()-BR.at>6e4){BR.at=Date.now();briefLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -1194,6 +1195,23 @@ async function lbtRun(){
   catch(e){toast("Couldn't write messages: "+(e.message||e),true)}
   finally{LBT.running=false;await lbtLoad()}
 }
+// Daily brief (11 Nov): the daily-brief job writes one row a day at 8:00 IST (yesterday on LinkedIn, X and Instagram, and who to
+// follow up with today). The page reads the last 14; "Write it now" runs the job again for today.
+const BR={rows:[],loaded:false,err:null,running:false,at:0};
+async function briefLoad(){
+  if(!sb||!session||!member)return;
+  try{const {data,error}=await sb.from("crm_briefs").select("*").order("day",{ascending:false}).limit(14);
+    if(error)throw error;BR.rows=data||[];BR.loaded=true;BR.err=null;emit()}
+  catch(e){BR.loaded=true;BR.err=String(e.message||e);emit()}
+}
+async function briefRun(){
+  if(!sb||BR.running)return;BR.running=true;emit();toast("Writing today's brief. About 20 seconds.");
+  try{const {data,error}=await sb.functions.invoke("daily-brief",{body:{}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    toast("Today's brief is ready.")}
+  catch(e){toast("Couldn't write the brief: "+(e.message||e),true)}
+  finally{BR.running=false;await briefLoad();leadsLoad()}
+}
 // Call brief (11 Nov): li-bot researches the lead and writes the call plan and pitch (it also runs every 15 minutes on its own).
 async function liBrief(id){
   if(!sb)return false;toast("Writing the call brief. About a minute.");
@@ -1541,7 +1559,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,BR,briefLoad,briefRun,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

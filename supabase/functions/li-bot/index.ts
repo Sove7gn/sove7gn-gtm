@@ -494,20 +494,23 @@ async function calBooking(req: Request) {
   const p = ev.payload ?? {}, who = (p.attendees ?? [])[0] ?? {};
   const email = String(who.email ?? "").toLowerCase(), name = String(who.name ?? "").trim();
   const when = p.startTime ? new Date(p.startTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) + " IST" : "";
+  // The call itself (11 Nov): when, and the Google Meet link cal.com made, kept on the lead for the Daily brief and the lead card.
+  const meet = String(p.videoCallData?.url ?? p.metadata?.videoCallUrl ?? (/^https?:/.test(String(p.location ?? "")) ? p.location : "") ?? "");
+  const call = { at: p.startTime ? Date.parse(p.startTime) : null, meet, title: String(p.title ?? "").slice(0, 120), src: "cal.com", seen: now() };
   let { data: l } = email ? await db.from("crm_leads").select("id,fields,stage").eq("archived", false).ilike("email", email).limit(1).maybeSingle() : { data: null };
   if (!l && name) ({ data: l } = await db.from("crm_leads").select("id,fields,stage").eq("archived", false).ilike("name", name).order("updated_at", { ascending: false }).limit(1).maybeSingle());
   if (!l) {
     const { data: n, error } = await db.from("crm_leads").insert({ name: name || email, email, direction: "Inbound", source: "Referral", source_detail: "Booked on cal.com",
-      stage: "Call booked", created_by: "automation" }).select("id,fields,stage").single();
+      stage: "Call booked", created_by: "automation", fields: { call } }).select("id,fields,stage").single();
     if (error) throw error;
     l = n;
   } else {
     const li = { ...((l as any).fields?.li ?? {}) };
     if (li.req || li.dm) li.stop = "booked";
-    await db.from("crm_leads").update({ stage: "Call booked", fields: { ...((l as any).fields ?? {}), li }, ...(email ? { email } : {}) }).eq("id", (l as any).id);
+    await db.from("crm_leads").update({ stage: "Call booked", fields: { ...((l as any).fields ?? {}), li, call }, ...(email ? { email } : {}) }).eq("id", (l as any).id);
     await stopTasks((l as any).id, "They booked a call");
   }
-  await db.from("crm_lead_events").insert({ lead_id: (l as any).id, kind: "meeting", text: "Booked a call on cal.com" + (when ? " for " + when : ""), by_email: "cal.com" });
+  await db.from("crm_lead_events").insert({ lead_id: (l as any).id, kind: "meeting", text: "Booked a call on cal.com" + (when ? " for " + when : "") + (meet ? ": " + meet : ""), by_email: "cal.com" });
   return json({ ok: true });
 }
 

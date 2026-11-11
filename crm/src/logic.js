@@ -21,12 +21,12 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
   const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
-const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
 // A call booked for the GTM service (a LinkedIn or X lead, not clipping): these get a call dossier.
 const isGtmCall=l=>!!l&&/^(call booked|proposal sent)$/i.test(l.stage||'')&&/^(linkedin|x)$/i.test(l.source||'')&&!/clip|ugc|reel/i.test(String(l.pitch||'')+' '+String(l.closed_for||''));
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
@@ -38,7 +38,7 @@ const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
-const PAGE_INFO={leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, their likely GTM bottlenecks, a call script and the pitch. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
+const PAGE_INFO={leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, their likely GTM bottlenecks, a call script and the pitch. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
   pipeline:'Everyone we\u2019ve DMed on X and where they are. Board and People show the stages; Scripts is where you edit the 3 DM versions and see which gets replies.',
   calendar:'Your X posts for each day: write them, move them, add an image, mark them scheduled or posted.',
@@ -973,6 +973,7 @@ class Component extends DCLogic {
     else if(page==='leadSetup')h.next='Your ICP, stages, sources, groups, categories and extra fields. Changes apply to every lead.';
     else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a fresh reason to reach out this week. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
     else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
+    else if(page==='leadBrief'){const b=(AK.BR.rows||[])[0];h.next=!AK.BR.loaded?'Loading the brief…':!b?'No brief yet. It writes itself at 8:00 IST, or press Write it now.':'Today: '+((b.data.overall||[])[4]?b.data.overall[4].v:0)+' people to follow up with. Written '+this.since(b.made_at)+'.';}
     else if(page==='leadDossier'){const D=this.leadsAll().filter(isGtmCall);const w=D.filter(l=>!((l.fields||{}).brief||{}).at).length;h.next=D.length?D.length+(D.length===1?' GTM call':' GTM calls')+' booked'+(w?', '+w+' dossier'+(w===1?'':'s')+' being written.':'. Every dossier is ready.'):'No GTM calls booked yet.';}
     else if(page==='liPipe'){const w=AK.LBT.rows.filter(t=>t.status==='review').length;h.next=w?w+(w===1?' message is':' messages are')+' waiting for your OK. Approve them on the cards below.':'Nothing waiting for your OK. New people who engage with our posts show up in Leads found.';}
     else if(LI_LISTS[page]){const n=this.gtmAll().filter(x=>LI_LISTS[page].some(id=>GV.find(v=>v.id===id).f(x))).length;h.next=page==='liOut'?n+' LinkedIn people to reach out to or follow up with. Stay inside LinkedIn’s daily limits below.':page==='liInbox'?(n?n+(n===1?' person':' people')+' came to us first. Answer them today.':'Nobody has messaged us first yet. When someone does, add them here as Inbound.'):(n?n+(n===1?' person':' people')+' engaged back after we reached out.':'Nobody has replied to our outreach yet.');}
@@ -1013,6 +1014,7 @@ class Component extends DCLogic {
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
     if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(page==='leadDossier')return{...base,dos:this.dossierVals()};
+    if(page==='leadBrief')return{...base,db:this.dailyVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
     if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
@@ -1329,6 +1331,45 @@ class Component extends DCLogic {
     AK.leadSave(l.id,{stage,fields:{...f,li}}).then(ok=>{if(!ok)return;if(ids.length)AK.lbtSet(ids,{status:'skipped'});this.toast((l.name||'They')+' moved to '+stage+'. The bot won’t message them any more.');});}
   /* X tab, Shared leads (11 Nov): LinkedIn leads scoring 6+ who fit, to reach on X as well. */
   openDossier(id){const go=()=>this.go('leadDossier',{dosId:id,lid:null});if(this.state.plat!=='Leads'){store.set('plat','Leads');this.setState({plat:'Leads'},go);}else go();}
+  /* Daily brief (11 Nov): the 8:00 IST snapshot from the daily-brief job, in Reyansh's format. A person drops off the lists once
+     someone logs a touch on them after the brief was written ("Spoke to them" logs one). */
+  dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
+    const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};
+    const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));const made=pick?Date.parse(pick.made_at):0;const done=s.briefDone||{};
+    const CH={LinkedIn:['#e8f1fb','#0a66c2'],X:['#eef0f3','#111'],WhatsApp:['#e3f6ea','#16723b'],Instagram:['#fdeef6','#b4237a']};
+    const item=(it,k)=>{const l=it.id?byId.get(it.id):null;const touched=l&&Date.parse(l.last_touch||'')>made+6e4;const key=k+':'+(it.id||it.name);
+      return{...avatar(it.name),name:it.name,sub:it.sub||'',why:it.why,chan:it.channel,chanBg:(CH[it.channel]||CH.X)[0],chanFg:(CH[it.channel]||CH.X)[1],
+        hasLink:!!it.link,open:()=>window.open(it.link,'_blank','noopener'),openLabel:it.channel==='WhatsApp'?'WhatsApp ↗':'Open '+it.channel+' ↗',
+        hasLead:!!l,openLead:()=>l&&this.openLead(l.id),hasPhone:!!it.phone,phone:it.phone||'',
+        canSpoke:!!l&&AK.canEdit(),spoke:()=>{if(!l)return;this.setState(x=>({briefDone:{...(x.briefDone||{}),[key]:true}}));AK.leadNote(l.id,'message','Followed up'+(it.channel==='WhatsApp'?' on WhatsApp':' on '+it.channel)+' (from the Daily brief)');},
+        hide:!!(touched||done[key])};};
+    const list=(arr,k,lim)=>{const all=(arr||[]).map(x=>item(x,k)).filter(x=>!x.hide);const open=!!(s.more&&s.more['brief:'+k]);const shown=open?all:all.slice(0,lim);
+      return{items:shown,n:String(all.length),empty:!all.length,hasMore:all.length>shown.length,moreN:String(all.length-shown.length),more:()=>this.setState(x=>({more:{...x.more,['brief:'+k]:true}}))};};
+    if(!b)return{none:true,has:false,running:AK.BR.running,run:()=>AK.briefRun(),runLabel:AK.BR.running?'Writing…':'Write it now',canRun:AK.canEdit(),days:[]};
+    const st=a=>(a||[]).map(x=>({label:x.label,v:fmtK(+x.v||0),zero:!+x.v}));
+    const C=b.calls||{};const gm=C.gmail||'not connected';
+    const callAt=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})+' IST':'Time not known yet';
+    const upAll=(C.upcoming||[]).map(c=>{const l=byId.get(c.id)||{};const call=(l.fields||{}).call||{};const meet=call.meet||c.meet||'';const at=call.at||c.at||null;
+      return{...avatar(c.name),name:c.name,sub:[c.sub,c.source].filter(Boolean).join(' · '),when:callAt(at),hasMeet:!!meet,openMeet:()=>window.open(meet,'_blank','noopener'),copyMeet:()=>this.copy(meet,'meet'+c.id,'Meet link copied.'),openLead:()=>this.openLead(c.id),known:!!(at||meet),soon:at&&at-Date.now()<864e5&&at>Date.now()};})
+      .sort((a,b2)=>(b2.soon?1:0)-(a.soon?1:0));
+    const up=upAll.filter(c=>c.known),noTime=upAll.length-up.length;
+    const strays=(C.found||[]).filter(c=>!c.lead_id).map(c=>({...avatar(c.name),name:c.name,sub:[c.email,c.from].filter(Boolean).join(' · '),when:callAt(c.at),hasMeet:!!c.meet,openMeet:()=>window.open(c.meet,'_blank','noopener')}));
+    const LI=list((b.linkedin||{}).follow,'li',8),X=list((b.x||{}).follow,'x',8),IG=list((b.instagram||{}).stale,'ig',8);
+    const txtL=(t,arr)=>arr.length?'\n'+t+'\n'+arr.map(x=>'- '+x.name+(x.sub?' ('+x.sub+')':'')+': '+x.why+(x.chan==='WhatsApp'&&x.phone?' [WhatsApp '+x.phone+']':' ['+x.chan+']')).join('\n'):'';
+    const statsT=a=>(a||[]).map(x=>x.label+' '+x.v).join(' · ');
+    const allOf=(arr,k)=>(arr||[]).map(x=>item(x,k)).filter(x=>!x.hide);
+    const text='Daily brief · '+fmtD(b.day)+' (covers '+fmtD(b.yday)+')\n\nOVERALL\n'+(b.overall||[]).map(o=>'- '+o.label+': '+o.v+' ('+o.d+')').join('\n')+
+      '\n\nLINKEDIN\n'+statsT((b.linkedin||{}).stats)+txtL('Follow up today:',allOf((b.linkedin||{}).follow,'li'))+
+      '\n\nX\n'+statsT((b.x||{}).stats)+txtL('Follow up today:',allOf((b.x||{}).follow,'x'))+
+      '\n\nINSTAGRAM (moved to WhatsApp)\n'+statsT((b.instagram||{}).stats)+txtL('No update in 2+ days:',allOf((b.instagram||{}).stale,'ig'))+
+      (up.length?'\n\nCALLS BOOKED\n'+up.map(c=>'- '+c.name+': '+c.when).join('\n'):'');
+    return{none:false,has:true,title:fmtD(b.day),covers:'Covers '+fmtD(b.yday)+' · written '+this.since(pick.made_at),
+      days:R.slice(0,7).map(x=>({label:fmtD(x.day),on:x===pick,bg:x===pick?'var(--ink)':'rgba(255,255,255,.7)',fg:x===pick?'#fff':'var(--ink-2)',pick:()=>this.setState({briefDay:x.day})})),
+      run:()=>AK.briefRun(),runLabel:AK.BR.running?'Writing…':'Write it now',canRun:AK.canEdit(),copy:()=>this.copy(text,'brief','Brief copied. Paste it anywhere.'),copyLabel:this.copyBtn('brief','Copy as text').label,
+      overall:(b.overall||[]).map(o=>({label:o.label,v:fmtK(+o.v||0),d:o.d})),
+      li:{stats:st((b.linkedin||{}).stats),...LI},x:{stats:st((b.x||{}).stats),...X},ig:{stats:st((b.instagram||{}).stats),...IG},
+      calls:{items:up,has:up.length>0,n:String(upAll.length),hasNoTime:noTime>0,noTimeText:noTime+(up.length?(noTime===1?' more is':' more are'):(noTime===1?' is':' are'))+' in Call booked with no time or Meet link yet'+(gm==='connected'?'.':' (Gmail fills these in once it’s connected).'),strays,hasStrays:strays.length>0,gmailOff:gm!=='connected',gmailC:gm==='connected'?'var(--ink-3)':'var(--warn-ink)',
+        gmailText:gm==='connected'?'Gmail is connected: booking emails from cal.com and Calendly add the Meet link to the lead.':gm==='error'?'Couldn’t read Gmail this morning. It tries again tomorrow at 8:00, or press Write it now.':'Gmail isn’t connected yet. Once it is, booking emails (cal.com, Calendly, Google Calendar invites) put the call time and Google Meet link on the lead.'}};}
   dossierVals(){const s=this.state;const L=this.leadsAll().filter(isGtmCall).sort((a,b)=>new Date(b.stage_at||0)-new Date(a.stage_at||0));
     const sel=L.find(l=>l.id===s.dosId)||L[0];
     const items=L.map(l=>{const b=(l.fields||{}).brief||{};const on=sel&&l.id===sel.id;return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),src:l.source,when:'Booked '+this.since(l.stage_at),
