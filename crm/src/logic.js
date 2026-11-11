@@ -28,7 +28,11 @@ const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'c
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
 const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
 // A call booked for the GTM service (a LinkedIn or X lead, not clipping): these get a call dossier.
-const isGtmCall=l=>!!l&&/^(call booked|proposal sent)$/i.test(l.stage||'')&&/^(linkedin|x)$/i.test(l.source||'')&&!/clip|ugc|reel/i.test(String(l.pitch||'')+' '+String(l.closed_for||''));
+const isGtmCall=l=>!!l&&/^(call booked|proposal sent)$/i.test(l.stage||'')&&/^(linkedin|x)$/i.test(l.source||'')&&!/clip|ugc|reel/i.test(String(l.pitch||'')+' '+String(l.closed_for||''))&&(((l.fields||{}).call||{}).kind!=='clipping');
+// The call on a lead (11 Nov, from Gmail and cal.com): when, the Meet link, GTM or clipping, booked / declined / cancelled.
+const KIND_C={gtm:['GTM call','#e8f1fb','#0a66c2'],clipping:['Clipping call','#fdeef6','#b4237a']};
+const callKind=(c,src)=>KIND_C[(c&&c.kind)||(src==='Instagram'?'clipping':src==='LinkedIn'||src==='X'?'gtm':'')]||['Call','var(--n-soft-2)','var(--ink-2)'];
+const callWhen=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})+' IST':'Time not known yet';
 // X / LinkedIn (3 Nov): the switch at the top swaps the whole CRM. LinkedIn shows only Calendar and Post tracker for now,
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
@@ -1192,7 +1196,7 @@ class Component extends DCLogic {
       ...a,name:val('name')||(isNew?'New lead':'(no name)'),sub:[val('role'),val('company')].filter(Boolean).join(' · ')||(isNew?'Fill in what you know; you can add the rest later.':''),
       stageP:this.tagPill(l.stage||'',st.color),heatP:this.heatOf(l)?this.tagPill(HEAT_L[this.heatOf(l)],HEAT_C[this.heatOf(l)]):null,hasHeat:!!this.heatOf(l),srcLabel:l.source?this.srcIcon(l.source)+' '+l.source+' · '+(l.direction||''):(l.direction||''),
       track,contact,deal,custom,hasCustom:custom.length>0,cats,hasCats:cats.length>0,noCats:!cats.length,events,hasEvents:events.length>0,kinds,note:s.lnote,setNote:e=>this.setState({lnote:e.target.value}),
-      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),
+      noteKey:e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();addNote();}},addNote,links,hasLinks:links.length>0,...this.briefVals(l,isNew),call:(()=>{const c=(!isNew&&l&&l.fields&&l.fields.call)||null;if(!c)return{has:false};const k=callKind(c,l.source);const past=c.at&&c.at<Date.now()-36e5;return{has:true,kind:k[0],kBg:k[1],kFg:k[2],when:callWhen(c.at)+(past?' (past)':''),state:c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',hasState:c.status==='declined'||c.status==='cancelled',src:'From '+(c.src||'Gmail')+(c.how?', matched by '+c.how:''),hasMeet:!!c.meet,meet:c.meet||'',openMeet:()=>window.open(c.meet,'_blank','noopener'),copyMeet:()=>this.copy(c.meet,'lm'+l.id,'Meet link copied.'),noMeet:!c.meet};})(),
       notes:val('notes'),setNotes:setV('notes'),saveNotes:saveV('notes'),create:()=>this.createLead(),archive,setupCats:()=>{this.closeLead();this.go('leadSetup');},
       added:isNew?'':'Added '+this.since(l.created_at)+(l.created_by?' by '+String(l.created_by).split('@')[0]:'')};}
 
@@ -1350,10 +1354,12 @@ class Component extends DCLogic {
     const C=b.calls||{};const gm=C.gmail||'not connected';
     const callAt=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})+' IST':'Time not known yet';
     const upAll=(C.upcoming||[]).map(c=>{const l=byId.get(c.id)||{};const call=(l.fields||{}).call||{};const meet=call.meet||c.meet||'';const at=call.at||c.at||null;
-      return{...avatar(c.name),name:c.name,sub:[call.status==='declined'?'Declined':'',c.sub,c.source].filter(Boolean).join(' · '),when:callAt(at),hasMeet:!!meet,openMeet:()=>window.open(meet,'_blank','noopener'),copyMeet:()=>this.copy(meet,'meet'+c.id,'Meet link copied.'),openLead:()=>this.openLead(c.id),known:!!(at||meet),soon:at&&at-Date.now()<864e5&&at>Date.now()};})
+      const k=callKind(call.kind?call:c,c.source);return{...avatar(c.name),name:c.name,kind:k[0],kBg:k[1],kFg:k[2],sub:[call.status==='declined'?'Declined':call.status==='cancelled'?'Cancelled':'',c.sub,c.source].filter(Boolean).join(' · '),when:callAt(at),hasMeet:!!meet,openMeet:()=>window.open(meet,'_blank','noopener'),copyMeet:()=>this.copy(meet,'meet'+c.id,'Meet link copied.'),openLead:()=>this.openLead(c.id),known:!!(at||meet),soon:at&&at-Date.now()<864e5&&at>Date.now()};})
       .sort((a,b2)=>(b2.soon?1:0)-(a.soon?1:0));
     const up=upAll.filter(c=>c.known),noTime=upAll.length-up.length;
-    const strays=(C.found||[]).filter(c=>!c.lead_id).sort((a,b2)=>(b2.at||0)-(a.at||0)).map(c=>({...avatar(c.name),name:c.name,sub:[c.status==='declined'?'Declined':'',c.email,c.from].filter(Boolean).join(' · '),when:callAt(c.at),hasMeet:!!c.meet,openMeet:()=>window.open(c.meet,'_blank','noopener')}));
+    const known=new Set((AK.LD.rows||[]).flatMap(l=>[String(l.email||'').toLowerCase(),String(l.phone||'').replace(/\D/g,'').slice(-10)]).filter(x=>x&&x.length>4));
+    const strays=(C.found||[]).filter(c=>!c.lead_id&&!known.has(String(c.email||'').toLowerCase())&&!known.has(String(c.phone||'').replace(/\D/g,'').slice(-10))).sort((a,b2)=>(b2.at||0)-(a.at||0)).map(c=>{const k=callKind(c,'');return{...avatar(c.name),name:c.name,kind:k[0],kBg:k[1],kFg:k[2],sub:[c.status==='declined'?'Declined':c.status==='cancelled'?'Cancelled':'',c.email,c.phone,c.from].filter(Boolean).join(' · '),canAdd:AK.canEdit()&&c.status==='booked',add:()=>this.briefAddCall(c),when:callAt(c.at),hasMeet:!!c.meet,openMeet:()=>window.open(c.meet,'_blank','noopener')};});
+    const noCall=(AK.LD.rows||[]).filter(l=>!l.archived&&l.stage==='Call booked'&&!((l.fields||{}).call||{}).meet).map(l=>({name:l.name,src:l.source,open:()=>this.openLead(l.id)}));
     const LI=list((b.linkedin||{}).follow,'li',8),X=list((b.x||{}).follow,'x',8),IG=list((b.instagram||{}).stale,'ig',8);
     const txtL=(t,arr)=>arr.length?'\n'+t+'\n'+arr.map(x=>'- '+x.name+(x.sub?' ('+x.sub+')':'')+': '+x.why+(x.chan==='WhatsApp'&&x.phone?' [WhatsApp '+x.phone+']':' ['+x.chan+']')).join('\n'):'';
     const statsT=a=>(a||[]).map(x=>x.label+' '+x.v).join(' · ');
@@ -1368,8 +1374,11 @@ class Component extends DCLogic {
       run:()=>AK.briefRun(),runLabel:AK.BR.running?'Writing…':'Write it now',canRun:AK.canEdit(),copy:()=>this.copy(text,'brief','Brief copied. Paste it anywhere.'),copyLabel:this.copyBtn('brief','Copy as text').label,
       overall:(b.overall||[]).map(o=>({label:o.label,v:fmtK(+o.v||0),d:o.d})),
       li:{stats:st((b.linkedin||{}).stats),...LI},x:{stats:st((b.x||{}).stats),...X},ig:{stats:st((b.instagram||{}).stats),...IG},
-      calls:{items:up,has:up.length>0,n:String(upAll.length),hasNoTime:noTime>0,noTimeText:noTime+(up.length?(noTime===1?' more is':' more are'):(noTime===1?' is':' are'))+' in Call booked with no time or Meet link yet'+(gm==='connected'?'.':' (Gmail fills these in once it’s connected).'),strays,hasStrays:strays.length>0,gmailOff:gm!=='connected',gmailC:gm==='connected'?'var(--ink-3)':'var(--warn-ink)',
+      calls:{noCall,hasNoCall:noCall.length>0,noCallN:String(noCall.length),items:up,has:up.length>0,n:String(upAll.length),hasNoTime:noTime>0,noTimeText:noTime+(up.length?(noTime===1?' more is':' more are'):(noTime===1?' is':' are'))+' in Call booked with no time or Meet link yet'+(gm==='connected'?'.':' (Gmail fills these in once it’s connected).'),strays,hasStrays:strays.length>0,gmailOff:gm!=='connected',gmailC:gm==='connected'?'var(--ink-3)':'var(--warn-ink)',
         gmailText:gm==='connected'?'Gmail is connected: booking emails from cal.com and Calendly add the Meet link to the lead.':gm==='error'?'Couldn’t read Gmail this morning. It tries again tomorrow at 8:00, or press Write it now.':'Gmail isn’t connected yet. Once it is, booking emails (cal.com, Calendly, Google Calendar invites) put the call time and Google Meet link on the lead.'}};}
+  briefAddCall(c){const ig=String(c.ig||'').replace(/^@/,'');const clipping=c.kind==='clipping';
+    AK.leadCreate({name:c.name||c.email,email:c.email||'',phone:c.phone||'',instagram:ig?'@'+ig:'',source:clipping||ig?'Instagram':'Other',direction:'Inbound',stage:'Call booked',
+      source_detail:'Booked a call ('+(c.from||'Gmail')+')',fields:{call:{at:c.at||null,meet:c.meet||'',kind:c.kind||'',status:c.status||'booked',src:c.from||'Gmail',how:'added from the Daily brief'}}});}
   dossierVals(){const s=this.state;const L=this.leadsAll().filter(isGtmCall).sort((a,b)=>new Date(b.stage_at||0)-new Date(a.stage_at||0));
     const sel=L.find(l=>l.id===s.dosId)||L[0];
     const items=L.map(l=>{const b=(l.fields||{}).brief||{};const on=sel&&l.id===sel.id;return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),src:l.source,when:'Booked '+this.since(l.stage_at),

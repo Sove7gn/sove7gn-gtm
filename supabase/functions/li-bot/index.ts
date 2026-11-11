@@ -496,7 +496,10 @@ async function calBooking(req: Request) {
   const when = p.startTime ? new Date(p.startTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) + " IST" : "";
   // The call itself (11 Nov): when, and the Google Meet link cal.com made, kept on the lead for the Daily brief and the lead card.
   const meet = String(p.videoCallData?.url ?? p.metadata?.videoCallUrl ?? (/^https?:/.test(String(p.location ?? "")) ? p.location : "") ?? "");
-  const call = { at: p.startTime ? Date.parse(p.startTime) : null, meet, title: String(p.title ?? "").slice(0, 120), src: "cal.com", seen: now() };
+  // GTM or clipping: what they wrote, then the event's name (the GTM Discovery Call on cal.com/sove7gn-gtm is GTM).
+  const said = JSON.stringify(p.responses ?? {}) + " " + String(p.description ?? "") + " " + String(p.additionalNotes ?? "");
+  const kind = /clip|ugc|reel/i.test(said) ? "clipping" : /clip/i.test(String(p.title ?? "")) ? "clipping" : "gtm";
+  const call = { at: p.startTime ? Date.parse(p.startTime) : null, meet, kind, status: "booked", title: String(p.title ?? "").slice(0, 120), src: "cal.com", seen: now() };
   let { data: l } = email ? await db.from("crm_leads").select("id,fields,stage").eq("archived", false).ilike("email", email).limit(1).maybeSingle() : { data: null };
   if (!l && name) ({ data: l } = await db.from("crm_leads").select("id,fields,stage").eq("archived", false).ilike("name", name).order("updated_at", { ascending: false }).limit(1).maybeSingle());
   if (!l) {
