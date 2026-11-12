@@ -1033,7 +1033,7 @@ class Component extends DCLogic {
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
     if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(page==='leadDossier')return{...base,dos:this.dossierVals()};
-    if(page==='leadBrief')return{...base,db:this.dailyVals()};
+    if(page==='leadBrief')return{...base,db:this.dailyVals(),ow:this.outreachVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
     if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
@@ -1360,6 +1360,71 @@ class Component extends DCLogic {
   openDossier(id){const go=()=>this.go('leadDossier',{dosId:id,lid:null});if(this.state.plat!=='Leads'){store.set('plat','Leads');this.setState({plat:'Leads'},go);}else go();}
   /* Daily brief (11 Nov): the 8:00 IST snapshot from the daily-brief job, in Reyansh's format. A person drops off the lists once
      someone logs a touch on them after the brief was written ("Spoke to them" logs one). */
+  /* Right now (12 Nov): live LinkedIn and X outreach on the Daily brief page, from the bot queues, the leads and the X DM sheet.
+     Each answer has the names. The table under it shows where every person is on the ladder and what happens next. */
+  outreachVals(){const s=this.state;const day=new Date();day.setHours(0,0,0,0);const t0=day.getTime();const ms=x=>{const t=Date.parse(x||'');return isNaN(t)?0:t;};
+    const more=s.outMore||{};const NAMES=12;
+    const names=(key,arr)=>{const open=!!more[key];const shown=open?arr:arr.slice(0,NAMES);return{names:shown,hasNames:arr.length>0,hasMore:arr.length>NAMES,moreLabel:open?'Show less':'+'+(arr.length-NAMES)+' more',toggle:()=>this.setState(x=>({outMore:{...(x.outMore||{}),[key]:!open}}))};};
+    const chip=(name,sub,id)=>({name:name||'(no name)',sub:sub||'',open:()=>id&&this.openLead(id),hasOpen:!!id});
+    const row=(label,n,key,arr,hint)=>({label,n:String(n),hint:hint||'',zero:!n,...names(key,arr)});
+    // LinkedIn
+    const L=(AK.LD.rows||[]).filter(l=>!l.archived&&l.source==='LinkedIn');const byId=new Map(L.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};
+    const T=AK.LBT.rows||[];const kindL={invite:'Request',dm:'DM 1',accept:'Accept + DM 1',followup:'Follow-up'};
+    const tName=t=>{const l=byId.get(t.lead_id)||{};return chip(l.name,(kindL[t.kind]||t.kind)+(t.kind==='followup'?' '+t.step:''),t.lead_id);};
+    const sentToday=T.filter(t=>t.status==='sent'&&ms(t.sent_at)>=t0);
+    const dmToday=sentToday.filter(t=>t.kind!=='invite'),reqToday=sentToday.filter(t=>t.kind==='invite');
+    const replied=L.filter(l=>LI(l).replied).sort((a,b)=>ms(LI(b).replied)-ms(LI(a).replied));
+    const pending=L.filter(l=>{const x=LI(l);return x.req&&!x.acc&&!x.replied&&!x.stop&&!x.dm;}).sort((a,b)=>ms(LI(b).req)-ms(LI(a).req));
+    const queued=T.filter(t=>t.status==='ready'||t.status==='sending'),review=T.filter(t=>t.status==='review');
+    const qFu=queued.filter(t=>t.kind==='followup'),qFirst=queued.filter(t=>t.kind!=='followup');
+    const ladder=L.filter(l=>{const x=LI(l);return x.dm&&!x.replied&&!x.stop;});const fuLeft=ladder.reduce((a,l)=>a+Math.max(0,7-(+LI(l).fu||0)),0);
+    const busy=new Set([...queued,...review].map(t=>t.lead_id));const accNoDm=L.filter(l=>{const x=LI(l);return x.acc&&!x.dm&&!x.replied&&!x.stop&&!busy.has(l.id);});
+    const reviewFirst=[...new Map(review.filter(t=>t.kind!=='followup').map(t=>[t.lead_id,t])).values()];
+    const li={rows:[
+      row('Messaged today',dmToday.length,'li-dm',dmToday.map(tName),reqToday.length?'Plus '+reqToday.length+' connection requests today':''),
+      row('Replied',replied.length,'li-rep',replied.map(l=>chip(l.name,this.since(LI(l).replied)+' · '+l.stage,l.id)),'They move to In talks'),
+      row('Request sent, not accepted yet',pending.length,'li-pend',pending.map(l=>chip(l.name,'sent '+this.since(LI(l).req),l.id)),'Old ones are withdrawn after 3 weeks'),
+      row('Going out next',queued.length,'li-q',queued.map(tName),review.length?review.length+' more waiting for your OK on LinkedIn > Pipeline':'Sent 12 AM to 12 PM IST, one every few minutes'),
+      row('Left to send',reviewFirst.length+accNoDm.length,'li-left',[...reviewFirst.map(t=>({...tName(t),sub:'waiting for your OK'})),...accNoDm.map(l=>chip(l.name,'accepted, first message next',l.id))],
+        'First messages still to write or approve: '+(reviewFirst.length+accNoDm.length)+' · first messages queued now: '+qFirst.length+' · follow-ups queued now: '+qFu.length+' · follow-ups still to come on the ladder: '+fuLeft+' (up to 7 each, one a day)')]};
+    // X
+    const C=(AK.M&&AK.M.contacts)||[];const XT=AK.XT.rows||[];const xd=v=>{const d=AK.cellDate&&AK.cellDate(v);return d?d.getTime():0;};
+    const xc=(c,sub)=>chip(c.Name,sub,null);
+    const xSent=XT.filter(t=>t.status==='sent'&&ms(t.sent_at)>=t0);
+    const manual=C.filter(c=>[c['Sent on'],c['FU1 sent'],c['FU2 sent']].some(v=>xd(v)>=t0)&&!xSent.some(t=>t.name===c.Name));
+    const xKind={dm:'DM 1',fu1:'Follow-up 1',fu2:'Follow-up 2'};
+    const xRep=C.filter(c=>c['Replied on']).sort((a,b)=>xd(b['Replied on'])-xd(a['Replied on']));
+    const xQ=XT.filter(t=>t.status==='ready'||t.status==='sending');
+    const toSend=C.filter(c=>/^(to send|)$/i.test(c.Status||'')&&c['X handle']&&!xQ.some(t=>t.row===c._row));
+    const onLadder=C.filter(c=>/^(sent|fu1 sent)$/i.test(c.Status||'')&&!c['Replied on']);
+    const xFuLeft=onLadder.reduce((a,c)=>a+(/^sent$/i.test(c.Status)?2:1),0);
+    const cant=XT.filter(t=>t.status==='skipped'&&/closed|passcode/i.test(t.error||'')&&ms(t.claimed_at||t.created_at)>=t0);
+    const x={rows:[
+      row('Messaged today',xSent.length+manual.length,'x-dm',[...xSent.map(t=>chip(t.name,xKind[t.kind]+' · bot',null)),...manual.map(c=>xc(c,'by hand'))],cant.length?cant.length+' had closed or passcode DMs (marked Can’t DM)':''),
+      row('Replied',xRep.length,'x-rep',xRep.map(c=>xc(c,'replied '+(c['Replied on']||'')))),
+      row('Going out next',xQ.length,'x-q',xQ.map(t=>chip(t.name,xKind[t.kind]+(t.status==='sending'?' · sending now':''),null)),'Sent 12 AM to 12 PM IST by the bot'),
+      row('Left to send',toSend.length,'x-left',toSend.map(c=>xc(c,'first DM')),'First DMs not queued yet: '+toSend.length+' (press Send all with bot on Send today) · follow-ups still to come: '+xFuLeft+' (they queue themselves 24 hours apart)')]};
+    // Where everyone is
+    const STOP={replied:['Replied','in talks'],'in talks':['Replied','in talks'],booked:['Call booked','call booked'],lost:['Lost','marked lost'],'no reply':['Cold','no reply after 7 follow-ups'],skipped:['Skipped','skipped'],'not connected':['Not connected','LinkedIn says not connected'],'you messaged them':['By hand','you messaged them yourself']};
+    const step=l=>{const x=LI(l);if(/^lost$/i.test(l.stage||''))return['Lost',0,'marked lost',''];if(/call booked|proposal|won/i.test(l.stage||''))return[l.stage,7,'',l.stage==='Call booked'?'Prep the call':''];
+      if(x.replied)return['Replied',6,'replied '+this.since(x.replied),'In talks: answer them'];
+      if(x.stop){const z=STOP[x.stop]||['Stopped',String(x.stop)];return[z[0],0,z[1],''];}
+      if(x.dm){const n=+x.fu||0;const next=ms(x.last||x.dm)+864e5;return[n?'Follow-up '+n+' of 7':'DM 1 sent',5,'last '+this.since(x.last||x.dm),n>=7?'Cold lead next':next<=Date.now()?'Follow-up '+(n+1)+' due now':'Follow-up '+(n+1)+' in '+Math.max(1,Math.ceil((next-Date.now())/36e5))+' h (12 AM to 12 PM IST)'];}
+      if(x.acc)return['Accepted',4,'accepted '+this.since(x.acc),'First message next'];
+      if(x.req)return['Request sent',3,'sent '+this.since(x.req),'Waiting for them to accept'];
+      const r=T.find(t=>t.lead_id===l.id&&['review','ready','sending'].includes(t.status));
+      if(r)return[r.status==='review'?'Waiting for your OK':'Request going out',r.status==='review'?1:2,'',r.status==='review'?'Approve on LinkedIn > Pipeline':'Goes out in the next window'];
+      return null;};
+    const people=L.map(l=>{const st=step(l);return st?{l,st}:null;}).filter(Boolean);
+    const STEPS=['Call booked','Proposal sent','Replied','Follow-up','DM 1 sent','Accepted','Request sent','Request going out','Waiting for your OK','Cold','Lost','Not connected','Skipped','By hand','Stopped'];
+    const grp=p=>p.st[0].startsWith('Follow-up')?'Follow-up':p.st[0];
+    const f=s.outStep||'All';const list=people.filter(p=>f==='All'||grp(p)===f).sort((a,b)=>b.st[1]-a.st[1]||ms(LI(b.l).last||LI(b.l).replied||LI(b.l).acc||LI(b.l).req)-ms(LI(a.l).last||LI(a.l).replied||LI(a.l).acc||LI(a.l).req));
+    const lim=s.outLim||25;
+    const tabs=['All',...STEPS].map(k=>{const n=k==='All'?people.length:people.filter(p=>grp(p)===k).length;return{label:k+' '+n,on:k===f,show:n>0||k==='All',bg:k===f?'var(--ink)':'#fff',fg:k===f?'#fff':'var(--ink-2)',pick:()=>this.setState({outStep:k,outLim:25})};}).filter(t=>t.show);
+    const COL={'Replied':['#e3f6ea','#16723b'],'Call booked':['#fff1dc','#9a5b00'],'Proposal sent':['#fff1dc','#9a5b00'],'Stopped':['var(--n-soft-2)','var(--ink-3)'],'Lost':['var(--n-soft-2)','var(--ink-3)'],'Cold':['var(--n-soft-2)','var(--ink-3)'],'Skipped':['var(--n-soft-2)','var(--ink-3)'],'Not connected':['var(--bad-soft)','var(--bad-ink)'],'By hand':['var(--n-soft-2)','var(--ink-3)'],'Accepted':['#e8f1fb','#0a66c2'],'Request sent':['#fff6e6','#9a5b00']};
+    return{li,x,tabs,
+      table:list.slice(0,lim).map(p=>{const c=COL[grp(p)]||['#f3eefc','#6b3fb8'];return{...avatar(p.l.name),name:p.l.name,sub:[p.l.role,p.l.company].filter(Boolean).join(' · '),step:p.st[0],sBg:c[0],sFg:c[1],when:p.st[2],next:p.st[3],open:()=>this.openLead(p.l.id)};}),
+      hasMoreRows:list.length>lim,moreRows:'Show '+Math.min(50,list.length-lim)+' more of '+list.length,moreRowsGo:()=>this.setState(x=>({outLim:(x.outLim||25)+50}))};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
     const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};
     const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));const made=pick?Date.parse(pick.made_at):0;const done=s.briefDone||{};
