@@ -1334,7 +1334,15 @@ class Component extends DCLogic {
   liPipeScore(l){const v=AK.version();if(this._lpV!==v){this._lpV=v;this._lpS=new Map();}
     if(!this._lpS.has(l.id)){const sc=GTM.score(l,AK.gtm.cfg());const li=(l.fields||{}).li||{},src=liSrcOf(l);const bonus=[];
       if(src==='commented')bonus.push(['+1 commented on our post',1]);if(src==='inbound'||li.inbound_at)bonus.push(['+2 sent us a request',2]);if(src==='viewed'||li.viewed)bonus.push(['+1 viewed our profile',1]);
-      const b=bonus.reduce((a,x)=>a+x[1],0);this._lpS.set(l.id,{n:Math.max(1,Math.min(10,Math.round(sc.score/10)+b)),sc,bonus:bonus.map(x=>x[0])});}
+      // (12 Nov) We tag founders we picked as our ICP, so a tagged founder starts at 7; YC or another accelerator anywhere in what we
+      // know about them means they raised (+2), even before research has filled in the round.
+      const blob=[l.role,l.company,l.source_detail,l.notes,((l.fields||{}).li_icp||{}).funding,((l.fields||{}).li_icp||{}).one_liner,JSON.stringify(((l.fields||{}).gtm||{}).intel||{})].join(' ');
+      const founder=/founder|ceo|cto|chief|owner|president/i.test(String(l.role||''));const accel=/\bYC\b|Y ?Combinator|\(?[SWFX]\d{2}\)|Techstars|a16z speedrun|speedrun|Antler|Entrepreneur First|\bEF\b|HF0|South Park Commons|\bSPC\b|500 (Startups|Global)|Pioneer|Neo\b/i.test(blob);
+      if(accel&&!sc.score)bonus.push(['+2 backed by YC or an accelerator, so funded',2]);
+      const b=bonus.reduce((a,x)=>a+x[1],0);let n=Math.max(1,Math.min(10,Math.round(sc.score/10)+b));
+      if((src==='tagged'||li.tagged)&&founder&&n<7){n=7;bonus.push('7 at least: a founder we tagged in our post (picked as our ICP)');}
+      if(accel&&founder&&n<6){n=6;bonus.push('6 at least: founder of a YC or accelerator-backed startup');}
+      this._lpS.set(l.id,{n,sc,bonus:bonus.map(x=>Array.isArray(x)?x[0]:x)});}
     return this._lpS.get(l.id);}
   liNotFit(l){const role=String(l.role||'').trim();const I=((l.fields||{}).gtm||{}).intel||{};const v=k=>I[k]&&I[k].v;
     if(role&&!/^unknown$/i.test(role)&&!/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role))return 'Not a decision maker ('+clip(role,40)+')';
@@ -1379,12 +1387,12 @@ class Component extends DCLogic {
     const txtL=(t,arr)=>arr.length?'\n'+t+'\n'+arr.map(x=>'- '+x.name+(x.sub?' ('+x.sub+')':'')+': '+x.why+(x.chan==='WhatsApp'&&x.phone?' [WhatsApp '+x.phone+']':' ['+x.chan+']')).join('\n'):'';
     const statsT=a=>(a||[]).map(x=>x.label+' '+x.v).join(' · ');
     const allOf=(arr,k)=>(arr||[]).map(x=>item(x,k)).filter(x=>!x.hide);
-    const text='Daily brief · '+fmtD(b.day)+' (covers '+fmtD(b.yday)+')\n\nOVERALL\n'+(b.overall||[]).map(o=>'- '+o.label+': '+o.v+' ('+o.d+')').join('\n')+
+    const text='Daily brief · '+fmtD(b.day)+' (covers '+(b.from?'the last 24 hours':fmtD(b.yday))+')\n\nOVERALL\n'+(b.overall||[]).map(o=>'- '+o.label+': '+o.v+' ('+o.d+')').join('\n')+
       '\n\nLINKEDIN\n'+statsT((b.linkedin||{}).stats)+txtL('Follow up today:',allOf((b.linkedin||{}).follow,'li'))+
       '\n\nX\n'+statsT((b.x||{}).stats)+txtL('Follow up today:',allOf((b.x||{}).follow,'x'))+
       '\n\nINSTAGRAM (moved to WhatsApp)\n'+statsT((b.instagram||{}).stats)+txtL('No update in 2+ days:',allOf((b.instagram||{}).stale,'ig'))+
       (up.length?'\n\nCALLS BOOKED\n'+up.map(c=>'- '+c.name+': '+c.when).join('\n'):'');
-    return{none:false,has:true,title:fmtD(b.day),covers:'Covers '+fmtD(b.yday)+' · written '+this.since(pick.made_at),
+    return{none:false,has:true,title:fmtD(b.day),covers:(b.from?'Covers the 24 hours before it was written':'Covers '+fmtD(b.yday))+' · written '+this.since(pick.made_at),
       days:R.slice(0,7).map(x=>({label:fmtD(x.day),on:x===pick,bg:x===pick?'var(--ink)':'rgba(255,255,255,.7)',fg:x===pick?'#fff':'var(--ink-2)',pick:()=>this.setState({briefDay:x.day})})),
       run:()=>AK.briefRun(),runLabel:AK.BR.running?'Writing…':'Write it now',canRun:AK.canEdit(),copy:()=>this.copy(text,'brief','Brief copied. Paste it anywhere.'),copyLabel:this.copyBtn('brief','Copy as text').label,
       overall:(b.overall||[]).map(o=>({label:o.label,v:fmtK(+o.v||0),d:o.d})),

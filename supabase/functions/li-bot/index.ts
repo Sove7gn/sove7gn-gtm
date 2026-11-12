@@ -315,7 +315,7 @@ async function plan(_b: any) {
   if (!set.paused && inHours(set.hours)) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
-    const invitesLeft = Math.max(0, Math.min(6, set.week_cap - (weekSent ?? 0)));
+    const invitesLeft = Math.max(0, Math.min(12, set.week_cap - (weekSent ?? 0)));   // (12 Nov) 12 per 20 minute check, was 6
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
@@ -324,8 +324,8 @@ async function plan(_b: any) {
     const msg = (ready ?? []).filter((t) => t.kind !== "invite" && ok(t)).slice(0, 10);
     tasks = [...msg, ...inv];
     if (tasks.length) {
-      // A request goes out at least 3 hours after the warm touch (visit their profile, like their latest post).
-      tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > (set.rush ? 0.5 : 3) * 3600e3; })
+      // A request goes out at least 45 minutes after the warm touch (12 Nov, was 3 hours) (visit their profile, like their latest post).
+      tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > (set.rush ? 0.5 : 0.75) * 3600e3; })
         .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, warm: t.kind === "invite" && !l.fields?.li?.warm, inv: l.fields?.li?.inv ?? null }; });
       if (tasks.length) await db.from("crm_li_tasks").update({ status: "sending" }).in("id", tasks.map((t) => t.id));
     }
@@ -530,10 +530,14 @@ async function enrich(b: any) {
   if (!EXA) return { error: "EXA_API_KEY is missing" };
   const limit = Math.min(+(b.limit ?? 8), 60);
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,fields,notes")
-    .eq("source", "LinkedIn").eq("archived", false).like("origin_key", "li-person:%").in("heat", ["Hot", "Warm"]).limit(2000);
+    .eq("source", "LinkedIn").eq("archived", false).or("origin_key.like.li-person:%,origin_key.like.li-src:%").in("heat", ["Hot", "Warm"]).limit(2000);   // li-src: tagged, viewers, inbound, niche (12 Nov)
   if (error) throw error;
   const due = (l: any) => !l.fields?.li_icp?.at || (l.fields?.li_icp?.err && Date.now() - Date.parse(l.fields.li_icp.at) > 6 * 3600e3) || !l.fields?.li_icp?.geo2 || (!l.fields?.li_icp?.geo3 && !notFit(l));
-  const todo = (data ?? []).filter(due).sort((a: any, c: any) => (a.fields?.li?.req ? 1 : 0) - (c.fields?.li?.req ? 1 : 0)).slice(0, limit);
+  // (12 Nov) People waiting for Reyansh's approval go first, so their score is real before he decides; then people not yet contacted.
+  const { data: rv } = await db.from("crm_li_tasks").select("lead_id").in("status", ["review", "ready"]).limit(1000);
+  const waiting = new Set((rv ?? []).map((t: any) => t.lead_id));
+  const rank = (l: any) => (waiting.has(l.id) ? 0 : 2) + (l.fields?.li?.req ? 1 : 0);
+  const todo = (data ?? []).filter(due).sort((a: any, c: any) => rank(a) - rank(c)).slice(0, limit);
   let done = 0, cost = 0;
   for (let i = 0; i < todo.length; i += 4) {
     const out = await Promise.all(todo.slice(i, i + 4).map(async (l: any) => {

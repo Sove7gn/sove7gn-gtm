@@ -1,7 +1,7 @@
 // SOVE7GN Outreach Bot (LinkedIn + X): runs in your Chrome while it's open.
 // Every 20 minutes (sync): checks who engaged with our posts, who accepted, who replied, and asks the CRM what to send.
 // Every 2 minutes (tick): sends at most one approved LinkedIn request or message, with random gaps, so it looks like a person.
-// Every 3 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
+// Every 2 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
 import { liOp } from "./linkedin.js";
 import { xOp } from "./x.js";
 
@@ -17,13 +17,13 @@ store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && tes
 function setup() {
   chrome.alarms.create("sync", { periodInMinutes: 20, delayInMinutes: 1 });
   chrome.alarms.create("tick", { periodInMinutes: 2, delayInMinutes: 2 });
-  chrome.alarms.create("xtick", { periodInMinutes: 3, delayInMinutes: 1 });
+  chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
 chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : tick()));
 // An extension updated in place keeps its old alarms; make sure the X one exists.
-chrome.alarms.get("xtick").then((a) => { if (!a) chrome.alarms.create("xtick", { periodInMinutes: 3, delayInMinutes: 1 }); });
+chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -341,7 +341,7 @@ async function xTick() {
       return;                                                            // first send waits for the next tick
     }
     if (!xqueue.length) return;
-    if (Math.random() < 0.35) return;
+    if (Math.random() < 0.2) return;
     const t = xqueue.shift(); await store.set({ xqueue });
     try {
       const c = await api("x_claim", { id: t.id });

@@ -261,9 +261,15 @@ async function gmailCalls(leads: Lead[], dry = false, days = 7): Promise<{ statu
 // ───────── the brief ─────────
 async function build(dry = false, days = 7) {
   const now = Date.now(), today = istDay(now);
-  const start = Date.parse(today + "T00:00:00Z") - IST - DAY, end = start + DAY;          // yesterday, IST
+  // (12 Nov) The last 24 hours, so the 8:00 brief also shows what the bots sent overnight (they send 12 AM to 12 PM IST).
+  const end = now, start = end - DAY;
   const inY = (t: number | null) => t != null && t >= start && t < end;
   const yday = istDay(start);
+  // What is still waiting: LinkedIn messages for Reyansh's OK and approved ones, X DMs queued for the bot.
+  const { count: liReview } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("status", "review");
+  const { count: liReady } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).in("status", ["ready", "sending"]);
+  const { count: xQueued } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).in("status", ["ready", "sending"]);
+  const { count: xBot } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).eq("status", "sent").gte("sent_at", new Date(start).toISOString());
 
   const leads = ((await db.from("crm_leads").select("id,name,company,role,source,stage,phone,email,x_handle,linkedin,instagram,last_touch,next_date,stage_at,created_at,fields,pitch,closed_for").eq("archived", false).limit(5000)).data ?? []) as Lead[];
   const ev = (await db.from("crm_lead_events").select("lead_id,kind,text,at").gte("at", new Date(start).toISOString()).lt("at", new Date(end).toISOString()).limit(5000)).data ?? [];
@@ -376,11 +382,11 @@ async function build(dry = false, days = 7) {
     { label: "Follow up today", v: liFollow.length + xFollow.length + igStale.length, d: "LinkedIn " + liFollow.length + " · X " + xFollow.length + " · Instagram " + igStale.length },
   ];
   const brief = {
-    day: today, yday, made_at: new Date().toISOString(), overall,
+    day: today, yday, from: new Date(start).toISOString(), to: new Date(end).toISOString(), made_at: new Date().toISOString(), overall,
     linkedin: { stats: [{ label: "Requests sent", v: li.requests }, { label: "Accepted", v: li.accepted }, { label: "First DMs", v: li.dms }, { label: "Follow-ups", v: li.followups },
-      { label: "Replies", v: li.replies }, { label: "Calls booked", v: li.calls }, { label: "New good fits", v: li.found }], follow: liFollow.sort((a, b) => (b.days ?? 0) - (a.days ?? 0)).slice(0, 40), followN: liFollow.length },
+      { label: "Replies", v: li.replies }, { label: "Calls booked", v: li.calls }, { label: "New good fits", v: li.found }, { label: "Waiting for your OK", v: liReview ?? 0 }, { label: "Approved, sending soon", v: liReady ?? 0 }], follow: liFollow.sort((a, b) => (b.days ?? 0) - (a.days ?? 0)).slice(0, 40), followN: liFollow.length },
     x: { stats: [{ label: "DMs sent", v: xs.dms }, { label: "Follow-ups", v: xs.followups }, { label: "Replies", v: xs.replies }, { label: "Couldn't DM", v: xs.cant },
-      { label: "Posts", v: xs.posts }, { label: "Views gained", v: xs.views }, { label: "Good leads found", v: xs.found }, { label: "People who engaged", v: xs.engaged }, { label: "Calls booked", v: xs.calls }], follow: xFollow.slice(0, 40), followN: xFollow.length },
+      { label: "Posts", v: xs.posts }, { label: "Views gained", v: xs.views }, { label: "Good leads found", v: xs.found }, { label: "People who engaged", v: xs.engaged }, { label: "Calls booked", v: xs.calls }, { label: "Sent by the bot", v: xBot ?? 0 }, { label: "Queued for the bot", v: xQueued ?? 0 }], follow: xFollow.slice(0, 40), followN: xFollow.length },
     instagram: { stats: [{ label: "New leads", v: igs.newLeads }, { label: "Chats with new messages", v: igs.messaged }, { label: "Calls booked", v: igs.calls }, { label: "Open conversations", v: igs.open }],
       stale: igStale.slice(0, 40), staleN: igStale.length },
     calls: { gmail: gm.status, found: gm.calls.map((c) => ({ ...c, at: c.at })), upcoming: upcoming.slice(0, 30) },
