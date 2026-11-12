@@ -256,7 +256,7 @@ async function plan(_b: any) {
         newRows.push({ lead_id: l.id, kind: "accept", step: 0, text: firstDM(sc, l, angle), status }); }
       continue;
     }
-    if (!li.req && !li.acc) {
+    if (!li.req && !li.acc && !li.dm) {                                    // (12 Nov) anyone already messaged goes on to follow-ups
       if (!isOurs(l) || notFit(l) || twin(l, "req")) continue;              // only our own sources who fit get a request
       const t = had("invite");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
