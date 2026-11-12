@@ -282,7 +282,8 @@ async function plan(_b: any) {
       }
       const t = had("followup", n);
       if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now() }); continue; }
-      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: n, text: fill(set.fu[n - 1] ?? "", l), status });
+      // (12 Nov) Follow-ups never wait for approval: Reyansh approves the first touch only. One a day (gap_days 1) up to 7.
+      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: n, text: fill(set.fu[n - 1] ?? "", l), status: "ready" });
     }
   }
   // Connection notes: one short opener per person, written from what we know about them.
@@ -1102,8 +1103,52 @@ async function pipeRow(row: number) {
   const c: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) c[k] = String(r.cells?.[i] ?? ""); });
   return c;
 }
+
+// (12 Nov) X follow-ups queue themselves, no approval: Reyansh approves the first DM only. 24 hours after the first DM with no
+// reply, follow-up 1; 24 hours after that, follow-up 2 (the two follow-ups in each DM script). Texts come from the DM Templates
+// tab and are filled in like the CRM does ([first name], [company]; the [hook] is only for openers).
+const MONX: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function sheetTime(v: unknown): number | null {      // "10 Nov 2026, 13:32" or "12 Nov 2026" (IST) or a day serial
+  const s = String(v ?? "").trim(); if (!s) return null;
+  if (/^\d+(\.\d+)?$/.test(s)) return Date.UTC(1899, 11, 30) + +s * 864e5 - IST_MS;
+  const m = s.match(/(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})(?:[,\s]+(\d{1,2}):(\d{2}))?/);
+  if (!m || MONX[m[2].toLowerCase()] == null) return null;
+  return Date.UTC(+m[3], MONX[m[2].toLowerCase()], +m[1], +(m[4] ?? 0), +(m[5] ?? 0)) - IST_MS;
+}
+async function xAutoFollowups(): Promise<number> {
+  const { data: rows } = await db.from("crm_sheet").select("tab,row,cells").in("tab", ["DM Pipeline", "DM Templates"]).order("row").limit(5000);
+  const P = (rows ?? []).filter((r: any) => r.tab === "DM Pipeline"), T = (rows ?? []).filter((r: any) => r.tab === "DM Templates");
+  const ph = P.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5), th = T.find((r: any) => (r.cells ?? [])[0] === "ID");
+  if (!ph || !th) return 0;
+  const obj = (h: any, r: any) => { const o: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
+  const tpl = new Map(T.filter((r: any) => r.row > th.row).map((r: any) => obj(th, r)).filter((t) => t.ID).map((t) => [t.ID, t]));
+  const pick = (t: Record<string, string>, prefix: string) => { const k = Object.keys(t).find((x) => x.startsWith(prefix)); return k ? t[k] : ""; };
+  const { data: had } = await db.from("crm_x_tasks").select("row,kind").in("kind", ["fu1", "fu2"]).limit(5000);
+  const done = new Set((had ?? []).map((t: any) => t.row + ":" + t.kind));
+  const now = Date.now(), add: any[] = [];
+  for (const r of P.filter((x: any) => x.row > ph.row)) {
+    const c = obj(ph, r); const name = c["Name"]; const handle = String(c["X handle"] ?? "").replace(/^@/, "");
+    if (!name || !handle || c["Replied on"] || /^(not specified|unknown)$/i.test(name.trim())) continue;
+    const st = c["Status"] || "", sent = sheetTime(c["Sent on"]), f1 = sheetTime(c["FU1 sent"]);
+    let kind = "";
+    if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";
+    else if (/^fu1 sent$/i.test(st) && !c["FU2 sent"] && f1 && now - f1 >= 24 * 3600e3) kind = "fu2";   // FU1 is a day, so this is the next day or later
+    if (!kind || done.has(r.row + ":" + kind)) continue;
+    const t = tpl.get(c["Template"]); if (!t) continue;
+    const first = String(name).trim().split(/\s+/)[0];
+    const company = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "your company";
+    const text = pick(t, kind === "fu1" ? "Follow-up 1" : "Follow-up 2").replace(/\[first name\]/gi, first).replace(/\[company\]/gi, company).replace(/\s*\[hook\]\s*/gi, " ").replace(/ {2,}/g, " ").trim();
+    if (!text) continue;
+    add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind, text, status: "ready", decided_by: "auto: follow-up" });
+    if (add.length >= 30) break;
+  }
+  if (add.length) await db.from("crm_x_tasks").insert(add);
+  return add.length;
+}
+
 async function x_plan(b: any) {
   const set = await xSettings(), now = Date.now();
+  const autoFu = await xAutoFollowups().catch(() => 0);
   await xStatus({ seen: new Date().toISOString(), me: b.me ?? null, version: b.version ?? "" });
   await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
   const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
@@ -1125,7 +1170,7 @@ async function x_plan(b: any) {
     tasks.push({ id: t.id, name: t.name, handle: t.handle, user_id: uid, kind: t.kind, text: t.text });
   }
   if (tasks.length) await db.from("crm_x_tasks").update({ status: "sending", claimed_at: new Date().toISOString() }).in("id", tasks.map((t) => t.id));
-  return { tasks, paused: false, in_hours: true, left, sent_today: sentToday ?? 0 };
+  return { tasks, paused: false, in_hours: true, left, sent_today: sentToday ?? 0, auto_followups: autoFu };
 }
 // Right before sending: is this message still the right one? (no reply, not sent by hand, row still theirs)
 async function x_claim(b: any) {
