@@ -332,7 +332,16 @@ async function plan(_b: any) {
     }
   }
   // People whose LinkedIn id we still need (to send anything), or whose email we haven't looked for since they connected.
-  const lookups = leads.filter((l) => { const li = l.fields?.li ?? {}; return (!urnOf(l) && !li.lookup_fail) || (li.acc && !li.ci && !l.email); })
+  // (12 Nov) Extensions before 1.2.2 read the LinkedIn id off the profile page and often got someone else's: no lookups for them,
+  // and nothing handed out that would need one.
+  const { data: vs } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
+  const ver = String((vs?.value as any)?.version ?? "0").split(".").map((x) => +x || 0);
+  const goodLookup = ver[0] > 1 || (ver[0] === 1 && (ver[1] > 2 || (ver[1] === 2 && ver[2] >= 2)));
+  if (!goodLookup && tasks.length) {
+    const noUrn = tasks.filter((t: any) => !t.urn).map((t: any) => t.id);
+    if (noUrn.length) { await db.from("crm_li_tasks").update({ status: "ready" }).in("id", noUrn); tasks = tasks.filter((t: any) => t.urn); }
+  }
+  const lookups = !goodLookup ? [] : leads.filter((l) => { const li = l.fields?.li ?? {}; return (!urnOf(l) && !li.lookup_fail) || (li.acc && !li.ci && !l.email); })
     .slice(0, 8).map((l) => ({ lead_id: l.id, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, connected: !!l.fields?.li?.acc }));
   let enriched: any = null;
   try { enriched = await enrich({ limit: 8 }); } catch (_) { /* research is a bonus; never block sending */ }
@@ -361,6 +370,7 @@ async function done(b: any) {
   if (!l) return { error: "No such lead" };
   const lead = l as Lead;
   const li = { ...(lead.fields?.li ?? {}) };
+  if (b.urn && await urnTaken(b.urn, lead)) b.urn = "";
   if (b.urn) li.urn = b.urn; if (b.pid) li.pid = b.pid;
   const at = now();
   if (b.already === "connected") {
@@ -371,6 +381,12 @@ async function done(b: any) {
   if (b.already === "pending") {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "A request was already pending" }).eq("id", t.id);
     if (!li.req) li.req = at;
+    await saveLi(lead, li); return { ok: true };
+  }
+  if (!b.ok && /NOT_FIRST_DEGREE/i.test(String(b.error ?? "")) && !li.relooked && li.pid) {
+    // (12 Nov) Usually a wrong LinkedIn id, not a lost connection: forget the id, look them up again by their handle, and retry once.
+    delete li.urn; li.relooked = at;
+    await db.from("crm_li_tasks").update({ status: "ready", error: "Retrying after looking up their LinkedIn id again" }).eq("id", t.id);
     await saveLi(lead, li); return { ok: true };
   }
   if (!b.ok && /NOT_FIRST_DEGREE/i.test(String(b.error ?? ""))) {     // not connected (any more): can't message them, stop the sequence
@@ -411,11 +427,18 @@ async function done(b: any) {
 }
 
 // ───────── contact: their LinkedIn id, and email if they share it ─────────
+// (12 Nov) A LinkedIn id belongs to one person: never give a lead an id another lead (with a different name) already has.
+async function urnTaken(urn: string, lead: { id: string; name?: string }): Promise<boolean> {
+  if (!urn) return false;
+  const { data } = await db.from("crm_leads").select("id,name").filter("fields->li->>urn", "eq", urn).neq("id", lead.id).eq("archived", false).limit(5);
+  return (data ?? []).some((x: any) => String(x.name ?? "").toLowerCase().trim() !== String(lead.name ?? "").toLowerCase().trim());
+}
 async function contact(b: any) {
   const { data: l } = await db.from("crm_leads").select("id,name,email,linkedin,fields,stage,heat,company,role,x_handle,source_detail,origin_key").eq("id", b.lead_id).maybeSingle();
   if (!l) return { error: "No such lead" };
   const lead = l as Lead;
   const li = { ...(lead.fields?.li ?? {}) };
+  if (b.urn && await urnTaken(b.urn, lead)) b.urn = "";
   if (b.urn) li.urn = b.urn; if (b.pid) li.pid = b.pid;
   if (!b.urn && !urnOf(lead)) li.lookup_fail = now();
   if (li.acc || b.connected) li.ci = now();

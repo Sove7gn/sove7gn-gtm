@@ -35,18 +35,18 @@ export async function liOp(op, a = {}) {
   // A person's member id (ACoA...), vanity name, connection and contact email.
   async function lookup(x) {
     let urn = x.urn || acoa(x.profile), pid = x.pid || vanity(x.profile), connected = false, email = "", name = "";
-    if (!urn || !pid) {
-      // Their profile page always carries both.
-      const r = await fetch("/in/" + encodeURIComponent(pid || urn) + "/", { credentials: "include" });
-      const html = await r.text();
-      if (!pid) pid = vanity(r.url) || (html.match(/"publicIdentifier":"([^"]+)"/) || [])[1] || "";
-      if (!urn) urn = (html.match(/urn:li:fsd_profile:(ACoA[\w-]+)/) || [])[1] || "";
+    if (!pid && urn) {
+      // Their handle from the profile address (the page redirects to /in/<handle>/). (12 Nov) The ID is NOT read from the page:
+      // the first profile ID on it is often someone in "People also viewed", which gave several leads the same wrong ID.
+      const r = await fetch("/in/" + encodeURIComponent(urn) + "/", { credentials: "include" });
+      pid = vanity(r.url) || "";
     }
     try {
       const j = await get("identity/dash/profiles?q=memberIdentity&memberIdentity=" + encodeURIComponent(pid || urn) +
         "&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-120");
-      const p = inc(j).find((e) => acoa(e.entityUrn) && e.publicIdentifier) || {};
-      if (!urn) urn = acoa(p.entityUrn); if (!pid) pid = p.publicIdentifier || "";
+      // Only the profile whose handle is the one we asked for (the answer also carries other people).
+      const p = inc(j).find((e) => acoa(e.entityUrn) && e.publicIdentifier && (!pid || String(e.publicIdentifier).toLowerCase() === String(pid).toLowerCase())) || {};
+      if (!urn || (pid && acoa(p.entityUrn) && acoa(p.entityUrn) !== urn)) urn = acoa(p.entityUrn) || urn; if (!pid) pid = p.publicIdentifier || "";
       name = [p.firstName, p.lastName].filter(Boolean).join(" ");
       const rel = inc(j).find((e) => /MemberRelationship/.test(e.$type || "") && String(e.entityUrn || "").includes(urn));
       if (rel) connected = !!(rel.memberRelationship && rel.memberRelationship.connection) || !!(rel.memberRelationshipUnion && rel.memberRelationshipUnion.connection);
