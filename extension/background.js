@@ -62,7 +62,7 @@ async function botTab() {
       }
     } catch (_) {}
   }
-  const t = await chrome.tabs.create({ url: "https://www.linkedin.com/feed/", active: false, pinned: true });
+  const t = await openTab("https://www.linkedin.com/feed/");
   await store.set({ tabId: t.id });
   await loaded(t.id); await sleep(2500);
   if (!(await alive(t.id))) throw new Error("LinkedIn won't load in Chrome right now. Open linkedin.com in a normal tab to check you're online and signed in.");
@@ -88,6 +88,16 @@ async function op(name, args = {}) {
   return r.result;
 }
 const keepAlive = () => setInterval(() => chrome.runtime.getPlatformInfo(), 20e3);
+// (12 Nov) Chrome can keep running with every window closed, and then tabs.create fails with "No current window": open a small
+// minimized window for the bot's tab instead.
+async function openTab(url) {
+  try { return await chrome.tabs.create({ url, active: false, pinned: true }); }
+  catch (e) {
+    if (!/no current window|no window/i.test(String(e.message || e))) throw e;
+    const w = await chrome.windows.create({ url, focused: false, state: "minimized" });
+    return w.tabs && w.tabs[0] ? w.tabs[0] : (await chrome.tabs.query({ windowId: w.id }))[0];
+  }
+}
 
 // LinkedIn's comments call needs a query id that changes when LinkedIn ships a new version. Opening one of our posts makes
 // the page use it, so it's read from there and kept until LinkedIn rejects it.
@@ -305,7 +315,7 @@ async function xTab() {
       }
     } catch (_) {}
   }
-  const t = await chrome.tabs.create({ url: "https://x.com/messages", active: false, pinned: true });
+  const t = await openTab("https://x.com/messages");
   await store.set({ xTabId: t.id }); await loaded(t.id); await sleep(3000);
   if (!(await xAlive(t.id))) throw new Error("X won't load in Chrome right now. Open x.com in a normal tab to check you're signed in.");
   return t.id;
