@@ -1045,6 +1045,14 @@ async function liMove(o,iso){
   catch(e){toast("Moved to "+label+" in the CRM. The queue sheet updates within 15 minutes.");}
   return true;
 }
+// Add a LinkedIn post from the calendar (14 Nov): li-bot li_add writes a new Queued row in the queue sheet, then the sheet reloads.
+async function liAdd(text,image,iso,slot){
+  if(!sb||!canEdit())return false;
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"li_add",text,image,date:iso,slot}});if(error)throw error;
+    if(!data||!data.ok){toast("Couldn't add it: "+((data&&data.error)||"no answer"),true);return false}
+    toast("Added to the LinkedIn queue.");await liLoad(true);return true}
+  catch(e){toast("Couldn't add it: "+(e.message||e),true);return false}
+}
 // Posted LinkedIn posts with their latest reactions, shaped like trackedPosts() (LinkedIn shows no views here).
 function liTracked(){
   const auto=SOC.posts.filter(p=>p.platform==="linkedin");
@@ -1645,7 +1653,7 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
-  liTracked,liState,liLoad,liMove,liKey,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
+  liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
   // GTM intelligence (8 Nov): for the page and for scheduled jobs that enrich leads or log replies. Nothing here sends a message.
   gtm:{save:leadGtmSave,intel:gtmIntel,intelMany:gtmIntelMany,signal:gtmSignal,signalDel:gtmSignalDel,set:gtmSet,touch:gtmTouch,

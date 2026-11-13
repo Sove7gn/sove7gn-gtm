@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, refresh, poll } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -169,6 +169,30 @@ async function li_move(_b: any) {
   }
   await db.from("crm_lead_settings").upsert({ key: "li_moves", value: moves, updated_at: now() });
   return { applied, waiting: todo.length - applied, connected: true, error };
+}
+// ───────── Adding a LinkedIn post from the calendar (14 Nov) ─────────
+// { text, image?, date "YYYY-MM-DD" (ET, like the queue), slot 1..4 } -> a new Queued row at the end of the Queue tab.
+async function li_add(b: any) {
+  const text = String(b.text ?? "").trim(), date = String(b.date ?? ""), slot = Math.min(4, Math.max(1, +b.slot || 3));
+  if (!text || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: "Write the post and pick a day" };
+  const { data: rows } = await db.from("crm_sheet").select("cells").eq("tab", "Settings");
+  const sheet = String(((rows ?? []).find((r: any) => String(r.cells?.[0] ?? "").trim() === "LinkedIn sheet")?.cells ?? [])[1] ?? "").trim();
+  if (!sheet) return { ok: false, error: "No LinkedIn sheet in Settings" };
+  const out0 = await mcp("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "googlesheets", action: "list" }] }).catch(() => ({}));
+  const acc = (out0?.data?.results?.googlesheets?.accounts ?? []).find((a: any) => a.status === "active");
+  if (!acc) return { ok: false, connected: false, error: "Google Sheets isn't connected in Composio" };
+  const r = await fetch("https://docs.google.com/spreadsheets/d/" + encodeURIComponent(sheet) + "/export?format=csv&gid=0", { cache: "no-store" });
+  const grid = r.ok ? csv(await r.text()) : [];
+  if (!grid.length) return { ok: false, error: "Couldn't read the queue sheet" };
+  let last = grid.length; while (last > 1 && !(grid[last - 1] ?? []).some((c) => String(c).trim())) last--;
+  const row = last + 1;
+  const SLOTS = ["1 (8:30 AM ET)", "2 (11:30 AM ET)", "3 (2:30 PM ET)", "4 (5:30 PM ET)"];
+  const img = String(b.image ?? "").trim().replace(/^https:\/\/drive\.google\.com\/file\/d\/([\w-]+).*$/, "https://drive.google.com/uc?export=view&id=$1");
+  const out = await mcp("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GOOGLESHEETS_UPDATE_VALUES_BATCH",
+    arguments: { spreadsheet_id: sheet, valueInputOption: "USER_ENTERED", data: [{ range: "Queue!A" + row + ":E" + row, values: [[text, img, date, SLOTS[slot - 1], "Queued"]], majorDimension: "ROWS" }] }, account: acc.alias || acc.id }], sync_response_to_workbench: false });
+  const res = (out?.data?.results ?? [])[0];
+  if (!res || res.error || res.response?.error || res.response?.successful === false) return { ok: false, error: String(res?.error ?? res?.response?.error ?? "Google Sheets didn't accept it").slice(0, 200) };
+  return { ok: true, row };
 }
 function csv(t: string): string[][] {
   const rows: string[][] = []; let row: string[] = [], cell = "", q = false;

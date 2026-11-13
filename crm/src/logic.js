@@ -121,7 +121,10 @@ const dkey=(y,m,d)=>y+'-'+m+'-'+d;
 const calWhere=(o,zone)=>{const d=o._date;if(!d)return null;const t=o['Time (IST)'];
   if(!hasTime(t))return{key:dkey(d.getFullYear(),d.getMonth(),d.getDate()),hm:'',sort:-1};
   const mi=AK.minutesOf(t);const p=zparts(wallToMs(d.getFullYear(),d.getMonth(),d.getDate(),Math.floor(mi/60),mi%60,'Asia/Kolkata'),ZONES[zone].tz);
-  return{key:dkey(p.y,p.m,p.d),hm:String(p.H).padStart(2,'0')+':'+String(p.M).padStart(2,'0'),sort:p.H*60+p.M};};
+  // (14 Nov) In IST a post between midnight and 6 AM belongs to the evening before, the way Date is kept (minutesOf), so a
+  // 2:30 PM ET LinkedIn post (1 AM IST) sits on the day it was planned for.
+  const ev=zone==='ist'&&mi>=1440;
+  return{key:ev?dkey(d.getFullYear(),d.getMonth(),d.getDate()):dkey(p.y,p.m,p.d),hm:String(p.H).padStart(2,'0')+':'+String(p.M).padStart(2,'0'),sort:zone==='ist'?mi:p.H*60+p.M};};
 // Back to the sheet: a day in the zone ("y-m-d") and "HH:MM" or '' -> IST date "D Mon YYYY" and time "7:30 PM" or ''.
 const toIst=(key,hm,zone)=>{const [y,m,d]=key.split('-').map(Number);if(!hm)return{date:d+' '+AK.MON[m]+' '+y,time:''};
   const [H,M]=hm.split(':').map(Number);const p=zparts(wallToMs(y,m,d,H,M,ZONES[zone].tz),'Asia/Kolkata');return{date:p.d+' '+AK.MON[p.m]+' '+p.y,time:t12(p.H,p.M)};};
@@ -719,7 +722,7 @@ class Component extends DCLogic {
               slotNew:()=>{const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat,sl);},slotPick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:sl})});}
           items.push(...list.filter(x=>!SLOTS3.includes(x.p.slot)).map(card));}
         return{dow:d.dow,date:d.num+' '+d.mon,today:d.today,hfg:d.today?'var(--in-ink)':'var(--ink)',bg:d.today?'var(--in-soft)':'var(--n-soft)',cards:items,
-          canAdd:!f&&!isLi,add:()=>{const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat);},pick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:'All'}),
+          canAdd:!f,add:()=>{if(isLi){this.setState({calPick:{acc:a.acc,key:d.key,write:true},calPickKind:'All',liNew:{text:'',image:''}});return;}const r=toIst(d.key,'',zone);AK.calNew(a.acc,r.date,'',plat);},pick:()=>this.setState({calPick:{acc:a.acc,key:d.key},calPickKind:'All'}),
           over:e=>{e.preventDefault();const k=a.acc+'|'+d.key;if(this.dragId&&this.state.calOver!==k)this.setState({calOver:k});},leave:e=>{if(e.currentTarget.contains(e.relatedTarget))return;if(this.state.calOver===a.acc+'|'+d.key)this.setState({calOver:null});},
           dropSh:s.calOver===a.acc+'|'+d.key?'inset 0 0 0 2px var(--in)':'none',drop:e=>{e.preventDefault();this.setState({calOver:null,calDragging:null});this.calDrop(a,d);}};});
       const ti=days.findIndex(d=>d.today);
@@ -862,7 +865,7 @@ class Component extends DCLogic {
     // first), then ones whose day passed without posting. Picking one moves it to this day.
     const t0=new Date();t0.setHours(0,0,0,0);
     const whereOf=p=>{if(!onCal(p))return 0;const w=calWhere(p.o,s.calZone);return w?w.key:0;};
-    let C=this.postList().filter(p=>!p.dup&&p.account===acc&&!p.link&&p.status!=='Posted'&&platOf(p.o)===s.plat&&whereOf(p)!==pk.key);
+    let C=this.postList().filter(p=>!p.dup&&p.account===acc&&!p.link&&p.status!=='Posted'&&platOf(p.o)===s.plat&&(!p.o._li||!!p.o._qrow)&&whereOf(p)!==pk.key);
     const kinds=['All',...POST_KINDS].map(k=>{const on=kind===k;return{label:k==='All'?'All types':k,count:String(k==='All'?C.length:C.filter(p=>p.kind===k).length),go:()=>this.setState({calPickKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
     if(kind!=='All')C=C.filter(p=>p.kind===kind);
     const rank=p=>{if(!onCal(p))return 0;const t=p.o._date?p.o._date.getTime():0;return t>=t0.getTime()?1:2;};
@@ -870,10 +873,21 @@ class Component extends DCLogic {
     const SLOT_AT={'Account tag':'7:30 PM','Founder':'9:45 PM','Data & product':'11:30 PM'};
     const r=toIst(pk.key,'',s.calZone);const [y,m,d]=pk.key.split('-').map(Number);const dt=new Date(y,m,d);
     const items=C.slice(0,30).map(p=>({id:p.id,type:p.ptype||'Post',line:clip(firstLine(p.text)||p.text,150),when:rank(p)===1?'On the calendar '+dLabel(p.o._date.getTime())+', moves here':rank(p)===2?'Missed '+dLabel(p.o._date.getTime())+', not posted':p.o._date?'Drafted '+AK.dayWord(p.o._date).replace(/^(Today|Yesterday|Tomorrow)/,w=>w.toLowerCase()):'Parked for later',needs:p.q?'Needs a founder answer':'',hasNeeds:!!p.q,
-      add:()=>{const sl=SLOTS3.includes(kind)?kind:SLOTS3.includes(p.slot)?p.slot:'';const time=p.o['Time (IST)']&&onCal(p)?p.o['Time (IST)']:(SLOT_AT[sl]||'');
+      add:()=>{if(p.o._li){const w=calWhere(p.o,s.calZone);if(w){this.setState({calPick:null});this.calMoveTo(p,w,pk.key);}return;}
+        const sl=SLOTS3.includes(kind)?kind:SLOTS3.includes(p.slot)?p.slot:'';const time=p.o['Time (IST)']&&onCal(p)?p.o['Time (IST)']:(SLOT_AT[sl]||'');
         const was={date:p.o.Date,time:p.o['Time (IST)'],cal:p.o.Calendar||''};
         AK.calSave(p.o,{cal:'Yes',date:r.date,time,...(sl?{slot:sl}:{}),...(p.status==='Later'?{status:'Ready to post'}:{})}).then(ok=>{if(ok){this.setState({calPick:null});this.toast(rank(p)===1?'Moved here from '+dLabel(p.o._date.getTime()):'Added to the calendar',()=>AK.calSave(p.o,was));}});}}));
-    return{open:true,title:(kind!=='All'?kind+' draft for ':'Add a draft to ')+ownerName(acc)+' · '+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+d+' '+AK.MON[m],kinds,items,empty:items.length===0,close:()=>this.setState({calPick:null})};}
+    // A new LinkedIn post for this day: the first slot (2:30 PM ET first) that's still ahead and free that day.
+    const li=s.plat==='LinkedIn';const nw=s.liNew||{text:'',image:''};
+    const liSlot=()=>{const ET=[[3,14,30],[2,11,30],[1,8,30],[4,17,30]];const busy=this.postList().filter(x=>x.o._li&&!x.dup&&calWhere(x.o,s.calZone)&&calWhere(x.o,s.calZone).key===pk.key).map(x=>x.o._at||0);
+      for(const [n,H,M] of ET){const at=wallToMs(y,m,d,H,M,'America/New_York');if(at<Date.now()+15*6e4)continue;if(busy.some(b=>Math.abs(b-at)<30*6e4))continue;return{n,at};}return null;};
+    const write={on:li,text:nw.text,image:nw.image,setText:e=>this.setState({liNew:{...(this.state.liNew||{}),text:e.target.value}}),setImage:e=>this.setState({liNew:{...(this.state.liNew||{}),image:e.target.value}}),
+      saveLabel:s.liAdding?'Adding…':'Add to the LinkedIn queue',
+      save:async()=>{const t=String((this.state.liNew||{}).text||'').trim();if(!t||this.state.liAdding)return;const sl=liSlot();if(!sl){this.toast('Every slot that day has passed or is taken. Pick another day.',null,true);return;}
+        this.setState({liAdding:true});const iso=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+        const ok=await AK.liAdd(t,(this.state.liNew||{}).image||'',iso,sl.n);this.setState({liAdding:false,...(ok?{calPick:null,liNew:null}:{})});},
+      hint:(()=>{const sl=liSlot();return sl?'Goes out '+new Date(sl.at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',weekday:'short',hour:'numeric',minute:'2-digit'})+' IST':'No slot left that day';})()};
+    return{open:true,write,title:(li?'LinkedIn post for ':kind!=='All'?kind+' draft for ':'Add a draft to ')+ownerName(acc)+' · '+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+d+' '+AK.MON[m],kinds:s.plat==='LinkedIn'?[]:kinds,items,empty:items.length===0,close:()=>this.setState({calPick:null})};}
 
   /* ---------- our posts ---------- */
   postCard(p){const s=this.state;const ST={'To post':'warn','Scheduled':'neutral','Posted':'ok','Later':'ghost'};const k=p.id+'c';const cb=this.copyBtn(k,'Copy our version');let actions=[];
