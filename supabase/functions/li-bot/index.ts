@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -389,7 +389,7 @@ async function signal_trash(b: any) {
   return { ok: true };
 }
 // A row in the X DM Pipeline (same columns the X lead finder writes), with the signal as the hook. It shows on X > Send today.
-async function toXPipeline(l: any): Promise<string> {
+async function toXPipeline(l: any, opener = ""): Promise<string> {
   const h = String(l.x_handle ?? "").replace(/^@/, ""); if (!h) return "no X handle";
   const { data: rows } = await db.from("crm_sheet").select("tab,row,cells").in("tab", ["DM Pipeline", "DM Templates"]).order("row").limit(5000);
   const P = (rows ?? []).filter((r: any) => r.tab === "DM Pipeline"), hdr = P.find((r: any) => (r.cells ?? []).includes("X handle"));
@@ -401,10 +401,10 @@ async function toXPipeline(l: any): Promise<string> {
   const used = (id: string) => P.filter((r: any) => r.row > hdr.row && r.cells?.[ix("Template")] === id).length;
   const tpl = live.sort((a: string, b: string) => used(a) - used(b))[0] ?? "";
   const next = Math.max(...P.map((r: any) => r.row)) + 1, sig = l.fields?.signal ?? {}, kind = sig.kind ?? l.fields?.li?.src ?? "";
-  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : "Launch";
+  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? "YC founder list" : "Launch";
   const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : "Congrats on the launch.";
   const ist = new Date(Date.now() + IST_MS); const stamp = ist.getUTCDate() + " " + MON3[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + String(ist.getUTCHours()).padStart(2, "0") + ":" + String(ist.getUTCMinutes()).padStart(2, "0");
-  const writes = [{ row: next, col: ix("Name") + 1, values: [[l.name, l.company || "Unknown", l.role || "Founder", "Reyansh", "X DM", "Cold", seg, "9", h, l.linkedin || "", "", clip(String(sig.headline ?? l.source_detail ?? ""), 180), sig.url || "", stamp, tpl, "", "To send"]] },
+  const writes = [{ row: next, col: ix("Name") + 1, values: [[l.name, l.company || "Unknown", l.role || "Founder", "Reyansh", "X DM", "Cold", seg, "9", h, l.linkedin || "", "", clip(String(sig.headline ?? l.source_detail ?? ""), 180), sig.url || "", stamp, opener ? "" : tpl, opener, "To send"]] },
     { row: next, col: ix("Notes") + 1, values: [["Added from Leads > Signals on " + stamp + ". " + (sig.why ?? "") + (sig.what ? " " + l.company + ": " + sig.what : "")]] },
     { row: next, col: ix("Funding stage") + 1, values: [[kind === "funding" ? [sig.round, sig.amount, sig.date].filter(Boolean).join(", ") : sig.stage || "", sig.url || "", hook]] }];
   const { error } = await db.rpc("crm_call", { body: { action: "rows", writes } });
@@ -462,6 +462,45 @@ async function prospects(b: any) {
   }
   await saveStatus({ last_prospects: now(), last_prospects_result: { need, added: added.length, people: added.slice(0, 12), cost, ...d } });
   return { need, added: added.length, people: added, cost, ...d, ready };
+}
+
+// Founder lists (14 Nov): a list Reyansh built (name, company, LinkedIn, X, warm link, round, first DM). Each person becomes a hot
+// LinkedIn lead with a connection note and first DM written for them (both wait for his OK), and an X DM Pipeline row with the
+// list's first DM as the opener (sent from X > Send today). Someone already in Leads gets the list's details added instead.
+async function import_list(b: any) {
+  const rows = Array.isArray(b.rows) ? b.rows : []; const list = String(b.list ?? "Founder list");
+  const out = { added: 0, merged: 0, x: 0, notes: 0, skipped: [] as string[] };
+  const { data: have } = await db.from("crm_leads").select("id,name,company,linkedin,fields,x_handle,stage").eq("source", "LinkedIn").limit(5000);
+  const slug = (u: unknown) => String(u ?? "").toLowerCase().replace(/^https?:\/\/([a-z]{2,3}\.)?(www\.)?linkedin\.com\/in\//, "").replace(/[/?#].*$/, "");
+  const bySlug = new Map((have ?? []).map((l: any) => [slug(l.linkedin), l]));
+  for (const r of rows) {
+    const li0 = String(r.linkedin ?? "").replace(/\/+$/, ""); const sg = slug(li0); if (!sg) { out.skipped.push(r.name + ": no LinkedIn"); continue; }
+    const x = String(r.x ?? "").replace(/^@/, "");
+    const note = clip(String(r.note ?? ""), 300), dm1 = String(r.li_dm ?? r.dm ?? ""), xdm = String(r.dm ?? "");   // LinkedIn first DM / X opener
+    const extra = { list, warm: r.warm ?? "", dm1, note: undefined as unknown };
+    let l: any = bySlug.get(sg) ?? (have ?? []).find((h: any) => String(h.name ?? "").toLowerCase() === String(r.name ?? "").toLowerCase() && String(h.company ?? "").toLowerCase() === String(r.company ?? "").toLowerCase());
+    const detail = list + ": " + [r.batch ? "YC " + r.batch : "", r.round, r.warm ? "follows " + r.warm + " from Aktoria" : ""].filter(Boolean).join(" · ");
+    if (l) {
+      const li = { ...(l.fields?.li ?? {}), list, warm: r.warm ?? "", ...(l.fields?.li?.dm ? {} : { dm1 }) };
+      await db.from("crm_leads").update({ heat: "Hot", x_handle: l.x_handle || (x ? "@" + x : ""), fields: { ...(l.fields ?? {}), li, li_icp: { ...(l.fields?.li_icp ?? {}), funding: l.fields?.li_icp?.funding || r.round || "" } } }).eq("id", l.id);
+      await log(l.id, "Also on " + detail, "engaged"); out.merged++;
+    } else {
+      const ins = await db.from("crm_leads").insert({ name: r.name, company: r.company, role: r.role || "Founder", source: "LinkedIn", stage: "New", heat: "Hot", linkedin: li0, x_handle: x ? "@" + x : "",
+        origin_key: "li-src:list:" + sg, direction: "Outbound", source_detail: detail, notes: r.what ? r.company + ": " + r.what : "",
+        fields: { li: { src: "list", list, warm: r.warm ?? "", dm1 }, li_icp: { funding: r.round ?? "", one_liner: clip(String(r.what ?? ""), 200) } } }).select("*").maybeSingle();
+      l = ins.data; if (!l) { out.skipped.push(r.name + ": " + (ins.error?.message ?? "not added")); continue; }
+      out.added++;
+    }
+    // The connection note, written for them: waits for Reyansh's OK on LinkedIn > Pipeline (never replaces one already sent).
+    if (note && !l.fields?.li?.req) {
+      await db.from("crm_li_tasks").delete().eq("lead_id", l.id).eq("kind", "invite").in("status", ["review", "skipped"]);
+      const { error } = await db.from("crm_li_tasks").insert({ lead_id: l.id, kind: "invite", step: 0, text: note, status: "review" });
+      if (!error) out.notes++;
+    }
+    if (x) { const w = await toXPipeline({ ...l, x_handle: "@" + x, fields: { ...(l.fields ?? {}), signal: { kind: "list", headline: detail, url: li0, why: "" } } }, xdm).catch(() => "");
+      if (/added/.test(w)) out.x++; }
+  }
+  return out;
 }
 
 // 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
@@ -750,7 +789,7 @@ async function plan(_b: any) {
       const t = had("dm");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
       if (!t) { const angle = li.angle || await nextAngle(sc, angleLeads); if (!li.angle) { li.angle = angle; await saveLi(l, li); angleLeads.push(l); }
-        newRows.push({ lead_id: l.id, kind: "dm", step: 0, text: firstDM(sc, l, angle), status }); }
+        newRows.push({ lead_id: l.id, kind: "dm", step: 0, text: l.fields?.li?.dm1 ? fill(String(l.fields.li.dm1), l) : firstDM(sc, l, angle), status }); }
       continue;
     }
     if (li.dm) {
@@ -1170,7 +1209,7 @@ async function whereLookUp(l: any) {
 const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: "Commented on our post", viewed: "Viewed our profile", inbound: "Sent us a connection request",
   tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first",
   funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets",
-  launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM", prospect: "Found by our ICP search" };
+  launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM", prospect: "Found by our ICP search", list: "From a founder list we built" };
 function srcOf(l: Lead): string {
   const li = l.fields?.li ?? {};
   if (li.src) return li.src;
@@ -1196,6 +1235,7 @@ const DEF_OPENERS: Record<string, string> = {
   launch: "congrats on the {company} launch, really liked what you're building.",
   hiring: "saw {company} is growing the GTM side, exciting stage to be at.",
   prospect: "came across what you're building at {company} and wanted to connect.",
+  list: "came across what you're building at {company} and wanted to connect.",
 };
 const DEF_ANGLES: Record<string, string> = {
   advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
