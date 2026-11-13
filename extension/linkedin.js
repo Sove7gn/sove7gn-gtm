@@ -319,11 +319,14 @@ export async function liOp(op, a = {}) {
     const wait = async (fn, ms = 9000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await sleep(250); } return null; };
     const setVal = (el, v) => { const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value"); d.set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
     await wait(() => document.querySelector("main"), 8000);
+    const deep = (sel) => { const out = []; const walk = (root) => { out.push(...root.querySelectorAll(sel)); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot); }; walk(document); return out; };
+    let btn = null, href = "";
+    if (!x.onPage) {
     // (14 Nov) The Message button can sit anywhere in the top of the profile (an <a> or a <button>, "Message" or "Message Jo"),
     // or inside the More menu; the page also fills in late, so look for up to 10 seconds.
     const isMsg = (e) => /^message/i.test(lab(e)) && !/messaging|messages/i.test(lab(e));
     const scan = () => [...document.querySelectorAll("main button, main a, main [role=button]")].filter(vis).find(isMsg);
-    let btn = await wait(scan, 20000);
+    btn = await wait(scan, 20000);
     if (!btn) {
       const more = [...document.querySelectorAll("main button")].filter(vis).find((b) => /^more|more actions/i.test(lab(b)));
       if (more) { more.click(); await sleep(900);
@@ -334,13 +337,14 @@ export async function liOp(op, a = {}) {
     // A link to the compose page works the same as the button.
     if (!btn) btn = [...document.querySelectorAll("main a[href*='messaging/compose'], main a[href*='messaging/thread/new']")].find(vis) || null;
     const seen = () => [...document.querySelectorAll("main button, main a[href*='messag'], main [role=button]")].filter(vis).map(lab).filter(Boolean).slice(0, 40);
+    if (btn) href = btn.getAttribute && btn.getAttribute("href") || "";
     if (!btn) { const labels = seen().concat([...document.querySelectorAll("main *")].filter((e) => vis(e) && /^message$/i.test(lab(e))).slice(0, 3).map((e) => "<" + e.tagName + " " + (e.getAttribute("href") || e.className || "").slice(0, 80) + ">")); document.body.click(); return { ok: false, error: "No Message button on their profile, so InMail isn't open for them", step: "button", labels, url: location.href }; }
     btn.click();
-    // LinkedIn draws its message window inside a shadow root (#interop-outlet) since 2025: search those too.
-    const deep = (sel) => { const out = []; const walk = (root) => { out.push(...root.querySelectorAll(sel)); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot); }; walk(document); return out; };
+    }
+    // LinkedIn draws its message window inside a shadow root (#interop-outlet) since 2025: deep() searches those too.
     const box = await wait(() => deep(".msg-form__contenteditable[contenteditable='true'], div[role='textbox'][contenteditable='true'], [contenteditable='true'][aria-label*='essage']").filter(vis).pop(), 12000);
     if (!box) { const what = deep("[role=dialog], [contenteditable], textarea, input[name='subject']").filter(vis).slice(0, 8).map((e) => "<" + e.tagName + " " + (e.getAttribute("aria-label") || e.getAttribute("placeholder") || e.className || "").slice(0, 70) + ">");
-      return { ok: false, error: "The message window didn't open", step: "box", url: location.href, saw: what }; }
+      return { ok: false, error: "The message window didn't open", step: "box", url: location.href, saw: what, href, btn: btn ? "<" + btn.tagName + " " + lab(btn) + ">" : "" }; }
     const scope = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper, .msg-form, form") || document.body;
     const win = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper") || scope;
     await sleep(800);

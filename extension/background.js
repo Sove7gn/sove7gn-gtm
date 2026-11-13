@@ -252,7 +252,7 @@ async function tick() {
       r = a.ok ? (await sleep(rand(3000, 7000)), await op("message", { urn, text: t.text, me })) : a;
     } else if (t.kind === "inmail") {                                // (14 Nov) through their profile page, like a person
       await go("https://www.linkedin.com/in/" + (pid || urn) + "/"); await sleep(rand(4000, 8000));
-      r = await op("inmail", { subject: t.subject || "", text: t.text }); await go("https://www.linkedin.com/feed/");
+      r = await imSend(urn, { subject: t.subject || "", text: t.text }); await go("https://www.linkedin.com/feed/");
     } else r = t.kind === "invite" ? await op("invite", { urn, text: t.text }) : await op("message", { urn, text: t.text, me });
     await api("done", { id: t.id, urn, pid, ...r });
     if (r.limit) { await store.set({ queue: queue.filter((q) => q.kind !== "invite") }); await log("LinkedIn says the weekly request limit is reached. Requests wait until it resets.", true); }
@@ -336,12 +336,22 @@ async function xop(name, args = {}) {
   return r.result;
 }
 // One approved X DM at a time: ask the CRM for a few, then send them one per tick, skipping some ticks at random.
+// InMail (14 Nov): the profile's Message button first; if no message window appears there (LinkedIn may keep it closed to
+// extensions), LinkedIn's full-page new-message screen for them.
+async function imSend(urn, a) {
+  const r = await op("inmail", a);
+  if (r.ok || r.step !== "box") return r;
+  await go(r.href ? new URL(r.href, "https://www.linkedin.com").href : "https://www.linkedin.com/messaging/thread/new/?recipient=" + encodeURIComponent(urn)); await sleep(rand(4000, 7000));
+  const r2 = await op("inmail", { ...a, onPage: true });
+  return r2.ok ? { ...r2, via: "page" } : { ...r2, first: { step: r.step, btn: r.btn, href: r.href } };
+}
+
 // InMail test (14 Nov), asked from the CRM: open an InMail to that person, fill it in, close it without sending (no credit used).
 async function inmailTest(t) {
   if (busy) return; busy = true; const ka = keepAlive();
   try {
     await go("https://www.linkedin.com/in/" + (t.pid || t.urn) + "/"); await sleep(rand(4000, 7000));
-    const r = await op("inmail", { test: true, subject: "Quick question", text: "Hi, this is a test and will not be sent." });
+    const r = await imSend(t.urn, { test: true, subject: "Quick question", text: "Hi, this is a test and will not be sent." });
     await go("https://www.linkedin.com/feed/");
     await api("inmail_tested", { result: r }); await log("InMail test on " + (t.name || "a profile") + ": " + (r.ok ? "works, nothing sent" : "problem: " + (r.error || "see the CRM")) + ".", !r.ok);
   } catch (e) { try { await api("inmail_tested", { result: { ok: false, error: String(e.message || e) } }); } catch (_) {} }
