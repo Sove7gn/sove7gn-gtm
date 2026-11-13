@@ -78,6 +78,15 @@ const CST={Posted:{dot:'var(--ok)',bg:'var(--ok-soft)',fg:'var(--ok-ink)'},Sched
 // rows from before then fall back to their post type. The calendar, the Drafts picker and Our posts filter on these.
 const SLOTS3=['Account tag','Founder','Data & product'];
 const SLOT_HINT={'Account tag':'Tag 4 to 6 founders who just raised or are hiring for GTM, with a true line on each','Founder':'A lesson or take in Reyansh’s voice, shaped like a viral GTM post','Data & product':'Our own numbers, how the system works, or a free list or script to offer'};
+// Repeats (14 Nov): a draft whose words mostly match a post that's already live (or an earlier draft of the same post) is
+// marked dup and left off To post, the calendar and the draft picker, so nothing goes out twice.
+const dupWords=t=>new Set(String(t||'').toLowerCase().replace(/https?:\/\/\S+/g,' ').replace(/[^a-z0-9$ ]+/g,' ').split(/\s+/).filter(w=>w.length>2).slice(0,60));
+const dupSim=(A,B)=>{if(A.size<6||B.size<6)return 0;let n=0;for(const w of A)if(B.has(w))n++;return n/Math.min(A.size,B.size);};
+function markRepeats(list){const live=list.filter(p=>p.link||p.status==='Posted').map(p=>({p,w:dupWords(p.text)}));const kept=[];
+  for(const p of list){if(p.link||p.status==='Posted'){p.dup=null;continue;}const w=dupWords(p.text);
+    const hit=live.find(x=>x.p.account===p.account&&dupSim(w,x.w)>=0.7)||kept.find(x=>x.p.account===p.account&&x.p.status===p.status&&dupSim(w,x.w)>=0.85);
+    p.dup=hit?hit.p:null;if(!hit)kept.push({p,w});}
+  return list;}
 const slotOf=o=>{const v=String(o['Daily slot']||'').trim();if(SLOTS3.includes(v))return v;const t=String(o['Post type']||'');
   return /tag/i.test(t)?'Account tag':/founder|behind the scenes/i.test(t)?'Founder':/data|lead magnet|how it works|operator floor|company news/i.test(t)?'Data & product':'';};
 const POST_KINDS=[...SLOTS3,'Other'];
@@ -367,7 +376,7 @@ class Component extends DCLogic {
       ourViews:ov!=null?fmtK(ov):'',ourLikes:ol!=null?fmtK(ol):'0',when:(o._date?o._date.getTime():9e15)+AK.minutesOf(o['Time (IST)'])*6e4};
   }
   postList(){const k=AK.version()+'|'+this.state.plat;if(this._opv!==k){this._opv=k;const li=this.state.plat==='LinkedIn';
-    this._posts=(li?this.liRows():AK.M.ours).map(o=>this.postObj(o));}return this._posts;}
+    this._posts=markRepeats((li?this.liRows():AK.M.ours).map(o=>this.postObj(o)));}return this._posts;}
   // LinkedIn posts (13 Nov): a queue row that went out is matched to the live post (same opening, or mostly the same words when it
   // was edited before posting), and a posted card sits at the time it really went out (from the post's id), not its planned slot.
   liRows(){const marks=AK.leadSetting('li_marks')||{};const soc=AK.SOC.posts.filter(p=>p.platform==='linkedin');
@@ -386,7 +395,7 @@ class Component extends DCLogic {
       return x;});}
   ownPosts(){const ORD={'To post':0,'Scheduled':1,'Posted':2,'Later':3};
     const pl=this.state.postPlat;
-    return this.postList().filter(p=>this.own(p.account)&&(pl==='All'||platOf(p.o)===pl)).sort((a,b)=>(ORD[a.status]-ORD[b.status])||(a.status==='Posted'?b.when-a.when:a.when-b.when));}
+    return this.postList().filter(p=>!p.dup&&this.own(p.account)&&(pl==='All'||platOf(p.o)===pl)).sort((a,b)=>(ORD[a.status]-ORD[b.status])||(a.status==='Posted'?b.when-a.when:a.when-b.when));}
   openPost(id){const p=this.postList().find(x=>x.id===id);if(!p)return;this.go('posts',{postsTab:p.status,cmpId:id,cmpOn:true});}
 
   /* ---------- header ---------- */
@@ -690,7 +699,7 @@ class Component extends DCLogic {
       return{dow:dw,date:dt,key:dkey(dt.getFullYear(),dt.getMonth(),dt.getDate()),num:String(dt.getDate()),mon:MON[dt.getMonth()],rel:Math.round((dt-t0)/AK.DAY),today};});
     const keys=new Set(days.map(d=>d.key));const accs=this.accs();
     const plat=s.plat;const isLi=plat==='LinkedIn';
-    const placed=this.postList().filter(p=>onCal(p)&&platOf(p.o)===plat).map(p=>({p,w:calWhere(p.o,zone)})).filter(x=>x.w&&keys.has(x.w.key)&&accs.some(a=>a.acc===x.p.account));
+    const placed=this.postList().filter(p=>!p.dup&&onCal(p)&&platOf(p.o)===plat).map(p=>({p,w:calWhere(p.o,zone)})).filter(x=>x.w&&keys.has(x.w.key)&&accs.some(a=>a.acc===x.p.account));
     const kind=isLi?'All':s.calKind;const shown=kind==='All'?placed:placed.filter(x=>x.p.kind===kind);
     const kinds=(isLi?[]:['All',...POST_KINDS]).map(k=>{const on=kind===k;const n=k==='All'?placed.length:placed.filter(x=>x.p.kind===k).length;
       return{label:k,count:String(n)+(!isLi&&SLOTS3.includes(k)?'/'+(accs.length*7):''),go:()=>this.setState({calKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink)',bd:on?'var(--ink)':'var(--hairline-strong)',dot:KIND_DOT[k]||'transparent',hasDot:k!=='All'};});
@@ -849,7 +858,7 @@ class Component extends DCLogic {
     const blank=p.o['What we changed']==='Added in the calendar'&&!p.link;
     await AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:''});this.setState({calLink:null,calLinkVal:''});this.toast('Linked to the live post');}
   calPickVals(){const s=this.state;const pk=s.calPick;if(!pk)return{open:false};const acc=pk.acc;const kind=s.calPickKind||'All';
-    let C=this.postList().filter(p=>p.account===acc&&!p.link&&!onCal(p)&&platOf(p.o)===s.plat);
+    let C=this.postList().filter(p=>!p.dup&&p.account===acc&&!p.link&&!onCal(p)&&platOf(p.o)===s.plat);
     const kinds=['All',...POST_KINDS].map(k=>{const on=kind===k;return{label:k==='All'?'All types':k,count:String(k==='All'?C.length:C.filter(p=>p.kind===k).length),go:()=>this.setState({calPickKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
     if(kind!=='All')C=C.filter(p=>p.kind===kind);
     C.sort((x,y)=>(y.o._date?y.o._date.getTime():0)-(x.o._date?x.o._date.getTime():0));
@@ -861,6 +870,8 @@ class Component extends DCLogic {
   /* ---------- our posts ---------- */
   postCard(p){const s=this.state;const ST={'To post':'warn','Scheduled':'neutral','Posted':'ok','Later':'ghost'};const k=p.id+'c';const cb=this.copyBtn(k,'Copy our version');let actions=[];
     if(!this.founder){actions.push(act(cb.label,s.copied===k?'copied':'secondary',()=>this.copy(p.text,k,'Our version copied')));
+      if(p.status!=='Posted'&&platOf(p.o)!=='LinkedIn'){const w=onCal(p)&&calWhere(p.o,'ist');
+        actions.push(w?act('On the calendar: '+dLabel(p.o._date.getTime())+(p.o['Time (IST)']?', '+p.o['Time (IST)']:''),'ghost',()=>this.go('calendar',{week:Math.floor((p.o._date.getTime()-AK.weekStart(0).getTime())/(7*AK.DAY))})):act('Add to calendar','in',()=>this.addToCal(p)));}
       if(p.status==='To post'){actions.push(act('Mark as scheduled','secondary',()=>this.markScheduled(p)));actions.push(act('Mark as posted','in',()=>this.setState({linkFor:p.id,linkVal:''})));}
       if(p.status==='Scheduled')actions.push(act('It’s live: add the link','in',()=>this.setState({linkFor:p.id,linkVal:''})));
       if(p.status==='Posted'&&p.link)actions.push(act('Open on X ↗','ghost',()=>open(p.link)));
@@ -870,6 +881,17 @@ class Component extends DCLogic {
       linkOpen:s.linkFor===p.id,linkVal:s.linkVal,linkPh:'Paste the link of '+p.acc+'’s post on X (x.com/'+(AK.HANDLES[p.account]||'…')+'/status/…)',onLink:e=>this.setState({linkVal:e.target.value}),saveLink:()=>this.markPosted(p),cancelLink:()=>this.setState({linkFor:null}),
       compare:()=>this.setState({cmpId:p.id,cmpOn:true}),copyQ:()=>this.copy('Question for the founders: '+p.q,qk,'Question copied.'),qLabel:qb.label,qbg:qb.bg,qfg:qb.fg,qsh:qb.sh,openDrive:e=>{e.preventDefault();if(p.folder)open(AK.folderUrl(p.folder.id));else this.toast('No media folder is set for this post.',null,true);},
       hasSug:!!p.sug&&p.status!=='Posted',sugThumb:p.sug?p.sug.thumb.replace('sz=w600','sz=w120'):'',sugName:p.sug?clip(p.sug.name,40):'',sugWhy:p.sug?p.sug.why:'',openSug:e=>{e.preventDefault();if(p.sug)open(p.sug.url);},tip:this.tipFor('rank'+p.id)};}
+  // Add to calendar (14 Nov): the first day from today with that slot free for the account (Other: a day with under 3 posts).
+  addToCal(p){if(this.founder)return;const SLOT_AT={'Account tag':'7:30 PM','Founder':'9:45 PM','Data & product':'11:30 PM'};
+    const sl=SLOTS3.includes(p.slot)?p.slot:'';const time=SLOT_AT[sl]||'9:45 PM';
+    const on=this.postList().filter(x=>!x.dup&&x.id!==p.id&&x.account===p.account&&onCal(x)&&platOf(x.o)===platOf(p.o)&&x.o._date);
+    const dk=d=>d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();const t0=new Date();t0.setHours(0,0,0,0);
+    const late=AK.minutesOf(time)<=(new Date().getHours()*60+new Date().getMinutes()+30);   // today's slot already gone
+    for(let i=late?1:0;i<60;i++){const d=new Date(t0.getTime()+i*AK.DAY);const same=on.filter(x=>dk(x.o._date)===dk(d));
+      if(sl?same.some(x=>x.slot===sl):same.length>=3)continue;
+      const date=d.getDate()+' '+AK.MON[d.getMonth()]+' '+d.getFullYear();
+      AK.calSave(p.o,{date,time,cal:'Yes',...(sl?{slot:sl}:{}),...(p.status==='Later'?{status:'Ready to post'}:{})}).then(ok=>{if(ok)this.toast('Added to the calendar: '+dLabel(d.getTime())+', '+time+' IST.',()=>AK.calSave(p.o,{cal:'No'}));});return;}
+    this.toast('No free day in the next 60 days for this slot.',null,true);}
   async markScheduled(p){if(this.founder)return;const prev=p.o.Status||'';
     const ok=await AK.saveScheduled(p.o,true,{quiet:true});
     if(ok)this.toast('Marked as scheduled',AK.canRestore()?()=>this.restorePost(p,prev):null);}

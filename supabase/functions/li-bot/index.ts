@@ -148,10 +148,11 @@ async function li_move(_b: any) {
   const grid = r.ok ? csv(await r.text()) : [];
   const key = (t: unknown) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 80).toLowerCase();
   const rowOf = new Map<string, number>();
-  grid.forEach((row, i) => { if (i > 0 && row[0]) rowOf.set(key(row[0]), i + 1); });
+  grid.forEach((row, i) => { if (i > 0 && row[0] && !rowOf.has(key(row[0]))) rowOf.set(key(row[0]), i + 1); });
   const data2: any[] = [], hit: string[] = [];
   for (const [k, m] of todo) {
-    const row = rowOf.get(k) ?? rowOf.get(key(m.text)) ?? 0;
+    // The row we saw first, when it still holds this post (a copy of the same post further down must not take its date).
+    const row = (m.row && key(grid[m.row - 1]?.[0]) === k ? +m.row : 0) || rowOf.get(k) || rowOf.get(key(m.text)) || 0;
     if (!row) { moves[k] = { ...m, error: "Couldn't find this post in the queue sheet" }; continue; }
     data2.push({ range: "Queue!C" + row, values: [[m.date]], majorDimension: "ROWS" }); hit.push(k);
   }
