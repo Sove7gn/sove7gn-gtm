@@ -49,10 +49,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = new URL(req.url);
   if (url.searchParams.get("cal") === "1") return calBooking(req);
+  if (url.searchParams.has("visitor")) return visitorHook(req, url.searchParams.get("visitor") ?? "");
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -162,6 +163,125 @@ async function inmail_tested(b: any) {
   const r = b.result ?? {};
   await saveStatus({ inmail_test: { ...cur, done: now(), result: r }, ...(r.credits != null ? { inmail_credits: r.credits, inmail_credits_at: now() } : {}) });
   return { ok: true };
+}
+
+// ═════════ 14 Nov: three more ways in ═════════
+// 1. Lead magnets. Our posts end with "DM me LIST" (or comment it). Anyone who DMs or comments a keyword gets the asset we set
+//    for it (crm_lead_settings "magnets": [{ word, text, on }]), sent at once with no approval, since they asked; a keyword with no
+//    asset yet is flagged on the lead and in the CRM so Reyansh can answer by hand. Either way they're In talks.
+type Magnet = { word: string; text: string; on: boolean };
+async function magnetList(): Promise<Magnet[]> {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "magnets").maybeSingle();
+  return ((data?.value ?? []) as any[]).map((m) => ({ word: String(m.word ?? "").trim().toUpperCase(), text: String(m.text ?? ""), on: m.on !== false })).filter((m) => m.word.length >= 3);
+}
+// "LIST", "list please", "Hey! LIST 🙌" count; a long message that only mentions the word doesn't.
+const askedFor = (text: string, ms: Magnet[]) => { const t = String(text ?? "").trim(); if (!t || t.split(/\s+/).length > 12) return null;
+  return ms.find((m) => new RegExp("(^|[^A-Za-z])" + m.word + "([^A-Za-z]|$)", "i").test(t)) ?? null; };
+async function magnetHit(l: Lead, m: Magnet, how: string, said: string) {
+  const li = { ...(l.fields?.li ?? {}) }; const at = now();
+  if ((li.magnets ?? {})[m.word]) return false;
+  li.magnets = { ...(li.magnets ?? {}), [m.word]: at };
+  const ready = !!(m.on && m.text.trim() && (how === "dm" || li.acc));   // a DM means we're connected; a comment needs a connection
+  await saveLi(l, li, ACTIVE.test(l.stage) ? { stage: "In talks" } : {});
+  await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Asked for " + m.word + " (" + how + "): “" + clip(said, 300) + "”", by_email: "linkedin" });
+  if (ready) await db.from("crm_li_tasks").upsert({ lead_id: l.id, kind: "magnet", step: Math.abs([...m.word].reduce((a, c) => a * 31 + c.charCodeAt(0), 7)) % 100000,
+    subject: m.word, text: fill(m.text, l), status: "ready", decided_by: "auto: they asked" }, { onConflict: "lead_id,kind,step", ignoreDuplicates: true });
+  else await log(l.id, m.text.trim() ? "Asked for " + m.word + " but we're not connected yet: answer them on LinkedIn." : "Asked for " + m.word + ", but no asset is set for it yet: send it by hand, or add it on LinkedIn > Bot and outreach.", "note");
+  return true;
+}
+async function magnetDMs(threads: any[]) {
+  const ms = await magnetList(); if (!ms.length) return 0;
+  const fresh = threads.filter((t) => t.them_at && Date.now() - Date.parse(t.them_at) < 4 * 864e5 && (!t.me_at || Date.parse(t.them_at) > Date.parse(t.me_at)) && askedFor(t.them_text, ms));
+  let n = 0;
+  for (const t of fresh) {
+    const urn = String(t.urn ?? ""); if (!urn) continue;
+    let { data: l } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").eq("archived", false)
+      .or("fields->li->>urn.eq." + urn + ",linkedin.ilike.%" + urn + "%").limit(1).maybeSingle();
+    if (!l) {   // someone we don't know yet: a lead to answer, named once the bot looks them up
+      const ins = await db.from("crm_leads").insert({ name: "LinkedIn member", source: "LinkedIn", stage: "In talks", heat: "Hot", linkedin: "https://www.linkedin.com/in/" + urn,
+        origin_key: "li-src:magnet:" + urn.toLowerCase(), source_detail: "DMed us a lead magnet keyword: “" + clip(String(t.them_text), 200) + "”", fields: { li: { urn, acc: now(), src: "magnet" } } }).select("*").maybeSingle();
+      l = ins.data; if (!l) continue;
+    }
+    if (await magnetHit(l as Lead, askedFor(t.them_text, ms)!, "dm", t.them_text)) n++;
+  }
+  return n;
+}
+// Comments with the keyword under our posts (from the engagers the extension reads): connected people get the asset as a DM.
+async function magnets_check(_b: any) {
+  const ms = await magnetList(); if (!ms.length) return { asked: 0 };
+  const { data: es } = await db.from("crm_social_engagements").select("person_key,said,first_seen").eq("platform", "linkedin").eq("kind", "commented").gte("first_seen", new Date(Date.now() - 7 * 864e5).toISOString()).limit(500);
+  let n = 0;
+  for (const e of es ?? []) {
+    const m = askedFor(e.said, ms); if (!m) continue;
+    const { data: l } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").eq("archived", false).eq("origin_key", "li-person:" + e.person_key).maybeSingle();
+    if (l && await magnetHit(l as Lead, m, "comment", e.said)) n++;
+  }
+  return { asked: n };
+}
+
+// 2. Funding trigger (daily): founders of B2B startups (seed to Series C) who announced a round in the last two days, found on
+//    LinkedIn and added as hot leads (source "funding"), so the bot writes them a "congrats on the raise" request for approval.
+async function funding(b: any) {
+  if (!EXA) return { skipped: "No Exa key" };
+  const since = new Date(Date.now() - (+(b.days ?? 2)) * 864e5).toISOString();
+  const schema = { type: "object", required: ["rounds"], properties: { rounds: { type: "array", items: { type: "object", properties: {
+    company: { type: "string" }, what_it_does: { type: "string", description: "one line" }, sells_to_businesses: { type: "boolean", description: "true if B2B or B2B2C" },
+    round: { type: "string", description: "Pre-seed, Seed, Series A, Series B or Series C" }, amount_usd: { type: "number" },
+    founder_names: { type: "array", items: { type: "string" }, description: "founders or CEO named in the article" }, source_url: { type: "string" } } } } } };
+  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "startup announces seed or Series A or Series B funding round, founders quoted", category: "news", numResults: 25, startPublishedDate: since, outputSchema: schema,
+      systemPrompt: "List each startup funding round announced in these results: company, what it does, whether it sells to businesses, the round, the amount in USD, the founders named, and the article URL. Only facts the results state." }) });
+  if (!res.ok) throw new Error("Exa answered " + res.status);
+  const j = await res.json(); let cost = j.costDollars?.total ?? 0;
+  const rounds = ((j.output?.content?.rounds ?? []) as any[]).filter((r) => r.company && r.sells_to_businesses !== false && /pre-?seed|seed|series [abc]\b/i.test(String(r.round ?? "")) && (r.founder_names ?? []).length);
+  const { data: have } = await db.from("crm_leads").select("name,company,linkedin").eq("source", "LinkedIn").limit(5000);
+  const key = (n: unknown, c: unknown) => String(n ?? "").toLowerCase().replace(/[^a-z]/g, "") + "|" + String(c ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const known = new Set((have ?? []).map((l: any) => key(l.name, l.company))), knownLi = new Set((have ?? []).map((l: any) => String(l.linkedin ?? "").toLowerCase().replace(/\/+$/, "")).filter(Boolean));
+  let added = 0; const out: string[] = [];
+  for (const r of rounds.slice(0, +(b.max ?? 10))) {
+    const name = String(r.founder_names[0]).trim(); if (!name || known.has(key(name, r.company))) continue;
+    const pr = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: name + " " + r.company + " founder", category: "linkedin profile", numResults: 3 }) });
+    const pj = pr.ok ? await pr.json() : {}; cost += pj.costDollars?.total ?? 0;
+    const hit = (pj.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url ?? "") && new RegExp(name.split(/\s+/)[0], "i").test(String(x.title ?? "") + " " + String(x.url ?? "")));
+    if (!hit) continue;
+    const li = String(hit.url).split("?")[0].replace(/\/+$/, "");
+    if (knownLi.has(li.toLowerCase())) continue;
+    // Exa sometimes gives the amount in millions (70 for $70M): small numbers are read as millions; anything odd is left out.
+    const usd = +r.amount_usd > 0 && +r.amount_usd < 5000 ? +r.amount_usd * 1e6 : +r.amount_usd || 0;
+    const amt = usd >= 1e5 && usd <= 5e8 ? "$" + (usd >= 1e6 ? Math.round(usd / 1e5) / 10 + "M" : Math.round(usd / 1e3) + "K") : "";
+    const { error } = await db.from("crm_leads").insert({ name, company: r.company, role: String(hit.title ?? "").split(/ [-|] /)[1]?.slice(0, 80) || "Founder", source: "LinkedIn", stage: "New", heat: "Hot", linkedin: li,
+      origin_key: "li-src:funding:" + li.toLowerCase(), source_detail: "Announced " + [r.round, amt].filter(Boolean).join(" ") + " (" + clip(String(r.source_url ?? ""), 160) + ")",
+      fields: { li: { src: "funding", round: [r.round, amt].filter(Boolean).join(" ") }, li_icp: { funding: [r.round, amt].filter(Boolean).join(" "), one_liner: clip(String(r.what_it_does ?? ""), 200) } } });
+    if (!error) { added++; known.add(key(name, r.company)); out.push(name + " (" + r.company + ", " + [r.round, amt].filter(Boolean).join(" ") + ")"); }
+  }
+  await saveStatus({ last_funding: now(), last_funding_result: { found: rounds.length, added, people: out, cost } });
+  return { found: rounds.length, added, people: out, cost };
+}
+
+// 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
+//    (source "site"), or a known lead gets the visit on its history.
+const VISITOR_KEY = Deno.env.get("VISITOR_KEY") ?? "";
+async function visitorHook(req: Request, key: string) {
+  if (!VISITOR_KEY || key !== VISITOR_KEY) return json({ error: "Bad key" }, 401);
+  const body = await req.json().catch(() => ({}));
+  const list = Array.isArray(body) ? body : [body];
+  let added = 0, seen = 0;
+  for (const v of list) {
+    const pick = (...ks: string[]) => { for (const k of ks) { const val = v[k] ?? v[k.toLowerCase()] ?? v[k.replace(/ /g, "_").toLowerCase()]; if (val) return String(val).trim(); } return ""; };
+    const li = pick("LinkedIn URL", "linkedin_url", "linkedin", "LinkedInUrl").split("?")[0].replace(/\/+$/, "");
+    const name = pick("Full Name", "name") || [pick("First Name", "first_name"), pick("Last Name", "last_name")].filter(Boolean).join(" ");
+    const page = pick("Captured URL", "page", "url"), co = pick("Company Name", "company"), title = pick("Title", "job_title", "title");
+    if (!li && !name) continue;
+    const { data: l } = li ? await db.from("crm_leads").select("id,fields,stage").ilike("linkedin", li + "%").limit(1).maybeSingle() : { data: null };
+    const note = "Visited " + (page || "sove7gn.org") + (title || co ? " (" + [title, co].filter(Boolean).join(", ") + ")" : "");
+    if (l) { await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "engaged", text: note, by_email: "automation" });
+      await db.from("crm_leads").update({ heat: "Hot", fields: { ...(l.fields ?? {}), li: { ...((l.fields ?? {}).li ?? {}), site_at: now() } } }).eq("id", l.id); seen++; continue; }
+    const { error } = await db.from("crm_leads").insert({ name: name || "Website visitor", company: co, role: title, source: "LinkedIn", stage: "New", heat: "Hot", linkedin: li,
+      origin_key: "li-src:site:" + (li || name).toLowerCase(), source_detail: note, fields: { li: { src: "site", site_at: now() } } });
+    if (!error) added++;
+  }
+  return json({ ok: true, added, seen });
 }
 
 // ───────── Refresh (13 Nov): the CRM's Refresh button asks the extension for a LinkedIn read now ─────────
@@ -320,7 +440,7 @@ async function saveLi(l: Lead, li: any, extra: Record<string, unknown> = {}) {
 }
 const log = (lead_id: string, text: string, kind = "message") => db.from("crm_lead_events").insert({ lead_id, kind, text, by_email: BY });
 async function stopTasks(leadId: string, why: string) {
-  await db.from("crm_li_tasks").update({ status: "skipped", error: why }).eq("lead_id", leadId).in("status", ["review", "ready", "sending"]);
+  await db.from("crm_li_tasks").update({ status: "skipped", error: why }).eq("lead_id", leadId).neq("kind", "magnet").in("status", ["review", "ready", "sending"]);
 }
 
 // ───────── state: accepts and replies ─────────
@@ -339,6 +459,7 @@ async function state(b: any) {
     await log(l.id, li.req ? "Accepted our LinkedIn request" : "Already connected with us on LinkedIn");
     accepted++;
   }
+  const asked = await magnetDMs(b.threads ?? []).catch(() => 0);
   for (const t of b.threads ?? []) {
     const l = find(t); if (!l || !t.them_at) continue;
     const li = { ...(l.fields?.li ?? {}) };
@@ -360,7 +481,7 @@ async function state(b: any) {
     await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on LinkedIn: “" + clip(String(t.them_text ?? ""), 600) + "”", by_email: "linkedin" });
     replied++;
   }
-  return { accepted, replied };
+  return { accepted, replied, asked };
 }
 
 // ───────── plan: queue what's due, hand out what's approved ─────────
@@ -473,7 +594,7 @@ async function plan(_b: any) {
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
-    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)); };
+    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && (t.kind === "magnet" || (!l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)))); };
     const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
     // InMails (14 Nov): 30 credits a month on Premium, so never more than what's left this month (IST), and 2 per run at most.
     const m0 = new Date(Date.now() + 19800e3); const monthStart = new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth(), 1) - 19800e3).toISOString();
@@ -512,10 +633,10 @@ async function plan(_b: any) {
 
 // claim: right before sending, make sure it's still approved (not skipped, not already sent, they haven't replied).
 async function claim(b: any) {
-  const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id");
+  const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id,kind");
   if (!data?.length) return { ok: false };
   const { data: l } = await db.from("crm_leads").select("fields,archived").eq("id", data[0].lead_id).maybeSingle();
-  if (!l || l.archived || l.fields?.li?.replied || l.fields?.li?.stop) {
+  if (!l || l.archived || (data[0].kind !== "magnet" && (l.fields?.li?.replied || l.fields?.li?.stop))) {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "Stopped before sending" }).eq("id", b.id);
     return { ok: false };
   }
@@ -578,6 +699,9 @@ async function done(b: any) {
     li.fu = t.step; li.last = at;
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
     await log(lead.id, "LinkedIn follow-up " + t.step + " sent:\n" + t.text);
+  } else if (t.kind === "magnet") {
+    li.magnet_sent = { ...(li.magnet_sent ?? {}), [String(t.subject || "asset")]: at }; li.last = at;
+    await log(lead.id, "Sent them the " + (t.subject || "asset") + " they asked for:\n" + t.text);
   } else if (t.kind === "inmail") {
     if (b.credits != null) await saveStatus({ inmail_credits: b.credits, inmail_credits_at: now() });
     li.inmail = at; li.last = at;
@@ -836,7 +960,8 @@ async function whereLookUp(l: any) {
 
 // Where a lead came from, and which of the three it is (midbound: engaged with us; inbound: came to us; outbound: we went to them).
 const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: "Commented on our post", viewed: "Viewed our profile", inbound: "Sent us a connection request",
-  tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first" };
+  tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first",
+  funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets" };
 function srcOf(l: Lead): string {
   const li = l.fields?.li ?? {};
   if (li.src) return li.src;
@@ -845,7 +970,7 @@ function srcOf(l: Lead): string {
   if (o.startsWith("li-person:")) return /comment/i.test(l.source_detail ?? "") ? "commented" : "liked";
   return "outbound";
 }
-const boundOf = (src: string) => ["liked", "commented", "viewed"].includes(src) ? "midbound" : src === "inbound" ? "inbound" : "outbound";
+const boundOf = (src: string) => ["liked", "commented", "viewed", "site", "magnet"].includes(src) ? "midbound" : src === "inbound" ? "inbound" : "outbound";
 const isOurs = (l: Lead) => /^li-(person|src):/.test(String(l.origin_key ?? ""));
 
 const DEF_OPENERS: Record<string, string> = {
@@ -856,6 +981,9 @@ const DEF_OPENERS: Record<string, string> = {
   tagged: "hope you liked the post I tagged you in.",
   niche: "saw your comment on {post_author}'s post and liked your take.",
   outbound: "thanks for connecting!",
+  funding: "congrats on the raise, saw the news and loved what you're building.",
+  site: "came across what you're building at {company} and wanted to connect.",
+  magnet: "thanks for reaching out about the post!",
 };
 const DEF_ANGLES: Record<string, string> = {
   advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
@@ -1180,7 +1308,8 @@ async function briefs(b: any) {
   }
   // The 15 minute job also writes the 3 tips for anyone who said yes to them.
   const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
-  if (!b.force_id) await li_move({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
+  if (!b.force_id) await li_move({}).catch(() => ({}));
+  if (!b.force_id) await magnets_check({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
   return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
 }
 

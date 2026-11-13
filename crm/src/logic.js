@@ -37,7 +37,7 @@ const callWhen=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
-const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound']};
+const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound']};
 const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o=String(l.origin_key||'');if(o.startsWith('li-src:'))return o.split(':')[1]||'outbound';if(o.startsWith('li-person:'))return /comment/i.test(l.source_detail||'')?'commented':'liked';return 'outbound';};
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
@@ -1795,11 +1795,29 @@ class Component extends DCLogic {
       funnel,review:review.slice(0,showN).map(card),reviewN:String(review.length),hasReview:review.length>0,noReview:!review.length,
       moreReview:review.length>showN,showMore:()=>this.setState({lbtN:showN+40}),
       approveAll:()=>{if(!AK.canEdit())return;const rv=review.filter(t=>t.kind!=='inmail');const n=rv.length;if(!n){this.toast('Only InMails are waiting. Approve those one by one.');return;}AK.lbtSet(rv.map(t=>t.id),{status:'ready'}).then(ok=>ok&&this.toast('Approved '+n+(review.length>n?'. InMails stay for you to approve one by one':'')+'. The extension sends them a few at a time.'));},
-      im:this.inmailVals(all,T,st),
+      im:this.inmailVals(all,T,st),sig:this.signalVals(all,st),
       failed:failed.map(card),hasFailed:failed.length>0,failedN:String(failed.length),sent:sent.slice(0,8).map(card),hasSent:sent.length>0,
       tpls,warmLabel:set.include_warm?'Warm leads too: on':'Warm leads too: off',toggleWarm:()=>save({include_warm:!set.include_warm}),
       writing:AK.LBT.running,idle:!AK.LBT.running,write:()=>{if(AK.canEdit())AK.lbtRun();},
       noReviewText:AK.LBT.loaded?'Nothing waiting for your approval.':'Loading…'};}
+  // Lead magnets and the new signals (14 Nov). Magnets: each DM word from our posts and what the bot sends when someone DMs or
+  // comments it ({first} is filled in; empty = flagged for Reyansh instead). Signals: the daily funding search and website visitors.
+  signalVals(all,st){const s=this.state;const M=(AK.leadSetting('magnets')||[]);const ed=s.mgEd;const cur=ed||M;
+    const LI=l=>(l.fields||{}).li||{};const asked=all.filter(l=>Object.keys(LI(l).magnets||{}).length).map(l=>{const x=LI(l);const w=Object.keys(x.magnets);
+      return{name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),what:w.map(k=>k+((x.magnet_sent||{})[k]?' · sent':' · answer by hand')).join(', '),when:this.since(Object.values(x.magnets).sort().pop()),open:()=>this.openLead(l.id),
+        at:Object.values(x.magnets).sort().pop()};}).sort((a,b)=>String(b.at).localeCompare(String(a.at))).slice(0,12);
+    const set=(i,k)=>e=>{const v=k==='on'?!cur[i].on:e.target.value;this.setState(x=>{const a=(x.mgEd||M).map(m=>({...m}));a[i]={...a[i],[k]:v};return{mgEd:a};});};
+    const fr=st.last_funding_result||{};const fund=all.filter(l=>String(l.origin_key||'').startsWith('li-src:funding:')).length,site=all.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI(l).site_at).length;
+    return{magnets:cur.map((m,i)=>({word:m.word,text:m.text||'',on:m.on!==false,onLabel:m.on!==false?'On':'Off',onBg:m.on!==false?'#e3f6ea':'var(--n-soft)',onFg:m.on!==false?'#16723b':'var(--ink-3)',
+        state:!m.text?'No asset yet: people who ask get flagged for you':m.on===false?'Off: flagged for you':'Sends automatically',setText:set(i,'text'),toggle:ed?set(i,'on'):()=>{if(AK.canEdit())AK.leadSettingSave('magnets',M.map((x,j)=>j===i?{...x,on:x.on===false}:x));},setWordFn:e=>{const v=e.target.value;this.setState(x=>{const a=(x.mgEd||M).map(m=>({...m}));a[i]={...a[i],word:v};return{mgEd:a};});},rows:String(Math.max(2,Math.ceil(String(m.text||'').length/80)))})),
+      editing:!!ed,view:!ed,edit:()=>this.setState({mgEd:M.map(m=>({...m}))}),cancel:()=>this.setState({mgEd:null}),
+      add:()=>this.setState(x=>({mgEd:[...(x.mgEd||M).map(m=>({...m})),{word:'',text:'',on:true}]})),
+      save:async()=>{if(!AK.canEdit()||!ed)return;const clean=ed.map(m=>({word:String(m.word||'').trim().toUpperCase(),text:String(m.text||'').trim(),on:m.on!==false})).filter(m=>m.word.length>=3);
+        const ok=await AK.leadSettingSave('magnets',clean);if(ok){this.setState({mgEd:null});this.toast('Saved. Anyone who DMs or comments these words gets their asset.');}},
+      setWord:i=>e=>{const v=e.target.value;this.setState(x=>{const a=(x.mgEd||M).map(m=>({...m}));a[i]={...a[i],word:v};return{mgEd:a};});},
+      asked,hasAsked:asked.length>0,
+      funding:st.last_funding?'Last search '+this.since(st.last_funding)+': '+(fr.found||0)+' rounds found, '+(fr.added||0)+' founders added'+((fr.people||[]).length?' ('+fr.people.slice(0,4).join('; ')+')':'')+'. '+fund+' funding leads so far.':'Runs every morning at 8:30 IST.',
+      site:site?site+' website visitors in Leads so far.':'No website visitors yet. Once RB2B is connected to sove7gn.org, every visitor it identifies lands in Leads as hot.'};}
   // InMail (14 Nov): 30 credits a month, so only high-intent people we're not connected to. Who qualifies: score 7+, a fit, not
   // connected or messaged, still early in the pipeline, and a real sign of intent (commented, viewed our profile, we tagged them,
   // 2+ likes on our posts, or a request of ours they've left for 7+ days). Strongest signals first.
@@ -1808,7 +1826,7 @@ class Component extends DCLogic {
     const handM=all.filter(l=>LI(l).inmail&&new Date(LI(l).inmail)>=m0&&!T.some(t=>t.kind==='inmail'&&t.lead_id===l.id&&t.status==='sent')).length;
     const used=sentM+handM,left=Math.max(0,30-used);const has=new Set(T.filter(t=>t.kind==='inmail'&&t.status!=='skipped').map(t=>t.lead_id));
     const likes=new Map();for(const e of AK.SOC.eng)if(e.platform==='linkedin')likes.set(e.person_key,(likes.get(e.person_key)||0)+(e.kind==='commented'?3:1));
-    const W={commented:50,viewed:40,inbound:30,niche:25,tagged:15};   // tagged is our move, not theirs: it only counts with a sign from them
+    const W={magnet:60,commented:50,site:45,viewed:40,funding:35,inbound:30,niche:25,tagged:15};   // tagged is our move, not theirs: it only counts with a sign from them
     const C=all.filter(l=>l.source==='LinkedIn'&&!l.archived&&/^(new|contacted|follow up)$/i.test(l.stage||'')&&!has.has(l.id)).map(l=>{const x=LI(l);
       if(x.acc||x.dm||x.inmail||x.replied||x.stop||this.liNotFit(l))return null;const S=this.liPipeScore(l);if(S.n<7)return null;
       const src=liSrcOf(l);const pk=String(l.origin_key||'').startsWith('li-person:')?String(l.origin_key).slice(10):'';const eng=pk?likes.get(pk)||0:0;
