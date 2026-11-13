@@ -336,8 +336,11 @@ export async function liOp(op, a = {}) {
     const seen = () => [...document.querySelectorAll("main button, main a[href*='messag'], main [role=button]")].filter(vis).map(lab).filter(Boolean).slice(0, 40);
     if (!btn) { const labels = seen().concat([...document.querySelectorAll("main *")].filter((e) => vis(e) && /^message$/i.test(lab(e))).slice(0, 3).map((e) => "<" + e.tagName + " " + (e.getAttribute("href") || e.className || "").slice(0, 80) + ">")); document.body.click(); return { ok: false, error: "No Message button on their profile, so InMail isn't open for them", step: "button", labels, url: location.href }; }
     btn.click();
-    const box = await wait(() => [...document.querySelectorAll(".msg-form__contenteditable[contenteditable='true'], div[role='textbox'][contenteditable='true']")].filter(vis).pop());
-    if (!box) return { ok: false, error: "The message window didn't open", step: "box" };
+    // LinkedIn draws its message window inside a shadow root (#interop-outlet) since 2025: search those too.
+    const deep = (sel) => { const out = []; const walk = (root) => { out.push(...root.querySelectorAll(sel)); for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot); }; walk(document); return out; };
+    const box = await wait(() => deep(".msg-form__contenteditable[contenteditable='true'], div[role='textbox'][contenteditable='true'], [contenteditable='true'][aria-label*='essage']").filter(vis).pop(), 12000);
+    if (!box) { const what = deep("[role=dialog], [contenteditable], textarea, input[name='subject']").filter(vis).slice(0, 8).map((e) => "<" + e.tagName + " " + (e.getAttribute("aria-label") || e.getAttribute("placeholder") || e.className || "").slice(0, 70) + ">");
+      return { ok: false, error: "The message window didn't open", step: "box", url: location.href, saw: what }; }
     const scope = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper, .msg-form, form") || document.body;
     const win = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper") || scope;
     await sleep(800);
@@ -349,7 +352,7 @@ export async function liOp(op, a = {}) {
     const close = async () => {
       const x2 = [...win.querySelectorAll("button")].filter(vis).find((b) => /close your (conversation|draft)|^close\b|dismiss/i.test(lab(b)));
       if (x2) { x2.click(); await sleep(700); }
-      const disc = [...document.querySelectorAll("button")].filter(vis).find((b) => /^discard$/i.test(lab(b)));
+      const disc = deep("button").filter(vis).find((b) => /^discard$/i.test(lab(b)));
       if (disc) { disc.click(); await sleep(400); }
     };
     if (!subj && !free && old > 0) { await close(); return { ok: false, already: "connected", error: "This opened your existing chat with them, so they're already connected", step: "kind", credits }; }
