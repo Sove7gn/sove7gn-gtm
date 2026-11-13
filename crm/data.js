@@ -1312,6 +1312,14 @@ async function liFunding(){
   catch(e){toast("The search didn't finish: "+(e.message||e),true);return false}
   finally{S.busy.delete("funding");emit();setTimeout(leadsLoad,500)}
 }
+// Launches and hiring signals (14 Nov), also every morning: run one now from Leads > Signals.
+async function liSignal(kind){
+  if(!sb||!canEdit()||S.busy.has(kind))return false;S.busy.add(kind);emit();toast(kind==="hiring"?"Searching job posts for growth and GTM roles. About 2 minutes.":"Searching Product Hunt and Hacker News launches. About a minute.");
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:kind,max:6}});if(error)throw error;
+    toast(data&&data.added?"Added "+data.added+": "+(data.people||[]).slice(0,3).join("; "):"Checked "+((data&&data.found)||0)+". No new founders to add.");return true}
+  catch(e){toast("It's still running or didn't finish ("+(e.message||e)+"). New founders appear here when it's done.",true);return false}
+  finally{S.busy.delete(kind);emit();setTimeout(leadsLoad,500)}
+}
 // InMail (14 Nov): li-bot writes a subject and note for each chosen person, waiting for your OK on Bot and outreach.
 async function liInmail(ids){
   if(!sb||!canEdit()||!ids.length)return false;S.busy.add("inmail");emit();toast("Writing "+ids.length+" InMail"+(ids.length===1?"":"s")+". About 30 seconds.");
@@ -1673,7 +1681,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -257,6 +257,90 @@ async function funding(b: any) {
   }
   await saveStatus({ last_funding: now(), last_funding_result: { found: rounds.length, added, people: out, cost } });
   return { found: rounds.length, added, people: out, cost };
+}
+
+// 4. Launches and hiring (14 Nov), daily with the funding search: founders launching on Product Hunt, Show HN or Launch HN
+//    (they want distribution that day), and startups hiring a growth, GTM or founding marketing role (they need exactly us).
+//    Same path as funding: find the founder on LinkedIn, skip anyone known, add as a hot lead with the signal and its link.
+async function exaJson(body: any): Promise<{ out: any; cost: number }> {
+  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) throw new Error("Exa answered " + res.status);
+  const j = await res.json(); return { out: j, cost: j.costDollars?.total ?? 0 };
+}
+async function knownLeads() {
+  const { data: have } = await db.from("crm_leads").select("name,company,linkedin").eq("source", "LinkedIn").limit(5000);
+  const co = (c: unknown) => String(c ?? "").toLowerCase().replace(/\b(inc|labs?|ai|hq|co)\b/g, "").replace(/[^a-z0-9]/g, "");
+  return { co, companies: new Set((have ?? []).map((l: any) => co(l.company)).filter(Boolean)), li: new Set((have ?? []).map((l: any) => String(l.linkedin ?? "").toLowerCase().replace(/\/+$/, "")).filter(Boolean)) };
+}
+// One founder for a company: by name when the source names one, else the founder or CEO whose LinkedIn headline names the company.
+async function founderOf(company: string, name = ""): Promise<{ url: string; name: string; title: string; cost: number } | null> {
+  const { out, cost } = await exaJson({ query: (name ? name + " " : "") + company + " founder CEO", category: "linkedin profile", numResults: 5 });
+  const first = name.split(/\s+/)[0], c = company.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(" ")[0];
+  const hit = (out.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url ?? "") && (name ? new RegExp(first, "i").test(String(x.title ?? "") + " " + String(x.url ?? ""))
+    : (String(x.title ?? "").toLowerCase().includes(c) && /founder|ceo|co-founder|cofounder/i.test(String(x.title ?? "") + " " + String(x.text ?? "").slice(0, 300)))));
+  if (!hit) return null;
+  const t = String(hit.title ?? "");
+  return { url: String(hit.url).split("?")[0].replace(/\/+$/, ""), name: name || t.split(/ [-|–] /)[0].trim(), title: t.split(/ [-|–] /)[1]?.slice(0, 80) || "Founder", cost };
+}
+// guess: the founder was matched by company name only (Product Hunt's feed names the hunter, not the makers), so the lead comes
+// in Warm, for Reyansh to check on Leads > Signals, and the bot doesn't write them a request on its own.
+async function addSignal(kind: string, it: { company: string; name?: string; what?: string; detail: string; url: string; guess?: boolean }, K: any) {
+  if (!it.company || K.companies.has(K.co(it.company))) return null;
+  const f = await founderOf(it.company, it.name ?? "").catch(() => null); if (!f || !f.name) return null;
+  if (K.li.has(f.url.toLowerCase())) return null;
+  const { error } = await db.from("crm_leads").insert({ name: f.name, company: it.company, role: f.title, source: "LinkedIn", stage: "New", heat: it.guess ? "Warm" : "Hot", linkedin: f.url,
+    origin_key: "li-src:" + kind + ":" + f.url.toLowerCase(), source_detail: it.detail + (it.url ? " (" + clip(it.url, 160) + ")" : ""),
+    fields: { li: { src: kind, signal: it.detail, signal_url: it.url, ...(it.guess ? { check: "founder matched by company name: check it's the right person" } : {}) }, li_icp: { one_liner: clip(String(it.what ?? ""), 200) } } });
+  if (error) return null;
+  K.companies.add(K.co(it.company)); K.li.add(f.url.toLowerCase());
+  return { who: f.name + " (" + it.company + ")", cost: f.cost };
+}
+async function launches(b: any) {
+  if (!EXA) return { skipped: "No Exa key" };
+  const K = await knownLeads(), max = +(b.max ?? 8), people: string[] = []; let cost = 0, found = 0;
+  // Hacker News: Launch HN (YC companies launching) and Show HN posts that took off, from HN's free search API.
+  const since = Math.floor(Date.now() / 1000) - 7 * 86400;   // Launch HN is a few a week; Show HN needs 30+ points
+  const hn = async (q: string) => { const r = await fetch("https://hn.algolia.com/api/v1/search_by_date?" + q + "&numericFilters=created_at_i>" + since + "&hitsPerPage=50"); return r.ok ? (await r.json()).hits ?? [] : []; };
+  const items: any[] = [];
+  for (const h of await hn("query=%22Launch%20HN%22&tags=story")) { const m = String(h.title ?? "").match(/^Launch HN:\s*([^(–\-:]+?)\s*(\(YC [^)]+\))?\s*[–\-:]\s*(.+)$/i); if (m) items.push({ company: m[1].trim(), what: m[3], detail: "Launched on Hacker News (Launch HN" + (m[2] ? ", " + m[2].slice(1, -1) : "") + ")", url: "https://news.ycombinator.com/item?id=" + h.objectID }); }
+  for (const h of await hn("tags=show_hn")) { if ((h.points ?? 0) < 30) continue; const m = String(h.title ?? "").match(/^Show HN:\s*([^–\-:]+?)\s*[–\-:]\s*(.+)$/i); if (m) items.push({ company: m[1].trim(), what: m[2], detail: "Show HN with " + h.points + " points", url: "https://news.ycombinator.com/item?id=" + h.objectID }); }
+  // Product Hunt: the public launch feed (no key needed), launches from the last two days whose tagline reads B2B.
+  try {
+    const r = await fetch("https://www.producthunt.com/feed", { headers: { "User-Agent": "Mozilla/5.0 (compatible; SOVE7GN CRM)" } });
+    const x = r.ok ? await r.text() : "";
+    const dec = (t: string) => t.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&#39;|&rsquo;|’/g, "'").replace(/&quot;/g, '"').replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const B2B = /\b(team|teams|sales|b2b|saas|crm|developer|developers|api|agent|agents|workflow|automation|enterprise|business|businesses|startup|founder|marketing|analytics|data|devops|security|finance|ops|hiring|recruit|customer|support|revenue|pipeline|leads?)\b/i;
+    const B2C = /\b(game|dating|recipe|wallpaper|meme|photo filter|kids|fitness|diet|horoscope|music player)\b/i;
+    for (const e of x.split("<entry>").slice(1)) {
+      const at = Date.parse((e.match(/<updated>([^<]+)/) || [])[1] || ""), title = dec((e.match(/<title>([^<]+)/) || [])[1] || ""), link = (e.match(/href="(https:\/\/www\.producthunt\.com\/products\/[^"?]+)/) || [])[1] || "";
+      const tag = dec(((e.match(/<content[^>]*>([\s\S]*?)<\/content>/) || [])[1] || "").split("Discussion")[0]);
+      if (!title || !at || Date.now() - at > 2 * 864e5 || !B2B.test(tag + " " + title) || B2C.test(tag)) continue;
+      items.push({ company: title.replace(/\s+(AI|App|\.io|\.ai)$/i, "").trim(), what: tag, detail: "Launched " + title + " on Product Hunt", url: link, guess: true });
+    }
+  } catch (_) { /* Product Hunt is best effort */ }
+  found = items.length;
+  for (const it of items) { if (people.length >= max) break; const r = await addSignal("launch", it, K); if (r) { people.push(r.who); cost += r.cost; } }
+  await saveStatus({ last_launches: now(), last_launches_result: { found, added: people.length, people, cost } });
+  return { found, added: people.length, people, cost };
+}
+async function hiring(b: any) {
+  if (!EXA) return { skipped: "No Exa key" };
+  const K = await knownLeads(), max = +(b.max ?? 8), people: string[] = []; let cost = 0;
+  const { out, cost: c } = await exaJson({ query: "startup job opening: Head of Growth, Founding GTM, Growth Marketer, Head of Marketing, first marketing hire, GTM Engineer at a seed to Series C B2B startup",
+    includeDomains: ["ycombinator.com", "wellfound.com", "jobs.ashbyhq.com", "boards.greenhouse.io", "jobs.lever.co", "workatastartup.com"], numResults: 30, startPublishedDate: new Date(Date.now() - 4 * 864e5).toISOString(),
+    outputSchema: { type: "object", required: ["jobs"], properties: { jobs: { type: "array", items: { type: "object", properties: { company: { type: "string" }, role: { type: "string" }, what_company_does: { type: "string" },
+      sells_to_businesses: { type: "boolean" }, stage: { type: "string", description: "Pre-seed, Seed, Series A, B, C, later, or unknown" }, url: { type: "string" } } } } } },
+    systemPrompt: "List each job opening in these results for a growth, GTM, marketing or demand generation role: company, role title, what the company does, whether it sells to businesses, its funding stage, and the job URL. Only facts the results state." });
+  cost += c;
+  const jobs = ((out.output?.content?.jobs ?? []) as any[]).filter((j) => j.company && /growth|gtm|go.to.market|marketing|demand|revops|founding/i.test(String(j.role ?? "")) && j.sells_to_businesses !== false && !/series [d-z]|later|public/i.test(String(j.stage ?? "")));
+  for (const j of jobs) { if (people.length >= max) break; const r = await addSignal("hiring", { company: String(j.company).trim(), what: j.what_company_does, detail: "Hiring a " + clip(String(j.role), 60) + (j.stage && !/unknown/i.test(j.stage) ? " (" + j.stage + ")" : ""), url: j.url ?? "" }, K); if (r) { people.push(r.who); cost += r.cost; } }
+  await saveStatus({ last_hiring: now(), last_hiring_result: { found: jobs.length, added: people.length, people, cost } });
+  return { found: jobs.length, added: people.length, people, cost };
+}
+// The daily job (cron li-bot-signals, 9:00 IST): launches, then hiring. Funding runs on its own at 8:30.
+async function signals_daily(b: any) {
+  const a = await launches(b).catch((e) => ({ error: String(e) })), h = await hiring(b).catch((e) => ({ error: String(e) }));
+  return { launches: a, hiring: h };
 }
 
 // 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
@@ -961,7 +1045,8 @@ async function whereLookUp(l: any) {
 // Where a lead came from, and which of the three it is (midbound: engaged with us; inbound: came to us; outbound: we went to them).
 const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: "Commented on our post", viewed: "Viewed our profile", inbound: "Sent us a connection request",
   tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first",
-  funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets" };
+  funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets",
+  launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM" };
 function srcOf(l: Lead): string {
   const li = l.fields?.li ?? {};
   if (li.src) return li.src;
@@ -984,6 +1069,8 @@ const DEF_OPENERS: Record<string, string> = {
   funding: "congrats on the raise, saw the news and loved what you're building.",
   site: "came across what you're building at {company} and wanted to connect.",
   magnet: "thanks for reaching out about the post!",
+  launch: "congrats on the {company} launch, really liked what you're building.",
+  hiring: "saw {company} is growing the GTM side, exciting stage to be at.",
 };
 const DEF_ANGLES: Record<string, string> = {
   advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",

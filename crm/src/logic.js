@@ -37,7 +37,7 @@ const callWhen=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
-const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound']};
+const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound'],launch:['Just launched (PH / HN)','Outbound'],hiring:['Hiring for growth / GTM','Outbound']};
 const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o=String(l.origin_key||'');if(o.startsWith('li-src:'))return o.split(':')[1]||'outbound';if(o.startsWith('li-person:'))return /comment/i.test(l.source_detail||'')?'commented':'liked';return 'outbound';};
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
@@ -346,11 +346,28 @@ class Component extends DCLogic {
     return{w:'100%',h:'100vh',r:'0px',s:'none',m:'0px',phone:false,tabPad:'8px'};}
   engagers(){return AK.M.engagers.filter(e=>this.own(e.Account));}
   counts(P){const L=this.lists(P);return{send:L.ts.length+L.fu.length,inbox:L.rep.length+L.calls.length+this.postReplies().length,pdm:this.pdmCards().filter(p=>p.status==='To message').length};}
-  navVals(c){const s=this.state;const badges={send:c.send,inbox:c.inbox,pdm:c.pdm};
+  // Activity badges (14 Nov): each page shows how many things are new since you last opened it (Leads > Signals: new founders,
+  // visitors, magnet requests; Daily brief: a new brief; Call dossiers: new dossiers; Replied to us: new replies; Pipeline: new
+  // accepts; Bot and outreach: what's waiting for your OK). Opening the page clears it. Kept per browser.
+  activity(){const v=AK.version();if(this._actV===v&&Date.now()-(this._actT||0)<20000)return this._act;
+    const seen=store.get('seen',{});const day=Date.now()-864e5;const since=id=>seen[id]||day;const t=x=>Date.parse(x||'')||+x||0;
+    const L=this.leadsAll();const LI=l=>(l.fields||{}).li||{};const n={};
+    const SIG=/^li-src:(funding|site|magnet|launch|hiring):/;
+    n.leadSignals=L.filter(l=>SIG.test(String(l.origin_key||''))&&t(l.created_at)>since('leadSignals')).length+L.filter(l=>Object.values(LI(l).magnets||{}).some(x=>t(x)>since('leadSignals'))&&!SIG.test(String(l.origin_key||''))).length;
+    const br=(AK.BR.rows||[])[0];n.leadBrief=br&&t(br.made_at||br.day)>since('leadBrief')?1:0;
+    n.leadDossier=L.filter(l=>t(((l.fields||{}).brief||{}).at)>since('leadDossier')).length;
+    n.liMid=L.filter(l=>t(LI(l).replied)>since('liMid')).length;
+    n.liPipe=L.filter(l=>t(LI(l).acc)>since('liPipe')&&LI(l).req).length;
+    n.liOut=(AK.LBT.rows||[]).filter(x=>x.status==='review').length;
+    n.leadList=L.filter(l=>t(l.created_at)>since('leadList')).length;
+    this._act=n;this._actV=v;this._actT=Date.now();return n;}
+  markSeen(id){const seen=store.get('seen',{});if(Date.now()-(seen[id]||0)<60000)return;seen[id]=Date.now();store.set('seen',seen);this._actT=0;}
+  navVals(c){const s=this.state;const act=this.activity();if(act[s.page]!=null&&s.page!=='liOut')this.markSeen(s.page);
+    const badges={...act,send:c.send,inbox:c.inbox,pdm:c.pdm};if(s.page!=='liOut')badges[s.page]=0;
     return secsFor(s.plat).map(sec=>({label:sec.label,hint:sec.hint||'',hasHead:sec.id!=='home',accent:ACC[sec.id].c,pages:sec.pages.map(id=>{const on=s.page===id;const b=badges[id]||0;const info=infoFor(id,s.plat);return{label:PAGES[id].label,info,hasInfo:!!info,tipOn:s.navTip===id,tipShow:stop(e=>{const r=e&&e.currentTarget&&e.currentTarget.getBoundingClientRect?e.currentTarget.getBoundingClientRect():null;this.setState({navTip:id,navTipUp:!!r&&r.top>window.innerHeight*0.55});}),tipTop:s.navTipUp?'auto':'22px',tipBottom:s.navTipUp?'22px':'auto',tipHide:()=>{if(this.state.navTip===id)this.setState({navTip:null});},go:()=>this.go(id),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-2)',fw:on?'600':'450',sh:on?'var(--shadow-sm), var(--hi)':'none',dot:on?ACC[sec.id].c:'transparent',dotS:on?'scale(1)':'scale(.4)',hasBadge:b>0,badge:String(b),badgeBg:on?ACC[sec.id].c:ACC[sec.id].soft,badgeFg:on?'#fff':ACC[sec.id].ink};})}));}
   ownerVals(){return OWNERS.map(o=>{const on=this.state.owner===o;const a=o==='Everyone'?{avBg:'var(--n-soft-2)',avFg:'var(--ink-2)',ini:'∗'}:avatar(avName(o));return{label:o,...a,pick:()=>this.setOwner(o),bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setOwner(o){if(o===this.state.owner)return;this.setState({owner:o});if(this.ready)this.load(320);}
-  platVals(){return PLATS.map(x=>{const on=this.state.plat===x;return{label:x,ini:x==='X'?'𝕏':x==='LinkedIn'?'in':'◎',avBg:x==='X'?'var(--ink)':x==='LinkedIn'?'#0a66c2':'var(--out)',avFg:'#fff',pick:()=>this.setPlat(x),
+  platVals(){const act=this.activity();return PLATS.map(x=>{const on=this.state.plat===x;const nb=on?0:pagesFor(x).filter(id=>id!=='liOut'&&id!=='leadList').reduce((a,id)=>a+(act[id]||0),0);return{label:x,hasBadge:nb>0,badge:nb>99?'99+':String(nb),ini:x==='X'?'𝕏':x==='LinkedIn'?'in':'◎',avBg:x==='X'?'var(--ink)':x==='LinkedIn'?'#0a66c2':'var(--out)',avFg:'#fff',pick:()=>this.setPlat(x),
     bg:on?'#fff':'transparent',fg:on?'var(--ink)':'var(--ink-3)',sh:on?'var(--shadow-sm), var(--hi)':'none'};});}
   setPlat(x){if(x===this.state.plat||!PLATS.includes(x))return;store.set('plat',x);const ok=pagesFor(x).includes(this.state.page);
     this.flushLead();this.setState({plat:x,cid:null,lid:null,led:{},lnew:null,pal:false,calPick:null,calLink:null,linkFor:null,...(ok?{}:{page:pagesFor(x)[0]})});if(this.mainRef.current)this.mainRef.current.scrollTop=0;if(this.ready)this.load(320);}
@@ -1834,6 +1851,9 @@ class Component extends DCLogic {
     const art=l=>(String(l.source_detail||'').match(/https?:\/\/[^\s)]+/)||[''])[0];
     const fr=st.last_funding_result||{};const busy=AK.S.busy.has('funding');
     const funding=F.map(l=>{const a=art(l);const r=row(l,(LI(l).round||((l.fields||{}).li_icp||{}).funding||'Raised')+(((l.fields||{}).li_icp||{}).one_liner?' · '+((l.fields||{}).li_icp||{}).one_liner:''));return{...r,hasArt:!!a,art:()=>window.open(a,'_blank','noopener'),artHost:a?a.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]:''};});
+    const withArt=(list,lab)=>list.map(l=>{const a=String(LI(l).signal_url||art(l)||'');const one=((l.fields||{}).li_icp||{}).one_liner||'';const sig=String(LI(l).signal||l.source_detail||lab);const r=row(l,sig+(one&&!sig.includes(one.slice(0,30))?' · '+one:'')+(LI(l).check&&l.heat!=='Hot'?' · ⚠ check it’s the right founder (make them Hot to start outreach)':''));return{...r,hasArt:!!a,art:()=>window.open(a,'_blank','noopener'),artHost:a?a.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]:''};});
+    const LA=L.filter(l=>String(l.origin_key||'').startsWith('li-src:launch:')).sort(by('created_at')),HI=L.filter(l=>String(l.origin_key||'').startsWith('li-src:hiring:')).sort(by('created_at'));
+    const runLine=(at,r)=>at?'Last run '+this.since(at)+': '+((r||{}).found||0)+' found, '+((r||{}).added||0)+' new founders added'+((r||{}).cost!=null?' (cost $'+Number(r.cost).toFixed(2)+')':'')+'.':'Runs every morning.';
     const V=L.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI(l).site_at).sort((a,b)=>String(LI(b).site_at||b.created_at).localeCompare(String(LI(a).site_at||a.created_at)));
     const visitors=V.map(l=>row(l,String(l.source_detail||'Visited the site').replace(/^Visited /,'Visited ')));
     const M=L.filter(l=>Object.keys(LI(l).magnets||{}).length).sort((a,b)=>String(Object.values(LI(b).magnets).sort().pop()).localeCompare(String(Object.values(LI(a).magnets).sort().pop())));
@@ -1851,6 +1871,11 @@ class Component extends DCLogic {
       visitors,hasVisitors:visitors.length>0,visCount:visitors.length?visitors.length+' identified'+(conv(V)?' · '+conv(V):''):'',
       visEmpty:'Nobody identified yet. RB2B identifies US visitors to gtm.sove7gn.org and sends them here (free trial until about 21 Nov; after that the webhook needs a paid plan).',
       magnets,hasMagnets:magnets.length>0,magEmpty:'Nobody has asked yet. When someone DMs or comments a keyword from a post (LIST, 90DAYS…), they show up here. Set the message for each word on LinkedIn > Bot and outreach.',
+      launches:withArt(LA,'Launched'),hasLaunches:LA.length>0,laCount:LA.length+(LA.length===1?' founder':' founders')+(conv(LA)?' · '+conv(LA):''),laLast:runLine(st.last_launches,st.last_launches_result),
+      laScope:'Every morning at 9:00 IST: Launch HN posts (YC companies launching) from the last 7 days, Show HN posts with 30+ points, and B2B launches on Product Hunt from the last 2 days. Up to 6 new founders a day, found on LinkedIn, then a "congrats on the launch" request for your OK.',
+      hires:withArt(HI,'Hiring'),hasHires:HI.length>0,hiCount:HI.length+(HI.length===1?' founder':' founders')+(conv(HI)?' · '+conv(HI):''),hiLast:runLine(st.last_hiring,st.last_hiring_result),
+      hiScope:'Every morning at 9:30 IST: job posts from the last 4 days on YC Work at a Startup, Wellfound, Ashby, Greenhouse and Lever for Head of Growth, founding GTM, growth or first marketing hires, at B2B startups up to Series C. The founder or CEO is found on LinkedIn and added, up to 6 a day.',
+      runLa:()=>{if(AK.canEdit())AK.liSignal('launches');},runHi:()=>{if(AK.canEdit())AK.liSignal('hiring');},laBusy:AK.S.busy.has('launches')?'Searching…':'Run now',hiBusy:AK.S.busy.has('hiring')?'Searching… about 2 minutes':'Run now',
       noVisitors:!visitors.length,noMagnets:!magnets.length,openBot:()=>this.go('liOut')};}
   // InMail (14 Nov): 30 credits a month, so only high-intent people we're not connected to. Who qualifies: score 7+, a fit, not
   // connected or messaged, still early in the pipeline, and a real sign of intent (commented, viewed our profile, we tagged them,
@@ -1860,7 +1885,7 @@ class Component extends DCLogic {
     const handM=all.filter(l=>LI(l).inmail&&new Date(LI(l).inmail)>=m0&&!T.some(t=>t.kind==='inmail'&&t.lead_id===l.id&&t.status==='sent')).length;
     const used=sentM+handM,left=Math.max(0,30-used);const has=new Set(T.filter(t=>t.kind==='inmail'&&t.status!=='skipped').map(t=>t.lead_id));
     const likes=new Map();for(const e of AK.SOC.eng)if(e.platform==='linkedin')likes.set(e.person_key,(likes.get(e.person_key)||0)+(e.kind==='commented'?3:1));
-    const W={magnet:60,commented:50,site:45,viewed:40,funding:35,inbound:30,niche:25,tagged:15};   // tagged is our move, not theirs: it only counts with a sign from them
+    const W={magnet:60,commented:50,site:45,hiring:40,viewed:40,funding:35,launch:35,inbound:30,niche:25,tagged:15};   // tagged is our move, not theirs: it only counts with a sign from them
     const C=all.filter(l=>l.source==='LinkedIn'&&!l.archived&&/^(new|contacted|follow up)$/i.test(l.stage||'')&&!has.has(l.id)).map(l=>{const x=LI(l);
       if(x.acc||x.dm||x.inmail||x.replied||x.stop||this.liNotFit(l))return null;const S=this.liPipeScore(l);if(S.n<7)return null;
       const src=liSrcOf(l);const pk=String(l.origin_key||'').startsWith('li-person:')?String(l.origin_key).slice(10):'';const eng=pk?likes.get(pk)||0:0;

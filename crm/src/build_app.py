@@ -327,7 +327,8 @@ i1 = src.index('</sc-for>\n</div>', i0) + len('</sc-for>\n</div>')
 own = src[i0:i1]
 assert own.count('list="{{ owners }}" as="o" hint-placeholder-count="4"') == 1
 src = src[:i1] + "\n" + own.replace('aria-label="Whose work to show"', 'aria-label="Which platform"').replace(
-    'list="{{ owners }}" as="o" hint-placeholder-count="4"', 'list="{{ plats }}" as="o" hint-placeholder-count="2"') + src[i1:]
+    'list="{{ owners }}" as="o" hint-placeholder-count="4"', 'list="{{ plats }}" as="o" hint-placeholder-count="2"').replace(
+    '{{ o.label }}', '{{ o.label }}<sc-if value="{{ o.hasBadge }}"><span title="New since you last looked" style="min-width:16px; height:16px; padding:0 4px; border-radius:8px; display:inline-grid; place-items:center; background:#e5484d; color:#fff; font-size:10px; font-weight:700; line-height:1;">{{ o.badge }}</span></sc-if>', 1) + src[i1:]
 j0 = src.index('<div style="position:relative;">\n<select value="{{ owner }}"')
 j1 = src.index('</div>', src.index('</select>', j0)) + len('</div>')
 sel = src[j0:j1]
