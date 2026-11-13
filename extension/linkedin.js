@@ -319,13 +319,18 @@ export async function liOp(op, a = {}) {
     const wait = async (fn, ms = 9000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await sleep(250); } return null; };
     const setVal = (el, v) => { const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value"); d.set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
     await wait(() => document.querySelector("main"), 8000);
-    const top = document.querySelector("main section") || document.querySelector("main");
-    let btn = [...(top ? top.querySelectorAll("button, a") : [])].filter(vis).find((b) => /^message\b/i.test(lab(b)));
+    // (14 Nov) The Message button can sit anywhere in the top of the profile (an <a> or a <button>, "Message" or "Message Jo"),
+    // or inside the More menu; the page also fills in late, so look for up to 10 seconds.
+    const isMsg = (e) => /^message/i.test(lab(e)) && !/messaging|messages/i.test(lab(e));
+    const scan = () => [...document.querySelectorAll("main button, main a, main [role=button]")].filter(vis).find(isMsg);
+    let btn = await wait(scan, 10000);
     if (!btn) {
-      const more = [...(top ? top.querySelectorAll("button") : [])].filter(vis).find((b) => /^more( actions)?$/i.test(lab(b)) || /more actions/i.test(lab(b)));
-      if (more) { more.click(); await sleep(700); btn = [...document.querySelectorAll("[role=menu] [role=button], [role=menuitem], .artdeco-dropdown__content [role=button]")].filter(vis).find((b) => /^message\b/i.test(lab(b))); }
+      const more = [...document.querySelectorAll("main button")].filter(vis).find((b) => /^more|more actions/i.test(lab(b)));
+      if (more) { more.click(); await sleep(900);
+        btn = [...document.querySelectorAll("[role=menu] *, .artdeco-dropdown__content *, [role=menuitem]")].filter(vis).find((b) => (b.matches("[role=button],[role=menuitem],button,a,div[tabindex]")) && isMsg(b)); }
     }
-    if (!btn) return { ok: false, error: "No Message button on their profile, so InMail isn't open for them", step: "button" };
+    const seen = () => [...document.querySelectorAll("main button, main a[href*='messag'], main [role=button]")].filter(vis).map(lab).filter(Boolean).slice(0, 40);
+    if (!btn) { const labels = seen(); document.body.click(); return { ok: false, error: "No Message button on their profile, so InMail isn't open for them", step: "button", labels, url: location.href }; }
     btn.click();
     const box = await wait(() => [...document.querySelectorAll(".msg-form__contenteditable[contenteditable='true'], div[role='textbox'][contenteditable='true']")].filter(vis).pop());
     if (!box) return { ok: false, error: "The message window didn't open", step: "box" };
