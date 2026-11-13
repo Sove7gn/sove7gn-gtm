@@ -318,7 +318,7 @@ rep('rarely have budget for remote operators yet,', 'rarely have budget for us y
 rep('Robotics leaders come first, then robotics, investors and everyone else.', 'Good fits come first, then related people, investors and everyone else.')
 rep('>Drive folder ↗<', '>Media folder ↗<')
 rep('title="Fetch the latest from the Google Sheet"', 'title="Fetch the latest data"')
-rep('title="Reload the sheet now and pull new numbers and replies from X"', 'title="Reload now and pull new numbers and replies from X"')
+rep('title="Reload the sheet now and pull new numbers and replies from X"', 'title="Pull new numbers, replies and leads from X, LinkedIn and Instagram"')
 rep('<option value="Data buyers">Data buyers</option><option value="Robot builders">Robot builders</option><option value="Robot deployers">Robot deployers</option><option value="Everyone in robotics">Everyone in robotics</option>',
     "".join('<option value="%s">%s</option>' % (a, a) for a in CFG.get("aimed") or ["Everyone"]))
 # ---------- X / LinkedIn switch (3 Nov): a second switch beside the account one, built from its markup so it looks the same ----------

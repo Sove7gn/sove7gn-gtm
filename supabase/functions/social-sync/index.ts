@@ -76,7 +76,9 @@ async function syncLinkedIn(given: any[] | null = null) {
   // 2. Post numbers, plus a dated copy so the tracker can show growth.
   const postRows = posts.map((p) => ({ platform: "linkedin", post_id: String(p.id), url: p.linkedinUrl ?? "", text: p.content ?? "",
     posted_at: p.postedAt?.date ?? null, likes: p.engagement?.likes ?? 0, comments: p.engagement?.comments ?? 0,
-    reposts: p.engagement?.shares ?? 0, reactions: p.engagement?.reactions ?? [], checked_at: now }));
+    reposts: p.engagement?.shares ?? 0, reactions: p.engagement?.reactions ?? [], checked_at: now,
+    // Views (impressions) come from the extension when LinkedIn shows them for our own posts; Apify has none.
+    ...(p.engagement?.views != null ? { views: +p.engagement.views } : {}) }));
   if (postRows.length) {
     const { error } = await db.from("crm_social_posts").upsert(postRows, { onConflict: "platform,post_id" });
     if (error) throw error;

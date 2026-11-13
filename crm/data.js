@@ -406,12 +406,19 @@ const goLive=()=>{S.liveUntil=Date.now()+36e4;return liveLoad().catch(()=>public
 let ticks=0;
 function poll(){ticks++;if(Date.now()<(S.liveUntil||0))return liveLoad().catch(()=>{});if(ticks%3===0)return publicLoad()}
 // Refresh: reload the sheet now and ask the team's computer to run the post tracker (new numbers and replies from X).
+// (13 Nov) Refresh covers every channel: X (post tracker), LinkedIn (asks the extension to read our posts' numbers and
+// engagers now, and reloads the queue sheet) and Instagram (DM threads), then reloads leads, tasks and post numbers.
 async function refresh(){
   if(S.pub){
-    toast("Checking X for new replies, quotes and post numbers…");
-    xRun("x-engage",false,{manual:true});   // shows "Checking X…" on the button until it answers
-    try{await scriptCall({action:"refresh"})}catch(e){}
-    await goLive();liLoad(true);
+    toast("Refreshing X, LinkedIn and Instagram. New numbers land over the next few minutes.");
+    S.refreshing=Date.now();emit();
+    const li=sb.functions.invoke("li-bot",{body:{action:"refresh"}}).then(({data})=>{S.liAsk=data||null;}).catch(()=>{});
+    const jobs=[xRun("x-engage",true,{manual:true}),igRun(true),li,scriptCall({action:"refresh"}).catch(()=>{})];
+    await goLive();liLoad(true);leadsLoad();LBT.at=0;XT.at=0;
+    await Promise.allSettled(jobs);
+    leadsLoad();S.refreshing=0;emit();
+    const m=S.liAsk&&S.liAsk.extension_seen_min;
+    toast("X and Instagram are up to date. "+(m!=null&&m<30?"LinkedIn numbers come in from your Chrome within about 5 minutes.":"LinkedIn numbers come in once the Outreach Bot extension is running in your Chrome."));
     return;
   }
   if(!S.mcp)return;
@@ -993,17 +1000,36 @@ function liPosts(){
   const add=(r,tab)=>{
     const text=r["Post text"]||"",link=safeUrl(r["Live URL"])?r["Live URL"]:"",st=String(r.Status||"").trim().toUpperCase();
     if((!text&&!link)||st==="SKIP")return;
-    const when=liWhen(r);if(!when)return;
+    // A post moved on the calendar shows on its new day at once, until the sheet has the new Date (li-bot li_move writes it).
+    const mv=tab==="q"&&text?(leadSetting("li_moves")||{})[liKey(text)]:null;
+    const when=liWhen(mv&&mv.date&&!mv.applied?{...r,Date:mv.date}:r);if(!when)return;
     const kt=text?"t:"+text.replace(/\s+/g," ").slice(0,160):"",kl=link?linkKey(link):"";
     if((kt&&seen.has(kt))||(kl&&seen.has(kl)))return;if(kt)seen.add(kt);if(kl)seen.add(kl);
     const pf=kl?perf.get(kl):null;
     const status=link||st==="POSTED"?"Posted":r.Error||st==="ERROR"?"Draft":"Scheduled";
-    out.push({_li:true,_row:"li-"+tab+r._r,_key:"oli"+tab+r._r,Account:acc,Platform:"LinkedIn",Date:when.date,"Time (IST)":when.time,_date:parseDate(when.date),_at:when.at,
+    const qd=String((mv&&mv.date&&!mv.applied?mv.date:r.Date)||"").match(/\d{4}-\d{2}-\d{2}/);
+    out.push({_li:true,_qrow:tab==="q"?r._r:0,_qdate:qd?qd[0]:"",_moving:!!(mv&&!mv.applied),_row:"li-"+tab+r._r,_key:"oli"+tab+r._r,Account:acc,Platform:"LinkedIn",Date:when.date,"Time (IST)":when.time,_date:parseDate(when.date),_at:when.at,
       "Our version":text,Status:status,"Posted link":link,Calendar:"Yes",Competitor:"Our own","What we changed":"LinkedIn queue sheet",
       "Post type":pf?pf["Post type"]||"":"","Media file":r["Image URL"]||"",_reactions:pf?num(pf.Reactions):null,_checked:pf?pf["Checked at (IST)"]||"":"",_error:r.Error||""});
   };
   objs(LI.raw.posted).forEach(r=>add(r,"p"));objs(LI.raw.queue).forEach(r=>add(r,"q"));
   return out;
+}
+const liKey=t=>String(t||"").replace(/\s+/g," ").trim().slice(0,80).toLowerCase();
+// Move a LinkedIn post to another day (13 Nov): saved in li_moves (the calendar shows it at once), then li-bot writes the new
+// Date into the LinkedIn queue sheet through Composio Google Sheets (or within 15 minutes, once Google Sheets is connected).
+async function liMove(o,iso){
+  if(!sb||!canEdit()||!o._qrow||!/^\d{4}-\d{2}-\d{2}$/.test(iso))return false;
+  const k=liKey(o["Our version"]);const m={...(leadSetting("li_moves")||{})};
+  m[k]={row:o._qrow,date:iso,text:String(o["Our version"]||"").slice(0,200),at:new Date().toISOString()};
+  const ok=await leadSettingSave("li_moves",m);if(!ok)return false;build();emit();
+  const [y,mo,d]=iso.split("-").map(Number);const label=d+" "+MON[mo-1];
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"li_move"}});if(error)throw error;
+    if(data&&data.applied){toast("Moved to "+label+". The LinkedIn queue sheet has the new date.");liLoad(true);}
+    else if(data&&data.connected===false)toast("Moved to "+label+" in the CRM. The queue sheet changes too once Sheets is connected in Composio (on its own, no need to move it again).",true);
+    else toast("Moved to "+label+" in the CRM. The queue sheet couldn't be changed yet"+(data&&data.error?" ("+data.error+")":"")+"; it retries every 15 minutes.",true);}
+  catch(e){toast("Moved to "+label+" in the CRM. The queue sheet updates within 15 minutes.");}
+  return true;
 }
 // Posted LinkedIn posts with their latest reactions, shaped like trackedPosts() (LinkedIn shows no views here).
 function liTracked(){
@@ -1322,15 +1348,15 @@ async function personToLead(person,seed){
 
 /* ---------- Instagram DMs (7 Nov) ---------- */
 // Reads the DMs now (the "Check now" button on Setup). The ig-sync job also runs every hour on its own.
-async function igRun(){
+async function igRun(quiet){
   if(!sb||SOC.igRunning)return null;
   SOC.igRunning=true;emit();
   try{const {data,error}=await sb.functions.invoke("ig-sync",{body:{}});
     if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
-    if(data&&data.skipped)toast(data.skipped,true);
-    else if(data)toast("Read "+data.threads_read+" DM threads: "+data.leads_added+" new "+(data.leads_added===1?"lead":"leads")+", "+data.filtered+" filtered out.");
+    if(data&&data.skipped){if(!quiet)toast(data.skipped,true);}
+    else if(data&&!quiet)toast("Read "+data.threads_read+" DM threads: "+data.leads_added+" new "+(data.leads_added===1?"lead":"leads")+", "+data.filtered+" filtered out.");
     return data}
-  catch(e){toast("The check didn't finish: "+(e.message||e),true);return null}
+  catch(e){if(!quiet)toast("The check didn't finish: "+(e.message||e),true);return null}
   finally{SOC.igRunning=false;setTimeout(leadsLoad,300);emit()}
 }
 // Someone the job filtered out, added to Leads by hand. Their messages follow the next time the thread changes.
@@ -1602,7 +1628,7 @@ window.AK={
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
   savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
-  liTracked,liState,liLoad,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
+  liTracked,liState,liLoad,liMove,liKey,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
   // GTM intelligence (8 Nov): for the page and for scheduled jobs that enrich leads or log replies. Nothing here sends a message.
   gtm:{save:leadGtmSave,intel:gtmIntel,intelMany:gtmIntelMany,signal:gtmSignal,signalDel:gtmSignalDel,set:gtmSet,touch:gtmTouch,

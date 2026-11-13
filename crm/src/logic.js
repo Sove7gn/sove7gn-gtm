@@ -201,7 +201,7 @@ class Component extends DCLogic {
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,geTab:'new',geQ:'',geDraft:{},geAdd:{lead:'',url:'',at:'',text:'',draft:''},geMore:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:'',rel:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},lbtEd:{},lbtTpl:{},lbtN:20,inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
-    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
+    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calStats:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
     const el=this.rootRef.current;
@@ -701,7 +701,7 @@ class Component extends DCLogic {
   calScroll(acc,where,instant){const el=document.getElementById('cal-'+acc);if(!el||!el.children.length)return;const w=el.children[0].getBoundingClientRect().width+12;const behavior='auto';
     if(where==='l'||where==='r')el.scrollBy({left:(where==='l'?-2:2)*w,behavior});else el.scrollTo({left:Math.max(0,where-1)*w,behavior});}
   calCard(p,w,a){const s=this.state;const f=this.founder||!!p.o._li;const o=p.o;const id=p.id;const ed=s.calEd[id]||{};
-    const st=p.link?'Posted':String(o.Status||'Draft');const pc=CAL_PILL[st]||['var(--warn-soft)','var(--warn-ink)'];
+    const st=p.link?'Posted':String(o.Status||'Draft');const pc=CAL_PILL[st]||['var(--warn-soft)','var(--warn-ink)'];const mv=this.calMovable(p,st);
     const setEd=(k,v)=>this.setState(x=>({calEd:{...x.calEd,[id]:{...(x.calEd[id]||{}),[k]:v}}}));
     const takeEd=k=>{const v=(this.state.calEd[id]||{})[k];if(v==null)return null;this.setState(x=>{const e={...(x.calEd[id]||{})};delete e[k];return{calEd:{...x.calEd,[id]:e}};});return v;};
     const txt=ed.text!=null?ed.text:p.text;const linkOpen=s.calLink===id;
@@ -726,12 +726,12 @@ class Component extends DCLogic {
       schedLabel:st==='Scheduled'?'Scheduled ✓':'Scheduled',toggleSched:()=>{if(!f)AK.calSave(o,{status:st==='Scheduled'?'Draft':'Scheduled'});},
       copy:()=>this.copy(txt,'cal'+id,'Post copied'),copyLabel:cb.label,
       upload:e=>{const fl=e.target.files&&e.target.files[0];e.target.value='';if(fl)AK.calUpload(o,fl);},upLabel:up?'Uploading…':'Add image',
-      remove:()=>this.calRemove(p),
+      remove:()=>this.calRemove(p),...this.calDateVals(p,w,mv),
       dragStart:e=>{const t=e.target&&e.target.closest&&e.target.closest('input,textarea,select,button');if(t){e.preventDefault();return;}this.dragId=id;try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);}catch(_){}this.setState({calDragging:id});},
-      dragEnd:()=>{this.dragId=null;if(this.state.calDragging||this.state.calOver)this.setState({calDragging:null,calOver:null});},drag:f?'false':'true',cur:f?'default':'grab',op:s.calDragging===id?'.45':'1',
-      dragTip:f?'':'Drag the card to another day',
+      dragEnd:()=>{this.dragId=null;if(this.state.calDragging||this.state.calOver)this.setState({calDragging:null,calOver:null});},drag:mv?'true':'false',cur:mv?'grab':'default',op:s.calDragging===id?'.45':'1',
+      dragTip:mv?'Drag the card to another day, or press the date':'',
       ...this.tickVals(p,st),
-      hasLink:!!p.link,linkLabel:li?'Live on LinkedIn'+(num(o.Likes)?' · '+fmtK(num(o.Likes))+' reactions':'')+(num(o.Replies)?' · '+fmtK(num(o.Replies))+' comments':''):'Live on X'+(p.ourViews?' · '+p.ourViews+' views':''),openLink:()=>window.open(p.link,'_blank','noopener'),
+      hasLink:!!p.link,...this.calLiveVals(p),openLink:()=>window.open(p.link,'_blank','noopener'),
       canLink:!p.link&&!f,toggleLink:()=>this.setState({calLink:linkOpen?null:id,calLinkVal:''}),linkOpen,linkVal:s.calLinkVal,
       setLinkVal:e=>this.setState({calLinkVal:e.target.value}),saveLink:()=>this.calLinkPaste(p,s.calLinkVal),
       linkPh:'Paste the post link (x.com/'+(AK.HANDLES[p.account]||'…')+'/status/…)',live,hasLive:live.length>0,
@@ -750,9 +750,63 @@ class Component extends DCLogic {
   // A card made on the calendar that is still empty is removed for good; any other post just leaves the calendar.
   calRemove(p){const blank=p.o['What we changed']==='Added in the calendar'&&!p.text.trim()&&!p.link;const was=p.o.Status||'Draft';const wasCal=p.o.Calendar||'';
     AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:'No'}).then(ok=>{if(ok)this.toast(blank?'Removed':'Taken off the calendar. It’s still in Our posts.',()=>AK.calSave(p.o,blank?{cal:'Yes',status:was}:{cal:wasCal}));});}
-  calDrop(a,d){if(this.founder||this.state.plat==='LinkedIn')return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
+  calDrop(a,d){if(this.founder)return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
     if(p.account!==a.acc){this.toast('Drag a post within its own account.',null,true);return;}
-    const w=calWhere(p.o,this.state.calZone);if(!w||w.key===d.key)return;const r=toIst(d.key,w.hm,this.state.calZone);AK.calSave(p.o,{date:r.date,time:r.time});}
+    if(!this.calMovable(p,p.link?'Posted':String(p.o.Status||'Draft'))){this.toast('This post is already live, so it stays on its day.',null,true);return;}
+    const w=calWhere(p.o,this.state.calZone);if(!w||w.key===d.key)return;this.calMoveTo(p,w,d.key);}
+  // (13 Nov) Which cards can move: not posted yet; LinkedIn ones only from the queue sheet (its Posted tab is history).
+  calMovable(p,st){return !this.founder&&!p.link&&st!=='Posted'&&(!p.o._li||!!p.o._qrow);}
+  // Move a post to the day "key" (y-m-d, month from 0, in the zone shown). X: the post's Date in Our Posts, time kept.
+  // LinkedIn: the queue sheet's Date moves by the same number of days (its slot time stays), through AK.liMove.
+  calMoveTo(p,w,key){const z=this.state.calZone;const [y,m,d]=key.split('-').map(Number);const label=d+' '+AK.MON[m];
+    if(p.o._li){const [a,b,c]=w.key.split('-').map(Number);const shift=Math.round((Date.UTC(y,m,d)-Date.UTC(a,b,c))/AK.DAY);
+      const q=String(p.o._qdate||'').split('-').map(Number);if(q.length!==3||!q[0]){this.toast('This post has no date in the queue sheet to move.',null,true);return;}
+      const t=new Date(Date.UTC(q[0],q[1]-1,q[2])+shift*AK.DAY);const iso=t.getUTCFullYear()+'-'+String(t.getUTCMonth()+1).padStart(2,'0')+'-'+String(t.getUTCDate()).padStart(2,'0');
+      AK.liMove(p.o,iso);return;}
+    const was={date:p.o.Date,time:p.o['Time (IST)']};const r=toIst(key,w.hm,z);
+    AK.calSave(p.o,{date:r.date,time:r.time}).then(ok=>{if(ok)this.toast('Moved to '+label+'.',()=>AK.calSave(p.o,{date:was.date,time:was.time}));});}
+  // The date button on a card: shows the day, opens the browser's date picker, and moves the post to the day picked.
+  calDateVals(p,w,mv){const [y,m,d]=w.key.split('-').map(Number);const dt=new Date(y,m,d);
+    const iso=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    return{canDate:mv,dateIso:iso,dateLabel:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+d+' '+AK.MON[m],
+      dateTip:p.o._moving?'Moved here. The LinkedIn queue sheet gets the new date as soon as Sheets is connected in Composio.':'Move this post to another day',
+      dateBd:p.o._moving?'var(--warn)':'var(--hairline-strong)',
+      pickDate:e=>{const i=e.currentTarget.querySelector('input');if(!i)return;try{i.showPicker();}catch(_){i.focus();}},
+      setDate:e=>{const v=e.target.value;if(!v||v===iso)return;const [Y,M,D]=v.split('-').map(Number);this.calMoveTo(p,w,dkey(Y,M-1,D));}};}
+  // Live posts (13 Nov): the green Live button opens the post's numbers on the card itself: views, likes, comments, reposts,
+  // and the leads it brought in (LinkedIn: people who liked or commented and became leads; X: repliers we found).
+  calLiveVals(p){const blank={linkLabel:'',statArrow:'',statsOpen:false,toggleStats:()=>{},stats:{tiles:[],people:[],hasPeople:false,leadLine:'',checked:'',hasChecked:false}};
+    if(!p.link)return blank;const id=p.id;const on=!!(this.state.calStats||{})[id];const st=this.calStats(p);
+    return{linkLabel:(p.o._li?'Live on LinkedIn':'Live on X')+(st.headline?' · '+st.headline:''),statArrow:on?'▴':'▾',statsOpen:on,stats:st,
+      toggleStats:()=>this.setState(x=>({calStats:{...(x.calStats||{}),[id]:!on}}))};}
+  calStats(p){const o=p.o;const li=!!o._li;const n=v=>v==null||v===''||isNaN(+v)?'–':fmtK(+v);
+    const out={tiles:[],people:[],hasPeople:false,leadLine:'',checked:'',hasChecked:false,headline:''};
+    const TALK=/In talks|Call booked|Proposal sent|Won/;
+    if(li){const k=liMarkKey(o['Our version']);const act=(String(p.link).match(/(?:activity|share|ugcPost)[:%3A-]+(\d{15,})/i)||[])[1];
+      const sp=AK.SOC.posts.find(x=>x.platform==='linkedin'&&((act&&x.post_id===act)||(k&&liMarkKey(x.text)===k)||AK.linkKey(x.url)===AK.linkKey(p.link)));
+      const likes=sp?sp.likes:(num(o.Likes)!=null?num(o.Likes):o._reactions);const views=sp?sp.views:null;
+      out.tiles=[{n:n(views),l:'Views'},{n:n(likes),l:'Likes'},{n:n(sp?sp.comments:null),l:'Comments'},{n:n(sp?sp.reposts:null),l:'Reposts'}];
+      if(views!=null)out.headline=fmtK(+views)+' views';else if(likes!=null)out.headline=fmtK(+likes)+' likes';
+      if(!sp){out.leadLine='No numbers yet. They come in on the next LinkedIn check (Refresh asks for one).';out.hasPeople=false;return out;}
+      if(sp.checked_at){const c=new Date(sp.checked_at);out.checked='Checked '+AK.dayWord(c).toLowerCase()+', '+c.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});out.hasChecked=true;}
+      const keys=[...new Set(AK.SOC.eng.filter(e=>e.platform==='linkedin'&&e.post_id===sp.post_id).map(e=>e.person_key))];
+      const ppl=keys.map(key=>AK.SOC.people.find(x=>x.platform==='linkedin'&&x.person_key===key)).filter(x=>x&&!x.is_self);
+      const leads=ppl.map(x=>{const l=(x.lead_id&&AK.LD.rows.find(r=>r.id===x.lead_id))||AK.LD.rows.find(r=>r.origin_key==='li-person:'+x.person_key);return l?{x,l}:null;}).filter(Boolean);
+      const msg=leads.filter(({l})=>l.fields&&l.fields.li&&(l.fields.li.dm||l.fields.li.req)).length,talk=leads.filter(({l})=>TALK.test(l.stage)).length;
+      out.leadLine=ppl.length+(ppl.length===1?' person':' people')+' liked or commented · '+leads.length+(leads.length===1?' became a lead':' became leads')+(msg?' · '+msg+' contacted':'')+(talk?' · '+talk+' talking to us':'');
+      const stepOf=l=>TALK.test(l.stage)?l.stage:l.fields&&l.fields.li&&l.fields.li.dm?'Messaged':l.fields&&l.fields.li&&l.fields.li.req?'Request sent':l.stage;
+      out.people=leads.sort((a,b)=>(TALK.test(b.l.stage)?2:b.l.fields&&b.l.fields.li&&b.l.fields.li.dm?1:0)-(TALK.test(a.l.stage)?2:a.l.fields&&a.l.fields.li&&a.l.fields.li.dm?1:0)).slice(0,8)
+        .map(({x,l})=>({name:l.name||x.name,sub:stepOf(l),open:()=>this.openLead(l.id)}));}
+    else{const lk=AK.linkKey(p.link);const tr=this.trackedBy().get(lk);
+      out.tiles=[{n:n(tr?tr.views:num(o.Views)),l:'Views'},{n:n(tr?tr.likes:num(o.Likes)),l:'Likes'},{n:n(tr?tr.replies:num(o.Replies)),l:'Replies'},{n:n(tr?tr.reposts:num(o.Reposts)),l:'Reposts'}];
+      if(tr&&tr.views!=null)out.headline=fmtK(tr.views)+' views';
+      const last=tr&&tr.hist&&tr.hist.length?tr.hist[tr.hist.length-1]:null;if(last&&last._t){out.checked='Checked '+AK.dayWord(new Date(last._t)).toLowerCase();out.hasChecked=true;}
+      const E=AK.M.engagers.filter(e=>AK.linkKey(e['Our post link'])===lk);const fit=E.filter(e=>verdictOf(e)==='DM + reply');
+      const inPipe=E.filter(e=>/^(Messaged|Replied)$/.test(e.Status||''));
+      out.leadLine=E.length+(E.length===1?' person':' people')+' replied, quoted or were tagged · '+fit.length+' fit to DM'+(inPipe.length?' · '+inPipe.length+' in the DM pipeline':'');
+      out.people=fit.slice(0,8).map(e=>{const h=String(e.Handle||'').replace(/^@/,'');const l=AK.LD.rows.find(r=>String(r.x_handle||'').replace(/^@/,'').toLowerCase()===h.toLowerCase());
+        return{name:e.Name||'@'+h,sub:l?l.stage:(e.Status||'To message'),open:()=>l?this.openLead(l.id):window.open('https://x.com/'+h,'_blank','noopener')};});}
+    out.hasPeople=out.people.length>0;return out;}
   // Link a card to a post that's live on X: paste its link, or pick a live post the tracker already found (that row joins the
   // calendar with the card's format, audience and media, and the card itself leaves so the post isn't counted twice).
   calLinkPaste(p,v){v=String(v||'').trim();if(!v)return;const l=AK.ourPostLink(v,p.account);
@@ -2082,7 +2136,7 @@ class Component extends DCLogic {
       rootRef:this.rootRef,mainRef:this.mainRef,palRef:this.palRef,F,density:narrow?'touch':'comfy',glassMode:{'Frosted':'frosted','Clear':'clear','Solid white':'solid'}[this.props.glass??'Frosted']||'frosted',
       wide:!narrow,narrow,isPhone:!!F.phone,phoneTime:hhmm(Date.now()),amb,nav:this.navVals(c),owners:this.ownerVals(),owner:s.owner,onOwnerSel:e=>this.setOwner(e.target.value),
       openPal:()=>this.openPal(),status:!at?(AK.gate()&&!AK.gate().wait?'Not connected':'Connecting…'):this.founder?'View only · updated '+tm:src+' · '+tm,statusShort:this.founder?'View only · '+tm:'Updated '+tm,
-      refresh:()=>{if(!AK.XJ.running['x-engage'])AK.refresh();},refreshLabel:AK.XJ.running['x-engage']?'Checking X\u2026':'Refresh now',openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
+      refresh:()=>{if(!AK.S.refreshing&&!AK.XJ.running['x-engage'])AK.refresh();},refreshLabel:AK.S.refreshing||AK.XJ.running['x-engage']||AK.SOC.igRunning?'Refreshing all\u2026':'Refresh now',openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
       plats:this.platVals(),plat:s.plat,isLiMode:s.plat==='LinkedIn',onPlatSel:e=>this.setPlat(e.target.value),
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
       tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=s.plat!=='X'?0:x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;const lb=this.lastBy&&this.lastBy[s.plat+'|'+x.id];return{label:x.label,go:()=>this.go(lb&&x.pages.includes(lb)?lb:x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),

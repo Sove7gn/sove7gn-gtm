@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=49e05abd72"></script>
+<script src="./data.js?v=2270b158d6"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -618,7 +618,7 @@ class Component extends DCLogic {
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,geTab:'new',geQ:'',geDraft:{},geAdd:{lead:'',url:'',at:'',text:'',draft:''},geMore:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:'',rel:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},lbtEd:{},lbtTpl:{},lbtN:20,inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
-    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
+    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calStats:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
     const el=this.rootRef.current;
@@ -1118,7 +1118,7 @@ class Component extends DCLogic {
   calScroll(acc,where,instant){const el=document.getElementById('cal-'+acc);if(!el||!el.children.length)return;const w=el.children[0].getBoundingClientRect().width+12;const behavior='auto';
     if(where==='l'||where==='r')el.scrollBy({left:(where==='l'?-2:2)*w,behavior});else el.scrollTo({left:Math.max(0,where-1)*w,behavior});}
   calCard(p,w,a){const s=this.state;const f=this.founder||!!p.o._li;const o=p.o;const id=p.id;const ed=s.calEd[id]||{};
-    const st=p.link?'Posted':String(o.Status||'Draft');const pc=CAL_PILL[st]||['var(--warn-soft)','var(--warn-ink)'];
+    const st=p.link?'Posted':String(o.Status||'Draft');const pc=CAL_PILL[st]||['var(--warn-soft)','var(--warn-ink)'];const mv=this.calMovable(p,st);
     const setEd=(k,v)=>this.setState(x=>({calEd:{...x.calEd,[id]:{...(x.calEd[id]||{}),[k]:v}}}));
     const takeEd=k=>{const v=(this.state.calEd[id]||{})[k];if(v==null)return null;this.setState(x=>{const e={...(x.calEd[id]||{})};delete e[k];return{calEd:{...x.calEd,[id]:e}};});return v;};
     const txt=ed.text!=null?ed.text:p.text;const linkOpen=s.calLink===id;
@@ -1143,12 +1143,12 @@ class Component extends DCLogic {
       schedLabel:st==='Scheduled'?'Scheduled ✓':'Scheduled',toggleSched:()=>{if(!f)AK.calSave(o,{status:st==='Scheduled'?'Draft':'Scheduled'});},
       copy:()=>this.copy(txt,'cal'+id,'Post copied'),copyLabel:cb.label,
       upload:e=>{const fl=e.target.files&&e.target.files[0];e.target.value='';if(fl)AK.calUpload(o,fl);},upLabel:up?'Uploading…':'Add image',
-      remove:()=>this.calRemove(p),
+      remove:()=>this.calRemove(p),...this.calDateVals(p,w,mv),
       dragStart:e=>{const t=e.target&&e.target.closest&&e.target.closest('input,textarea,select,button');if(t){e.preventDefault();return;}this.dragId=id;try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',id);}catch(_){}this.setState({calDragging:id});},
-      dragEnd:()=>{this.dragId=null;if(this.state.calDragging||this.state.calOver)this.setState({calDragging:null,calOver:null});},drag:f?'false':'true',cur:f?'default':'grab',op:s.calDragging===id?'.45':'1',
-      dragTip:f?'':'Drag the card to another day',
+      dragEnd:()=>{this.dragId=null;if(this.state.calDragging||this.state.calOver)this.setState({calDragging:null,calOver:null});},drag:mv?'true':'false',cur:mv?'grab':'default',op:s.calDragging===id?'.45':'1',
+      dragTip:mv?'Drag the card to another day, or press the date':'',
       ...this.tickVals(p,st),
-      hasLink:!!p.link,linkLabel:li?'Live on LinkedIn'+(num(o.Likes)?' · '+fmtK(num(o.Likes))+' reactions':'')+(num(o.Replies)?' · '+fmtK(num(o.Replies))+' comments':''):'Live on X'+(p.ourViews?' · '+p.ourViews+' views':''),openLink:()=>window.open(p.link,'_blank','noopener'),
+      hasLink:!!p.link,...this.calLiveVals(p),openLink:()=>window.open(p.link,'_blank','noopener'),
       canLink:!p.link&&!f,toggleLink:()=>this.setState({calLink:linkOpen?null:id,calLinkVal:''}),linkOpen,linkVal:s.calLinkVal,
       setLinkVal:e=>this.setState({calLinkVal:e.target.value}),saveLink:()=>this.calLinkPaste(p,s.calLinkVal),
       linkPh:'Paste the post link (x.com/'+(AK.HANDLES[p.account]||'…')+'/status/…)',live,hasLive:live.length>0,
@@ -1167,9 +1167,63 @@ class Component extends DCLogic {
   // A card made on the calendar that is still empty is removed for good; any other post just leaves the calendar.
   calRemove(p){const blank=p.o['What we changed']==='Added in the calendar'&&!p.text.trim()&&!p.link;const was=p.o.Status||'Draft';const wasCal=p.o.Calendar||'';
     AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:'No'}).then(ok=>{if(ok)this.toast(blank?'Removed':'Taken off the calendar. It’s still in Our posts.',()=>AK.calSave(p.o,blank?{cal:'Yes',status:was}:{cal:wasCal}));});}
-  calDrop(a,d){if(this.founder||this.state.plat==='LinkedIn')return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
+  calDrop(a,d){if(this.founder)return;const id=this.dragId;this.dragId=null;const p=id&&this.postList().find(x=>x.id===id);if(!p)return;
     if(p.account!==a.acc){this.toast('Drag a post within its own account.',null,true);return;}
-    const w=calWhere(p.o,this.state.calZone);if(!w||w.key===d.key)return;const r=toIst(d.key,w.hm,this.state.calZone);AK.calSave(p.o,{date:r.date,time:r.time});}
+    if(!this.calMovable(p,p.link?'Posted':String(p.o.Status||'Draft'))){this.toast('This post is already live, so it stays on its day.',null,true);return;}
+    const w=calWhere(p.o,this.state.calZone);if(!w||w.key===d.key)return;this.calMoveTo(p,w,d.key);}
+  // (13 Nov) Which cards can move: not posted yet; LinkedIn ones only from the queue sheet (its Posted tab is history).
+  calMovable(p,st){return !this.founder&&!p.link&&st!=='Posted'&&(!p.o._li||!!p.o._qrow);}
+  // Move a post to the day "key" (y-m-d, month from 0, in the zone shown). X: the post's Date in Our Posts, time kept.
+  // LinkedIn: the queue sheet's Date moves by the same number of days (its slot time stays), through AK.liMove.
+  calMoveTo(p,w,key){const z=this.state.calZone;const [y,m,d]=key.split('-').map(Number);const label=d+' '+AK.MON[m];
+    if(p.o._li){const [a,b,c]=w.key.split('-').map(Number);const shift=Math.round((Date.UTC(y,m,d)-Date.UTC(a,b,c))/AK.DAY);
+      const q=String(p.o._qdate||'').split('-').map(Number);if(q.length!==3||!q[0]){this.toast('This post has no date in the queue sheet to move.',null,true);return;}
+      const t=new Date(Date.UTC(q[0],q[1]-1,q[2])+shift*AK.DAY);const iso=t.getUTCFullYear()+'-'+String(t.getUTCMonth()+1).padStart(2,'0')+'-'+String(t.getUTCDate()).padStart(2,'0');
+      AK.liMove(p.o,iso);return;}
+    const was={date:p.o.Date,time:p.o['Time (IST)']};const r=toIst(key,w.hm,z);
+    AK.calSave(p.o,{date:r.date,time:r.time}).then(ok=>{if(ok)this.toast('Moved to '+label+'.',()=>AK.calSave(p.o,{date:was.date,time:was.time}));});}
+  // The date button on a card: shows the day, opens the browser's date picker, and moves the post to the day picked.
+  calDateVals(p,w,mv){const [y,m,d]=w.key.split('-').map(Number);const dt=new Date(y,m,d);
+    const iso=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    return{canDate:mv,dateIso:iso,dateLabel:['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+d+' '+AK.MON[m],
+      dateTip:p.o._moving?'Moved here. The LinkedIn queue sheet gets the new date as soon as Sheets is connected in Composio.':'Move this post to another day',
+      dateBd:p.o._moving?'var(--warn)':'var(--hairline-strong)',
+      pickDate:e=>{const i=e.currentTarget.querySelector('input');if(!i)return;try{i.showPicker();}catch(_){i.focus();}},
+      setDate:e=>{const v=e.target.value;if(!v||v===iso)return;const [Y,M,D]=v.split('-').map(Number);this.calMoveTo(p,w,dkey(Y,M-1,D));}};}
+  // Live posts (13 Nov): the green Live button opens the post's numbers on the card itself: views, likes, comments, reposts,
+  // and the leads it brought in (LinkedIn: people who liked or commented and became leads; X: repliers we found).
+  calLiveVals(p){const blank={linkLabel:'',statArrow:'',statsOpen:false,toggleStats:()=>{},stats:{tiles:[],people:[],hasPeople:false,leadLine:'',checked:'',hasChecked:false}};
+    if(!p.link)return blank;const id=p.id;const on=!!(this.state.calStats||{})[id];const st=this.calStats(p);
+    return{linkLabel:(p.o._li?'Live on LinkedIn':'Live on X')+(st.headline?' · '+st.headline:''),statArrow:on?'▴':'▾',statsOpen:on,stats:st,
+      toggleStats:()=>this.setState(x=>({calStats:{...(x.calStats||{}),[id]:!on}}))};}
+  calStats(p){const o=p.o;const li=!!o._li;const n=v=>v==null||v===''||isNaN(+v)?'–':fmtK(+v);
+    const out={tiles:[],people:[],hasPeople:false,leadLine:'',checked:'',hasChecked:false,headline:''};
+    const TALK=/In talks|Call booked|Proposal sent|Won/;
+    if(li){const k=liMarkKey(o['Our version']);const act=(String(p.link).match(/(?:activity|share|ugcPost)[:%3A-]+(\d{15,})/i)||[])[1];
+      const sp=AK.SOC.posts.find(x=>x.platform==='linkedin'&&((act&&x.post_id===act)||(k&&liMarkKey(x.text)===k)||AK.linkKey(x.url)===AK.linkKey(p.link)));
+      const likes=sp?sp.likes:(num(o.Likes)!=null?num(o.Likes):o._reactions);const views=sp?sp.views:null;
+      out.tiles=[{n:n(views),l:'Views'},{n:n(likes),l:'Likes'},{n:n(sp?sp.comments:null),l:'Comments'},{n:n(sp?sp.reposts:null),l:'Reposts'}];
+      if(views!=null)out.headline=fmtK(+views)+' views';else if(likes!=null)out.headline=fmtK(+likes)+' likes';
+      if(!sp){out.leadLine='No numbers yet. They come in on the next LinkedIn check (Refresh asks for one).';out.hasPeople=false;return out;}
+      if(sp.checked_at){const c=new Date(sp.checked_at);out.checked='Checked '+AK.dayWord(c).toLowerCase()+', '+c.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});out.hasChecked=true;}
+      const keys=[...new Set(AK.SOC.eng.filter(e=>e.platform==='linkedin'&&e.post_id===sp.post_id).map(e=>e.person_key))];
+      const ppl=keys.map(key=>AK.SOC.people.find(x=>x.platform==='linkedin'&&x.person_key===key)).filter(x=>x&&!x.is_self);
+      const leads=ppl.map(x=>{const l=(x.lead_id&&AK.LD.rows.find(r=>r.id===x.lead_id))||AK.LD.rows.find(r=>r.origin_key==='li-person:'+x.person_key);return l?{x,l}:null;}).filter(Boolean);
+      const msg=leads.filter(({l})=>l.fields&&l.fields.li&&(l.fields.li.dm||l.fields.li.req)).length,talk=leads.filter(({l})=>TALK.test(l.stage)).length;
+      out.leadLine=ppl.length+(ppl.length===1?' person':' people')+' liked or commented · '+leads.length+(leads.length===1?' became a lead':' became leads')+(msg?' · '+msg+' contacted':'')+(talk?' · '+talk+' talking to us':'');
+      const stepOf=l=>TALK.test(l.stage)?l.stage:l.fields&&l.fields.li&&l.fields.li.dm?'Messaged':l.fields&&l.fields.li&&l.fields.li.req?'Request sent':l.stage;
+      out.people=leads.sort((a,b)=>(TALK.test(b.l.stage)?2:b.l.fields&&b.l.fields.li&&b.l.fields.li.dm?1:0)-(TALK.test(a.l.stage)?2:a.l.fields&&a.l.fields.li&&a.l.fields.li.dm?1:0)).slice(0,8)
+        .map(({x,l})=>({name:l.name||x.name,sub:stepOf(l),open:()=>this.openLead(l.id)}));}
+    else{const lk=AK.linkKey(p.link);const tr=this.trackedBy().get(lk);
+      out.tiles=[{n:n(tr?tr.views:num(o.Views)),l:'Views'},{n:n(tr?tr.likes:num(o.Likes)),l:'Likes'},{n:n(tr?tr.replies:num(o.Replies)),l:'Replies'},{n:n(tr?tr.reposts:num(o.Reposts)),l:'Reposts'}];
+      if(tr&&tr.views!=null)out.headline=fmtK(tr.views)+' views';
+      const last=tr&&tr.hist&&tr.hist.length?tr.hist[tr.hist.length-1]:null;if(last&&last._t){out.checked='Checked '+AK.dayWord(new Date(last._t)).toLowerCase();out.hasChecked=true;}
+      const E=AK.M.engagers.filter(e=>AK.linkKey(e['Our post link'])===lk);const fit=E.filter(e=>verdictOf(e)==='DM + reply');
+      const inPipe=E.filter(e=>/^(Messaged|Replied)$/.test(e.Status||''));
+      out.leadLine=E.length+(E.length===1?' person':' people')+' replied, quoted or were tagged · '+fit.length+' fit to DM'+(inPipe.length?' · '+inPipe.length+' in the DM pipeline':'');
+      out.people=fit.slice(0,8).map(e=>{const h=String(e.Handle||'').replace(/^@/,'');const l=AK.LD.rows.find(r=>String(r.x_handle||'').replace(/^@/,'').toLowerCase()===h.toLowerCase());
+        return{name:e.Name||'@'+h,sub:l?l.stage:(e.Status||'To message'),open:()=>l?this.openLead(l.id):window.open('https://x.com/'+h,'_blank','noopener')};});}
+    out.hasPeople=out.people.length>0;return out;}
   // Link a card to a post that's live on X: paste its link, or pick a live post the tracker already found (that row joins the
   // calendar with the card's format, audience and media, and the card itself leaves so the post isn't counted twice).
   calLinkPaste(p,v){v=String(v||'').trim();if(!v)return;const l=AK.ourPostLink(v,p.account);
@@ -2499,7 +2553,7 @@ class Component extends DCLogic {
       rootRef:this.rootRef,mainRef:this.mainRef,palRef:this.palRef,F,density:narrow?'touch':'comfy',glassMode:{'Frosted':'frosted','Clear':'clear','Solid white':'solid'}[this.props.glass??'Frosted']||'frosted',
       wide:!narrow,narrow,isPhone:!!F.phone,phoneTime:hhmm(Date.now()),amb,nav:this.navVals(c),owners:this.ownerVals(),owner:s.owner,onOwnerSel:e=>this.setOwner(e.target.value),
       openPal:()=>this.openPal(),status:!at?(AK.gate()&&!AK.gate().wait?'Not connected':'Connecting…'):this.founder?'View only · updated '+tm:src+' · '+tm,statusShort:this.founder?'View only · '+tm:'Updated '+tm,
-      refresh:()=>{if(!AK.XJ.running['x-engage'])AK.refresh();},refreshLabel:AK.XJ.running['x-engage']?'Checking X\u2026':'Refresh now',openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
+      refresh:()=>{if(!AK.S.refreshing&&!AK.XJ.running['x-engage'])AK.refresh();},refreshLabel:AK.S.refreshing||AK.XJ.running['x-engage']||AK.SOC.igRunning?'Refreshing all\u2026':'Refresh now',openSheet:e=>{e.preventDefault();open(AK.SHEET_URL);},pageLabel:PAGES[page].label,
       plats:this.platVals(),plat:s.plat,isLiMode:s.plat==='LinkedIn',onPlatSel:e=>this.setPlat(e.target.value),
       subnav:secObj.pages.map(id=>{const on=id===page;return{label:PAGES[id].label,go:()=>this.go(id),bg:on?'var(--ink)':'rgba(255,255,255,.7)',fg:on?'#fff':'var(--ink-2)',sh:on?'0 4px 12px -4px rgba(19,20,24,.4)':'var(--shadow-xs), inset 0 0 0 1px var(--hairline)'};}),hasSub:secObj.pages.length>1,
       tabbar:secsFor(s.plat).map(x=>{const on=x.id===sec;const b=s.plat!=='X'?0:x.id==='out'?c.send:x.id==='mid'?c.inbox+c.pdm:0;const lb=this.lastBy&&this.lastBy[s.plat+'|'+x.id];return{label:x.label,go:()=>this.go(lb&&x.pages.includes(lb)?lb:x.pages[0]),fg:on?'var(--ink)':'var(--ink-3)',fw:on?'600':'500',dot:on?ACC[x.id].c:'var(--hairline-strong)',w:on?'22px':'6px',hasBadge:b>0,badge:String(b),badgeBg:ACC[x.id].c};}),
@@ -2603,7 +2657,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <span style="width:7px; height:7px; border-radius:50%; flex:0 0 7px; background:var(--ok); animation:ak-live 2.4s var(--ease) infinite;"></span>
 <span>{{ status }}</span>
 </button>
-<button onClick="{{ refresh }}" title="Reload now and pull new numbers and replies from X" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ refreshLabel }}</button>
+<button onClick="{{ refresh }}" title="Pull new numbers, replies and leads from X, LinkedIn and Instagram" style="display:flex; align-items:center; justify-content:center; gap:6px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">{{ refreshLabel }}</button>
 <a href="#" onClick="{{ openSheet }}" style="display:flex; align-items:center; justify-content:space-between; height:32px; padding:0 12px; border-radius:var(--r-btn); background:rgba(255,255,255,.65); box-shadow:var(--shadow-xs), inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:500; color:var(--ink); transition:background var(--dur), box-shadow var(--dur);" style-hover="background:#fff; color:var(--ink); box-shadow:var(--shadow-sm);">Database<span style="color:var(--ink-3);">↗</span></a>
 </div>
 </div>
@@ -4615,7 +4669,15 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <sc-if value="{{ k.expanded }}"><textarea value="{{ k.text }}" onChange="{{ k.setText }}" onBlur="{{ k.saveText }}" disabled="{{ k.txtRo }}" placeholder="Write the post…" rows="{{ k.rows }}" style="width:100%; box-sizing:border-box; padding:2px 0; border:0; background:transparent; font-size:var(--fs-sm); line-height:1.5; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea><sc-if value="{{ k.canLess }}"><button onClick="{{ k.less }}" style="align-self:flex-start; padding:0; border:0; background:transparent; font-size:var(--fs-xs); font-weight:600; color:var(--ink-3); cursor:pointer;">Show&nbsp;less</button></sc-if></sc-if>
 <sc-if value="{{ k.hasMedia }}"><div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px;"><sc-for list="{{ k.media }}" as="m"><div style="position:relative;"><img src="{{ m.src }}" onClick="{{ m.open }}" alt="Attached media" style="display:block; width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; background:var(--n-soft); cursor:pointer;"><sc-if value="{{ m.video }}"><span style="position:absolute; left:6px; bottom:6px; height:20px; padding:0 7px; display:inline-flex; align-items:center; border-radius:var(--r-pill); background:rgba(19,20,24,.72); color:#fff; font-size:10px; font-weight:600;">▶</span></sc-if><sc-if value="{{ m.canRm }}"><button onClick="{{ m.rm }}" title="Remove" style="position:absolute; top:5px; right:5px; width:22px; height:22px; border:0; border-radius:50%; background:rgba(19,20,24,.7); color:#fff; font-size:13px; line-height:1; cursor:pointer;">×</button></sc-if></div></sc-for></div></sc-if>
 <sc-if value="{{ k.hasSug }}"><div style="display:flex; flex-direction:column; gap:6px; padding:6px; border-radius:10px; background:var(--in-soft);"><div style="position:relative;"><img src="{{ k.sugThumb }}" onClick="{{ k.openSug }}" alt="Suggested photo or video" style="display:block; width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:8px; background:#fff; cursor:pointer;"><sc-if value="{{ k.sugVideo }}"><span style="position:absolute; left:8px; bottom:8px; height:22px; padding:0 8px; display:inline-flex; align-items:center; border-radius:var(--r-pill); background:rgba(19,20,24,.72); color:#fff; font-size:var(--fs-3xs); font-weight:600;">▶&nbsp;Video</span></sc-if></div><div style="display:flex; align-items:center; gap:6px;"><span title="{{ k.sugWhy }}" style="flex:1; min-width:0; padding-left:4px; font-size:var(--fs-3xs); font-weight:600; color:var(--in-ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">★&nbsp;{{ k.sugName }}</span><sc-if value="{{ k.canUp }}"><button onClick="{{ k.useSug }}" title="Attach it to this post" style="height:26px; padding:0 10px; border:0; border-radius:7px; background:var(--ink); color:#fff; font-size:var(--fs-3xs); font-weight:600; cursor:pointer;">Attach</button></sc-if><button onClick="{{ k.openSug }}" style="height:26px; padding:0 10px; border:0; border-radius:7px; background:#fff; font-size:var(--fs-3xs); font-weight:600; color:var(--ink); cursor:pointer;">Open&nbsp;↗</button></div></div></sc-if>
-<sc-if value="{{ k.hasLink }}"><button onClick="{{ k.openLink }}" style="align-self:flex-start; height:28px; padding:0 12px; border:0; border-radius:var(--r-pill); background:var(--ok-soft); color:var(--ok-ink); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ k.linkLabel }} ↗</button></sc-if>
+<sc-if value="{{ k.hasLink }}"><button onClick="{{ k.toggleStats }}" title="See this post's views, likes, comments and the leads it brought in" style="align-self:flex-start; display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 12px; border:0; border-radius:var(--r-pill); background:var(--ok-soft); color:var(--ok-ink); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ k.linkLabel }} <span style="font-size:10px;">{{ k.statArrow }}</span></button></sc-if>
+<sc-if value="{{ k.statsOpen }}">
+<div style="display:flex; flex-direction:column; gap:10px; padding:10px; border-radius:12px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline);">
+<div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px;"><sc-for list="{{ k.stats.tiles }}" as="t"><div style="display:flex; flex-direction:column; gap:2px; padding:8px 6px; border-radius:9px; background:#fff; text-align:center;"><span style="font-size:var(--fs-md); font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-0.01em;">{{ t.n }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ t.l }}</span></div></sc-for></div>
+<span style="font-size:var(--fs-xs); line-height:1.45; color:var(--ink-2);"><b style="font-weight:600; color:var(--ink);">Leads:</b> {{ k.stats.leadLine }}</span>
+<sc-if value="{{ k.stats.hasPeople }}"><div style="display:flex; flex-direction:column; gap:4px;"><sc-for list="{{ k.stats.people }}" as="pp"><button onClick="{{ pp.open }}" style="display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 9px; border:0; border-radius:8px; background:#fff; text-align:left; cursor:pointer;" style-hover="box-shadow:inset 0 0 0 1px var(--hairline-strong);"><span style="min-width:0; font-size:var(--fs-xs); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pp.name }}</span><span style="flex:0 0 auto; font-size:var(--fs-3xs); color:var(--ink-3);">{{ pp.sub }}</span></button></sc-for></div></sc-if>
+<div style="display:flex; align-items:center; gap:8px;"><sc-if value="{{ k.stats.hasChecked }}"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ k.stats.checked }}</span></sc-if><button onClick="{{ k.openLink }}" style="margin-left:auto; height:28px; padding:0 10px; border:0; border-radius:7px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); font-weight:600; color:var(--ink); cursor:pointer;">Open post ↗</button></div>
+</div>
+</sc-if>
 <sc-if value="{{ k.linkOpen }}">
 <div style="display:flex; flex-direction:column; gap:8px; padding:10px; border-radius:10px; background:var(--n-soft);">
 <div style="display:flex; gap:6px;"><input value="{{ k.linkVal }}" onChange="{{ k.setLinkVal }}" placeholder="{{ k.linkPh }}" style="flex:1; min-width:0; height:32px; padding:0 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); outline:none;"><button onClick="{{ k.saveLink }}" style="height:32px; padding:0 12px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:500; cursor:pointer;">Link</button></div>
@@ -4625,6 +4687,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <sc-if value="{{ k.notLive }}">
 <div style="display:flex; align-items:center; gap:6px; padding:4px 4px 4px 6px; border-radius:10px; background:var(--n-soft);">
 <sc-if value="{{ k.notLi }}"><select value="{{ k.status }}" onChange="{{ k.setStatus }}" disabled="{{ k.ro }}" aria-label="Status" title="Change the post's status" style="flex:1 1 auto; min-width:0; height:30px; padding:0 4px; border:0; background:transparent; font-size:var(--fs-sm); color:var(--ink); cursor:pointer;"><sc-for list="{{ k.stOpts }}" as="o"><option value="{{ o.v }}">{{ o.v }}</option></sc-for></select></sc-if>
+<sc-if value="{{ k.canDate }}"><span onClick="{{ k.pickDate }}" title="{{ k.dateTip }}" style="position:relative; flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px {{ k.dateBd }}; font-size:var(--fs-xs); font-weight:600; color:var(--ink); white-space:nowrap; cursor:pointer;" style-hover="box-shadow:inset 0 0 0 1px var(--ink-4);"><svg width="14" height="14" viewBox="0 0 24 24" style="fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M16 3v4M8 3v4M3 10h18"></path></svg>{{ k.dateLabel }}<input type="date" value="{{ k.dateIso }}" onChange="{{ k.setDate }}" aria-label="Move to another day" tabindex="-1" style="position:absolute; left:0; bottom:0; width:100%; height:1px; padding:0; border:0; opacity:0; pointer-events:none;"></span></sc-if>
 <sc-if value="{{ k.canLink }}"><button onClick="{{ k.toggleLink }}" title="Paste the link once it's live on X" style="flex:0 0 auto; margin-left:auto; height:30px; padding:0 9px; border:0; border-radius:8px; background:transparent; font-size:var(--fs-xs); color:var(--ink-2); white-space:nowrap; cursor:pointer;" style-hover="background:#fff;">+&nbsp;Link</button></sc-if>
 <button onClick="{{ k.copy }}" style="flex:0 0 auto; height:30px; padding:0 14px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); font-weight:600; color:var(--ink); white-space:nowrap; cursor:pointer;">{{ k.copyLabel }}</button>
 </div>

@@ -338,6 +338,12 @@ async function xTick() {
   xbusy = true; const ka = keepAlive();
   try {
     const { key } = await store.get("key"); if (!key) return;
+    // Refresh in the CRM (13 Nov): asked every 3 minutes; when it was pressed, read LinkedIn (post numbers, engagers) now.
+    const { pollAt = 0 } = await store.get("pollAt");
+    if (Date.now() - pollAt > 3 * 60e3) {
+      await store.set({ pollAt: Date.now() });
+      try { const r = await api("poll", {}); if (r.sync && !busy) setTimeout(() => sync(false), 1500); } catch (_) {}
+    }
     let { xqueue = [], xplanAt = 0 } = await store.get(["xqueue", "xplanAt"]);
     xqueue = xqueue.filter((t) => Date.now() - t.handed < 50 * 60e3);
     if (!xqueue.length && Date.now() - xplanAt > 6 * 60e3) {

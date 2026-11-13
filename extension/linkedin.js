@@ -77,8 +77,11 @@ export async function liOp(op, a = {}) {
         if (at < since) continue;
         posts.push({ id: act, content: txt(u.commentary && u.commentary.text), at });
       }
-      const nc = new Map(inc(j).filter((e) => /SocialActivityCounts$/.test(e.$type || "")).map((e) => [(String(e.entityUrn || e.urn || "").match(/activity:(\d+)/) || [])[1], e.numComments]));
-      for (const p of posts) p.numComments = nc.has(p.id) ? +nc.get(p.id) || 0 : null;
+      // LinkedIn's own counts for each post (13 Nov): comments, reposts, likes and, on your own posts, impressions (views).
+      const nc = new Map(inc(j).filter((e) => /SocialActivityCounts$/.test(e.$type || "")).map((e) => [(String(e.entityUrn || e.urn || "").match(/activity:(\d+)/) || [])[1], e]));
+      const n = (v) => (v == null || v === "" || isNaN(+v) ? null : +v);
+      for (const p of posts) { const c = nc.get(p.id) || {}; p.numComments = n(c.numComments); p.numShares = n(c.numShares); p.numLikes = n(c.numLikes);
+        p.numViews = n(c.numImpressions ?? c.impressionCount ?? c.numViews); }
     } catch (e) { out.err = String(e.message); }
     for (const id of x.extra_posts || []) if (!posts.some((p) => p.id === id)) { const at = Number(BigInt(id) >> 22n); if (at >= since) posts.push({ id, content: "", at }); }
     for (const p of posts) {
@@ -111,7 +114,8 @@ export async function liOp(op, a = {}) {
         counts.comments++;
       }
       out.push({ type: "post", id: p.id, linkedinUrl: "https://www.linkedin.com/feed/update/urn:li:activity:" + p.id + "/", content: p.content,
-        postedAt: { date: new Date(p.at).toISOString() }, engagement: counts,
+        postedAt: { date: new Date(p.at).toISOString() },
+        engagement: { likes: Math.max(counts.likes, p.numLikes || 0), comments: Math.max(counts.comments, p.numComments || 0), shares: p.numShares || 0, views: p.numViews },
         author: { id: x.me.urn, linkedinUrl: "https://www.linkedin.com/in/" + x.me.pid, name: x.me.name, publicIdentifier: x.me.pid } });
       await jitter(1200, 2500);
     }

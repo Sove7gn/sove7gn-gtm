@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, refresh, poll } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -87,6 +87,8 @@ async function hello(b: any) {
   const set = await settings();
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
   const lastScan = Date.parse((st?.value as any)?.last_scan ?? "") || 0;
+  // Refresh in the CRM (13 Nov) asks for a fresh read of our posts' numbers and engagers on the next sync.
+  const wantScan = (Date.parse((st?.value as any)?.refresh_at ?? "") || 0) > lastScan;
   await saveStatus({ seen: now(), version: b.version ?? "", me: b.me ?? null, signed_in: b.signed_in !== false });
   // Posts we already know about (from earlier checks), in case LinkedIn's own list of our posts misses one.
   const { data: known } = await db.from("crm_social_posts").select("post_id").eq("platform", "linkedin").gte("posted_at", new Date(Date.now() - 30 * 86400e3).toISOString());
@@ -103,9 +105,78 @@ async function hello(b: any) {
   return { probe, paused: set.paused, mode: set.mode, in_hours: inHours(set.hours), hours: set.hours,
     do_views: ago("last_viewed") > 6 * 3600e3, do_invites: ago("last_inbound") > 40 * 60e3, do_withdraw: ago("last_withdraw") > 20 * 3600e3,
     do_niche: ago("last_niche") > 6 * 3600e3, niche_posts: (np ?? []).map((x: any) => ({ url: x.url, author: x.author })),
-    scan_engagers: Date.now() - lastScan > 3 * 3600e3, scan_days: 30, extra_posts: (known ?? []).map((k) => String(k.post_id)).filter((x) => /^\d+$/.test(x)) };
+    scan_engagers: wantScan || Date.now() - lastScan > 3 * 3600e3, scan_days: 30, extra_posts: (known ?? []).map((k) => String(k.post_id)).filter((x) => /^\d+$/.test(x)) };
 }
 async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { last_error: String(b.error).slice(0, 500), last_error_at: now() } : {}), ...(b.note ? { last_note: String(b.note).slice(0, 300) } : {}), ...(b.diag ? { diag: b.diag } : {}) }); return { ok: true }; }
+
+// ───────── Refresh (13 Nov): the CRM's Refresh button asks the extension for a LinkedIn read now ─────────
+// refresh: called by the CRM. poll: the extension asks every few minutes whether a read was asked for (then runs its sync).
+async function refresh(_b: any) {
+  await saveStatus({ refresh_at: now() });
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
+  const seen = Date.parse((data?.value as any)?.seen ?? "") || 0;
+  return { ok: true, extension_seen_min: seen ? Math.round((Date.now() - seen) / 60e3) : null };
+}
+async function poll(_b: any) {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
+  const v: any = data?.value ?? {};
+  return { sync: (Date.parse(v.refresh_at ?? "") || 0) > (Date.parse(v.last_scan ?? "") || 0) && (Date.now() - (Date.parse(v.refresh_at ?? "") || 0)) < 3600e3 };
+}
+
+// ───────── Moving a LinkedIn post to another day (13 Nov) ─────────
+// LinkedIn posts live in the LinkedIn queue sheet (Queue tab: Post text, Image URL, Date, Slot, Status...), which the CRM only
+// reads. The calendar saves each move in crm_lead_settings li_moves {key: {row, date "YYYY-MM-DD", text, at}} and shows it at
+// once; this writes the new Date into the sheet (Queue column C) through Composio Google Sheets and marks the move applied.
+// Moves still waiting (Google Sheets not connected yet, or a failed write) are retried by the 15-minute briefs job.
+async function li_move(_b: any) {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_moves").maybeSingle();
+  const moves = { ...((data?.value ?? {}) as Record<string, any>) };
+  const todo = Object.entries(moves).filter(([, m]) => m && !m.applied && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date ?? "")));
+  if (!todo.length) return { applied: 0, waiting: 0, connected: null };
+  const { data: rows } = await db.from("crm_sheet").select("cells").eq("tab", "Settings");
+  const sheet = String(((rows ?? []).find((r: any) => String(r.cells?.[0] ?? "").trim() === "LinkedIn sheet")?.cells ?? [])[1] ?? "").trim();
+  if (!sheet) return { applied: 0, waiting: todo.length, error: "No LinkedIn sheet in Settings" };
+  let alias = "";
+  try {
+    const out = await mcp("COMPOSIO_MANAGE_CONNECTIONS", { toolkits: [{ name: "googlesheets", action: "list" }] });
+    const acc = (out?.data?.results?.googlesheets?.accounts ?? []).find((a: any) => a.status === "active");
+    alias = acc ? acc.alias || acc.id : "";
+  } catch (_) { /* treated as not connected */ }
+  if (!alias) return { applied: 0, waiting: todo.length, connected: false };
+  // Find each post's row by its text (rows can shift when someone edits the sheet), falling back to the row we saw.
+  const r = await fetch("https://docs.google.com/spreadsheets/d/" + encodeURIComponent(sheet) + "/export?format=csv&gid=0", { cache: "no-store" });
+  const grid = r.ok ? csv(await r.text()) : [];
+  const key = (t: unknown) => String(t ?? "").replace(/\s+/g, " ").trim().slice(0, 80).toLowerCase();
+  const rowOf = new Map<string, number>();
+  grid.forEach((row, i) => { if (i > 0 && row[0]) rowOf.set(key(row[0]), i + 1); });
+  const data2: any[] = [], hit: string[] = [];
+  for (const [k, m] of todo) {
+    const row = rowOf.get(k) ?? rowOf.get(key(m.text)) ?? 0;
+    if (!row) { moves[k] = { ...m, error: "Couldn't find this post in the queue sheet" }; continue; }
+    data2.push({ range: "Queue!C" + row, values: [[m.date]], majorDimension: "ROWS" }); hit.push(k);
+  }
+  let applied = 0, error = "";
+  if (data2.length) {
+    try {
+      const out = await mcp("COMPOSIO_MULTI_EXECUTE_TOOL", { tools: [{ tool_slug: "GOOGLESHEETS_UPDATE_VALUES_BATCH",
+        arguments: { spreadsheet_id: sheet, valueInputOption: "USER_ENTERED", data: data2 }, account: alias }], sync_response_to_workbench: false });
+      const res = (out?.data?.results ?? [])[0];
+      const ok = res && (res.successful ?? res.response?.successful) !== false && !res.error && !res.response?.error;
+      if (!ok) throw new Error(String(res?.error ?? res?.response?.error ?? "Google Sheets didn't accept it").slice(0, 200));
+      for (const k of hit) { moves[k] = { ...moves[k], applied: now(), error: "" }; applied++; }
+    } catch (e) { error = String((e as Error).message ?? e); for (const k of hit) moves[k] = { ...moves[k], error }; }
+  }
+  await db.from("crm_lead_settings").upsert({ key: "li_moves", value: moves, updated_at: now() });
+  return { applied, waiting: todo.length - applied, connected: true, error };
+}
+function csv(t: string): string[][] {
+  const rows: string[][] = []; let row: string[] = [], cell = "", q = false;
+  for (let i = 0; i < t.length; i++) { const ch = t[i];
+    if (q) { if (ch === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true; else if (ch === ",") { row.push(cell); cell = ""; } else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; } else if (ch !== "\r") cell += ch; }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
 
 // ───────── engagers: hand them to social-sync (same judging and lead rules as before, no Apify) ─────────
 async function engagers(b: any) {
@@ -1018,6 +1089,7 @@ async function briefs(b: any) {
   }
   // The 15 minute job also writes the 3 tips for anyone who said yes to them.
   const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
+  if (!b.force_id) await li_move({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
   return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
 }
 
