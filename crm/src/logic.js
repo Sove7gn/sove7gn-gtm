@@ -21,12 +21,12 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
   const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
 const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},leadSignals:{sec:'leads',label:'Signals'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
 const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
-const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','leadSignals','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
 // A call booked for the GTM service (a LinkedIn or X lead, not clipping): these get a call dossier.
 const isGtmCall=l=>!!l&&/^(call booked|proposal sent)$/i.test(l.stage||'')&&/^(linkedin|x)$/i.test(l.source||'')&&!/clip|ugc|reel/i.test(String(l.pitch||'')+' '+String(l.closed_for||''))&&(((l.fields||{}).call||{}).kind!=='clipping');
 // The call on a lead (11 Nov, from Gmail and cal.com): when, the Meet link, GTM or clipping, booked / declined / cancelled.
@@ -42,7 +42,7 @@ const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
-const PAGE_INFO={leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
+const PAGE_INFO={leadSignals:'Buying signals we watch for you: founders who just announced a raise (every morning), people who visit gtm.sove7gn.org (RB2B), and people who ask for one of our lead magnets. Each becomes a lead and enters the LinkedIn sequence.',leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
   pipeline:'Everyone we\u2019ve DMed on X and where they are. Board and People show the stages; Scripts is where you edit the 3 DM versions and see which gets replies.',
   calendar:'Your X posts for each day: write them, move them, add an image, mark them scheduled or posted.',
@@ -1120,6 +1120,7 @@ class Component extends DCLogic {
     else if(page==='leadSetup')h.next='Your ICP, stages, sources, groups, categories and extra fields. Changes apply to every lead.';
     else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a fresh reason to reach out this week. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
     else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
+    else if(page==='leadSignals'){const L=this.leadsAll();const f=L.filter(l=>String(l.origin_key||'').startsWith('li-src:funding:'));const t0=Date.now()-7*864e5;const fw=f.filter(l=>Date.parse(l.created_at)>t0).length;h.next=f.length?fw+' founders who just raised added this week ('+f.length+' in all). Newest: '+f.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0].name+'.':'The funding search runs every morning at 8:30 IST.';}
     else if(page==='leadBrief'){const b=(AK.BR.rows||[])[0];h.next=!AK.BR.loaded?'Loading the brief…':!b?'No brief yet. It writes itself at 8:00 IST, or press Write it now.':'Today: '+((b.data.overall||[])[4]?b.data.overall[4].v:0)+' people to follow up with. Written '+this.since(b.made_at)+'.';}
     else if(page==='leadDossier'){const D=this.leadsAll().filter(isGtmCall);const w=D.filter(l=>!((l.fields||{}).brief||{}).at).length;h.next=D.length?D.length+(D.length===1?' GTM call':' GTM calls')+' booked'+(w?', '+w+' dossier'+(w===1?'':'s')+' being written.':'. Every dossier is ready.'):'No GTM calls booked yet.';}
     else if(page==='liPipe'){const w=AK.LBT.rows.filter(t=>t.status==='review').length;h.next=w?w+(w===1?' message is':' messages are')+' waiting for your OK. Approve them on the cards below.':'Nothing waiting for your OK. New people who engage with our posts show up in Leads found.';}
@@ -1162,6 +1163,7 @@ class Component extends DCLogic {
     if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(page==='leadDossier')return{...base,dos:this.dossierVals()};
     if(page==='leadBrief')return{...base,db:this.dailyVals(),ow:this.outreachVals()};
+    if(page==='leadSignals')return{...base,sg:this.leadSignalsVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
     if(page==='gtmDash')return{...base,dash:this.gtmDashVals()};
@@ -1818,6 +1820,38 @@ class Component extends DCLogic {
       asked,hasAsked:asked.length>0,
       funding:st.last_funding?'Last search '+this.since(st.last_funding)+': '+(fr.found||0)+' rounds found, '+(fr.added||0)+' founders added'+((fr.people||[]).length?' ('+fr.people.slice(0,4).join('; ')+')':'')+'. '+fund+' funding leads so far.':'Runs every morning at 8:30 IST.',
       site:site?site+' website visitors in Leads so far.':'No website visitors yet. Once RB2B is connected to sove7gn.org, every visitor it identifies lands in Leads as hot.'};}
+  // Signals page (14 Nov): everything the signal jobs find, with where each person is now.
+  leadSignalsVals(){const s=this.state;const L=this.leadsAll();const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows||[];const LI=l=>(l.fields||{}).li||{};
+    const TALK=/In talks|Call booked|Proposal sent|Won/;
+    const step=l=>{const x=LI(l);if(/^lost$/i.test(l.stage||''))return['Lost','var(--ink-4)'];if(TALK.test(l.stage||''))return[l.stage,'#16723b'];if(x.replied)return['Replied','#16723b'];
+      if(x.inmail)return['InMail sent','#0a66c2'];if(x.dm)return[x.fu?'Follow-up '+x.fu+' of 7':'First message sent','#0a66c2'];if(x.acc)return['Connected','#0a66c2'];if(x.req)return['Request sent '+this.since(x.req),'#9a5b00'];
+      const t=T.find(t=>t.lead_id===l.id&&['review','ready','sending'].includes(t.status));if(t)return[t.status==='review'?'Request waiting for your OK':'Request going out','#9a5b00'];
+      if(this.liNotFit(l))return['Filtered out: '+this.liNotFit(l),'var(--ink-4)'];return['Request being written','var(--ink-3)'];};
+    const row=(l,extra)=>{const st2=step(l);const S=this.liPipeScore(l);return{...avatar(l.name||'?'),name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),extra,score:S.n+'/10',
+      step:st2[0],stepC:st2[1],when:this.since(l.created_at),open:()=>this.openLead(l.id),hasLi:!!l.linkedin,li:()=>window.open(l.linkedin,'_blank','noopener')};};
+    const by=k=>(a,b)=>String(b[k]||'').localeCompare(String(a[k]||''));
+    const F=L.filter(l=>String(l.origin_key||'').startsWith('li-src:funding:')).sort(by('created_at'));
+    const art=l=>(String(l.source_detail||'').match(/https?:\/\/[^\s)]+/)||[''])[0];
+    const fr=st.last_funding_result||{};const busy=AK.S.busy.has('funding');
+    const funding=F.map(l=>{const a=art(l);const r=row(l,(LI(l).round||((l.fields||{}).li_icp||{}).funding||'Raised')+(((l.fields||{}).li_icp||{}).one_liner?' · '+((l.fields||{}).li_icp||{}).one_liner:''));return{...r,hasArt:!!a,art:()=>window.open(a,'_blank','noopener'),artHost:a?a.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]:''};});
+    const V=L.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI(l).site_at).sort((a,b)=>String(LI(b).site_at||b.created_at).localeCompare(String(LI(a).site_at||a.created_at)));
+    const visitors=V.map(l=>row(l,String(l.source_detail||'Visited the site').replace(/^Visited /,'Visited ')));
+    const M=L.filter(l=>Object.keys(LI(l).magnets||{}).length).sort((a,b)=>String(Object.values(LI(b).magnets).sort().pop()).localeCompare(String(Object.values(LI(a).magnets).sort().pop())));
+    const magnets=M.map(l=>{const x=LI(l);return row(l,Object.keys(x.magnets).map(k=>k+((x.magnet_sent||{})[k]?' (sent)':' (answer by hand)')).join(', '));});
+    const conv=list=>{const c=list.filter(l=>LI(l).acc).length,t=list.filter(l=>TALK.test(l.stage||'')||LI(l).replied).length;return list.length?c+' connected · '+t+' talking to us':'';};
+    return{scope:[
+        {k:'When',v:'Every morning at 8:30 IST (and whenever you press Run now)'},
+        {k:'Where',v:'News from the last 2 days (Exa news search), then each founder’s LinkedIn profile'},
+        {k:'Who',v:'B2B or B2B2C startups announcing a pre-seed, seed, Series A, B or C round, with a founder named'},
+        {k:'How many',v:'Up to 10 founders a day; anyone already in Leads is skipped'},
+        {k:'Then',v:'Added as a hot lead. The LinkedIn bot visits their profile, then writes a “congrats on the raise” connection request for your OK, then the usual DM and follow-ups. They also qualify for InMail.'}],
+      last:st.last_funding?'Last run '+this.since(st.last_funding)+': '+(fr.found||0)+' rounds in the news, '+(fr.added||0)+' new founders added'+(fr.cost!=null?' (cost $'+Number(fr.cost).toFixed(2)+')':'')+'.':'Not run yet.',
+      runLabel:busy?'Searching… about a minute':'Run now',run:()=>{if(!busy&&AK.canEdit())AK.liFunding();},
+      funding,hasFunding:funding.length>0,fundCount:funding.length+(funding.length===1?' founder':' founders')+(conv(F)?' · '+conv(F):''),
+      visitors,hasVisitors:visitors.length>0,visCount:visitors.length?visitors.length+' identified'+(conv(V)?' · '+conv(V):''):'',
+      visEmpty:'Nobody identified yet. RB2B identifies US visitors to gtm.sove7gn.org and sends them here (free trial until about 21 Nov; after that the webhook needs a paid plan).',
+      magnets,hasMagnets:magnets.length>0,magEmpty:'Nobody has asked yet. When someone DMs or comments a keyword from a post (LIST, 90DAYS…), they show up here. Set the message for each word on LinkedIn > Bot and outreach.',
+      noVisitors:!visitors.length,noMagnets:!magnets.length,openBot:()=>this.go('liOut')};}
   // InMail (14 Nov): 30 credits a month, so only high-intent people we're not connected to. Who qualifies: score 7+, a fit, not
   // connected or messaged, still early in the pipeline, and a real sign of intent (commented, viewed our profile, we tagged them,
   // 2+ likes on our posts, or a request of ours they've left for 7+ days). Strongest signals first.
