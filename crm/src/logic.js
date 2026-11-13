@@ -858,13 +858,21 @@ class Component extends DCLogic {
     const blank=p.o['What we changed']==='Added in the calendar'&&!p.link;
     await AK.calSave(p.o,blank?{cal:'',status:'Deleted'}:{cal:''});this.setState({calLink:null,calLinkVal:''});this.toast('Linked to the live post');}
   calPickVals(){const s=this.state;const pk=s.calPick;if(!pk)return{open:false};const acc=pk.acc;const kind=s.calPickKind||'All';
-    let C=this.postList().filter(p=>!p.dup&&p.account===acc&&!p.link&&!onCal(p)&&platOf(p.o)===s.plat);
+    // (14 Nov) Every draft that hasn't gone out: ones off the calendar first, then ones placed on another day (furthest out
+    // first), then ones whose day passed without posting. Picking one moves it to this day.
+    const t0=new Date();t0.setHours(0,0,0,0);
+    const whereOf=p=>{if(!onCal(p))return 0;const w=calWhere(p.o,s.calZone);return w?w.key:0;};
+    let C=this.postList().filter(p=>!p.dup&&p.account===acc&&!p.link&&p.status!=='Posted'&&platOf(p.o)===s.plat&&whereOf(p)!==pk.key);
     const kinds=['All',...POST_KINDS].map(k=>{const on=kind===k;return{label:k==='All'?'All types':k,count:String(k==='All'?C.length:C.filter(p=>p.kind===k).length),go:()=>this.setState({calPickKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
     if(kind!=='All')C=C.filter(p=>p.kind===kind);
-    C.sort((x,y)=>(y.o._date?y.o._date.getTime():0)-(x.o._date?x.o._date.getTime():0));
+    const rank=p=>{if(!onCal(p))return 0;const t=p.o._date?p.o._date.getTime():0;return t>=t0.getTime()?1:2;};
+    C.sort((x,y)=>rank(x)-rank(y)||(rank(x)===1?(y.o._date?y.o._date.getTime():0)-(x.o._date?x.o._date.getTime():0):(y.o._date?y.o._date.getTime():0)-(x.o._date?x.o._date.getTime():0)));
+    const SLOT_AT={'Account tag':'7:30 PM','Founder':'9:45 PM','Data & product':'11:30 PM'};
     const r=toIst(pk.key,'',s.calZone);const [y,m,d]=pk.key.split('-').map(Number);const dt=new Date(y,m,d);
-    const items=C.slice(0,30).map(p=>({id:p.id,type:p.ptype||'Post',line:clip(firstLine(p.text)||p.text,150),when:p.o._date?'Drafted '+AK.dayWord(p.o._date).replace(/^(Today|Yesterday|Tomorrow)/,w=>w.toLowerCase()):'Parked for later',needs:p.q?'Needs a founder answer':'',hasNeeds:!!p.q,
-      add:()=>AK.calSave(p.o,{cal:'Yes',date:r.date,time:''}).then(ok=>{if(ok){this.setState({calPick:null});this.toast('Added to the calendar');}})}));
+    const items=C.slice(0,30).map(p=>({id:p.id,type:p.ptype||'Post',line:clip(firstLine(p.text)||p.text,150),when:rank(p)===1?'On the calendar '+dLabel(p.o._date.getTime())+', moves here':rank(p)===2?'Missed '+dLabel(p.o._date.getTime())+', not posted':p.o._date?'Drafted '+AK.dayWord(p.o._date).replace(/^(Today|Yesterday|Tomorrow)/,w=>w.toLowerCase()):'Parked for later',needs:p.q?'Needs a founder answer':'',hasNeeds:!!p.q,
+      add:()=>{const sl=SLOTS3.includes(kind)?kind:SLOTS3.includes(p.slot)?p.slot:'';const time=p.o['Time (IST)']&&onCal(p)?p.o['Time (IST)']:(SLOT_AT[sl]||'');
+        const was={date:p.o.Date,time:p.o['Time (IST)'],cal:p.o.Calendar||''};
+        AK.calSave(p.o,{cal:'Yes',date:r.date,time,...(sl?{slot:sl}:{}),...(p.status==='Later'?{status:'Ready to post'}:{})}).then(ok=>{if(ok){this.setState({calPick:null});this.toast(rank(p)===1?'Moved here from '+dLabel(p.o._date.getTime()):'Added to the calendar',()=>AK.calSave(p.o,was));}});}}));
     return{open:true,title:(kind!=='All'?kind+' draft for ':'Add a draft to ')+ownerName(acc)+' · '+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dt.getDay()]+' '+d+' '+AK.MON[m],kinds,items,empty:items.length===0,close:()=>this.setState({calPick:null})};}
 
   /* ---------- our posts ---------- */
