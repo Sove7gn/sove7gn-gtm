@@ -99,6 +99,14 @@ const zparts=(ms,tz)=>{const o={};new Intl.DateTimeFormat('en-US',{timeZone:tz,y
 const wallToMs=(y,m,d,H,M,tz)=>{let g=Date.UTC(y,m,d,H,M);for(let i=0;i<2;i++){const p=zparts(g,tz);g+=Date.UTC(y,m,d,H,M)-Date.UTC(p.y,p.m,p.d,p.H,p.M);}return g;};
 const hasTime=t=>/\d{1,2}:\d{2}/.test(String(t||''));
 const t12=(H,M)=>((H%12)||12)+':'+String(M).padStart(2,'0')+' '+(H<12?'AM':'PM');
+// When a post really went out: X and LinkedIn ids carry their own time (13 Nov). A LinkedIn link without an id falls back to
+// the time the tracker saw it posted.
+const postTime=u=>{const m=String(u||'').match(/(?:status\/|activity[:%3A-]+|share[:%3A-]+|ugcPost[:%3A-]+)(\d{15,})/i);if(!m)return 0;
+  const b=BigInt(m[1]);return /status\//.test(u)?Number((b>>22n)+1288834974657n):Number(b>>22n);};
+const liActual=(u,sp)=>postTime(u)||(sp&&sp.posted_at?Date.parse(sp.posted_at):0);
+// IST date and time the way the calendar keeps them: a time before 6 AM belongs to the evening before (minutesOf).
+const istSlot=ms=>{const d=new Date(ms+19800000);const H=d.getUTCHours(),M=d.getUTCMinutes();const e=new Date(ms+19800000-(H<6?864e5:0));
+  const date=e.getUTCDate()+' '+AK.MON[e.getUTCMonth()]+' '+e.getUTCFullYear();return{Date:date,'Time (IST)':t12(H,M),_date:AK.parseDate(date)};};
 const dkey=(y,m,d)=>y+'-'+m+'-'+d;
 // Where a post sits in a zone: its day there and its "HH:MM" (blank when the post has no time yet).
 const calWhere=(o,zone)=>{const d=o._date;if(!d)return null;const t=o['Time (IST)'];
@@ -360,9 +368,22 @@ class Component extends DCLogic {
   }
   postList(){const k=AK.version()+'|'+this.state.plat;if(this._opv!==k){this._opv=k;const li=this.state.plat==='LinkedIn';
     this._posts=(li?this.liRows():AK.M.ours).map(o=>this.postObj(o));}return this._posts;}
-  liRows(){const marks=AK.leadSetting('li_marks')||{};const live=new Map(AK.SOC.posts.filter(p=>p.platform==='linkedin').map(p=>[liMarkKey(p.text),p.url]));
-    return AK.M.li.map(o=>{const k=liMarkKey(o['Our version']);const url=!o['Posted link']&&live.get(k);
-      if(url)return{...o,Status:'Posted','Posted link':url,_autoPosted:true};if(marks[k]==='Posted'&&o.Status!=='Posted')return{...o,Status:'Posted',_marked:true};return o;});}
+  // LinkedIn posts (13 Nov): a queue row that went out is matched to the live post (same opening, or mostly the same words when it
+  // was edited before posting), and a posted card sits at the time it really went out (from the post's id), not its planned slot.
+  liRows(){const marks=AK.leadSetting('li_marks')||{};const soc=AK.SOC.posts.filter(p=>p.platform==='linkedin');
+    const byKey=new Map(soc.map(p=>[liMarkKey(p.text),p]));const used=new Set();
+    const words=t=>new Set(String(t||'').toLowerCase().replace(/[^a-z0-9$ ]+/g,' ').split(/\s+/).filter(w=>w.length>2).slice(0,60));
+    const sim=(A,B)=>{if(!A.size||!B.size)return 0;let n=0;for(const w of A)if(B.has(w))n++;return n/Math.min(A.size,B.size);};
+    const rows=AK.M.li.map(o=>{const k=liMarkKey(o['Our version']);let sp=!o['Posted link']&&byKey.get(k);if(sp&&used.has(sp.post_id))sp=null;if(sp)used.add(sp.post_id);return{o,k,sp:sp||null};});
+    const left=soc.filter(p=>!used.has(p.post_id)&&String(p.text||'').trim());
+    for(const r of rows){if(r.o['Posted link']||r.sp||!left.length)continue;const A=words(r.o['Our version']);let best=null,bs=0;
+      for(const p of left){if(used.has(p.post_id))continue;const v=sim(A,words(p.text));if(v>bs){bs=v;best=p;}}
+      if(best&&bs>=0.6){r.sp=best;used.add(best.post_id);}}
+    return rows.map(({o,k,sp})=>{let x=o;
+      if(sp)x={...o,Status:'Posted','Posted link':sp.url,_autoPosted:true};
+      else if(marks[k]==='Posted'&&o.Status!=='Posted')x={...o,Status:'Posted',_marked:true};
+      const at=liActual(x['Posted link'],sp);if(at)x={...x,...istSlot(at),_actual:at};
+      return x;});}
   ownPosts(){const ORD={'To post':0,'Scheduled':1,'Posted':2,'Later':3};
     const pl=this.state.postPlat;
     return this.postList().filter(p=>this.own(p.account)&&(pl==='All'||platOf(p.o)===pl)).sort((a,b)=>(ORD[a.status]-ORD[b.status])||(a.status==='Posted'?b.when-a.when:a.when-b.when));}

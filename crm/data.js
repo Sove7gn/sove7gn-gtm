@@ -295,14 +295,25 @@ async function fetchRangeFallback(key,r){
 }
 /* ---------- Supabase: load every tab, compute the sheet's formula columns ---------- */
 let sb=null,session=null,member=null,started=false;
+/* Bandwidth (13 Nov, Supabase free plan): every table the page reads has an updated_at that moves on each change, so after
+   the first load only changed rows come down. A full reload every 30 minutes (and on a manual Refresh) catches rows removed. */
+const INC={};const FULL_EVERY=30*60e3;
+async function incLoad(table,col,keyOf,opt={}){
+  const st=INC[table]||(INC[table]={since:"",map:new Map(),full:0});
+  const full=opt.full||!st.since||Date.now()-st.full>FULL_EVERY;
+  const got=[];
+  for(let from=0;;from+=1000){let q=sb.from(table).select(opt.cols||"*").order(col,{ascending:true});for(const t of opt.tie||[])q=q.order(t);
+    if(!full)q=q.gte(col,st.since);
+    const r=await q.range(from,from+999);if(r.error)throw r.error;got.push(...(r.data||[]));if(!r.data||r.data.length<1000)break}
+  if(full){st.map=new Map();st.full=Date.now()}
+  for(const r of got){st.map.set(keyOf(r),r);if(String(r[col])>st.since)st.since=String(r[col])}
+  return {rows:[...st.map.values()],changed:full||got.some(r=>String(r[col])>(opt.prev||""))};
+}
+const incForget=()=>{for(const k in INC)INC[k].since=""};
 async function loadGrids(){
-  const out={},page=1000;
-  for(let from=0;;from+=page){
-    const {data,error}=await sb.from("crm_sheet").select("tab,row,cells").order("tab").order("row").range(from,from+page-1);
-    if(error)throw {code:error.code||"load_failed",message:error.message};
-    for(const r of data)(out[r.tab]=out[r.tab]||[])[r.row-1]=(r.cells||[]).map(v=>v==null?"":String(v));
-    if(data.length<page)break;
-  }
+  const out={};
+  const {rows}=await incLoad("crm_sheet","updated_at",r=>r.tab+"|"+r.row,{cols:"tab,row,cells,updated_at",tie:["tab","row"]}).catch(error=>{throw {code:error.code||"load_failed",message:error.message}});
+  for(const r of rows)(out[r.tab]=out[r.tab]||[])[r.row-1]=(r.cells||[]).map(v=>v==null?"":String(v));
   for(const t in out){const g=out[t];for(let i=0;i<g.length;i++)if(!g[i])g[i]=[]}
   computeFormulas(out);
   return out;
@@ -381,6 +392,7 @@ function computeFormulas(g){
 }
 async function publicLoad(){
   if(!sb||!session||!member)return;
+  S.lastLoad=Date.now();
   let grids;
   try{grids=await loadGrids()}catch(e){for(const k in RANGES)if(!S.raw[k])S.err[k]=e;build();emit();return}
   for(const key in RANGES){
@@ -393,25 +405,27 @@ async function publicLoad(){
   build();emit();
   if(LI.id)liLoad();
   leadsLoad();
-  if(!XJ.loadedAt||Date.now()-XJ.loadedAt>6e4){XJ.loadedAt=Date.now();xRunsLoad()}
-  if(!LIS.at||Date.now()-LIS.at>6e4){LIS.at=Date.now();lisLoad()}
-  if(!LBT.at||Date.now()-LBT.at>3e4){LBT.at=Date.now();lbtLoad()}
-  if(!BR.at||Date.now()-BR.at>6e4){BR.at=Date.now();briefLoad()}
-  if(!XT.at||Date.now()-XT.at>3e4){XT.at=Date.now();xtLoad()}
+  if(!XJ.loadedAt||Date.now()-XJ.loadedAt>5*6e4){XJ.loadedAt=Date.now();xRunsLoad()}
+  if(!LIS.at||Date.now()-LIS.at>10*6e4){LIS.at=Date.now();lisLoad()}
+  if(!LBT.at||Date.now()-LBT.at>2*6e4){LBT.at=Date.now();lbtLoad()}
+  if(!BR.at||Date.now()-BR.at>15*6e4){BR.at=Date.now();briefLoad()}
+  if(!XT.at||Date.now()-XT.at>2*6e4){XT.at=Date.now();xtLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
 async function liveLoad(){await publicLoad()}
 const goLive=()=>{S.liveUntil=Date.now()+36e4;return liveLoad().catch(()=>publicLoad())};
 let ticks=0;
-function poll(){ticks++;if(Date.now()<(S.liveUntil||0))return liveLoad().catch(()=>{});if(ticks%3===0)return publicLoad()}
+function poll(){if(typeof document!=="undefined"&&document.hidden)return;ticks++;if(Date.now()<(S.liveUntil||0))return liveLoad().catch(()=>{});if(ticks%3===0)return publicLoad()}
+// A hidden tab doesn't poll (13 Nov, bandwidth); when it comes back after a minute or more it loads what changed meanwhile.
+if(typeof document!=="undefined")document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&member&&Date.now()-(S.lastLoad||0)>6e4)publicLoad()});
 // Refresh: reload the sheet now and ask the team's computer to run the post tracker (new numbers and replies from X).
 // (13 Nov) Refresh covers every channel: X (post tracker), LinkedIn (asks the extension to read our posts' numbers and
 // engagers now, and reloads the queue sheet) and Instagram (DM threads), then reloads leads, tasks and post numbers.
 async function refresh(){
   if(S.pub){
     toast("Refreshing X, LinkedIn and Instagram. New numbers land over the next few minutes.");
-    S.refreshing=Date.now();emit();
+    S.refreshing=Date.now();emit();incForget();BR.at=0;LIS.at=0;XJ.loadedAt=0;
     const li=sb.functions.invoke("li-bot",{body:{action:"refresh"}}).then(({data})=>{S.liAsk=data||null;}).catch(()=>{});
     const jobs=[xRun("x-engage",true,{manual:true}),igRun(true),li,scriptCall({action:"refresh"}).catch(()=>{})];
     await goLive();liLoad(true);leadsLoad();LBT.at=0;XT.at=0;
@@ -1068,13 +1082,16 @@ async function leadsLoad(){
   if(LD.busy||LD.pending){LD.again=true;return}
   LD.busy=true;LD.again=false;const gen=LD.gen;
   try{
-    const [rows,st,events,sp,sc,sppl,seng,runs,igt,igr]=await Promise.all([leadPages("crm_leads","updated_at"),   // archived too, so Bring in can restore them
-      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),leadPages("crm_lead_events","at"),
-      leadPages("crm_social_posts","posted_at",["platform","post_id"]),leadPages("crm_social_checks","at",["platform","post_id"]),
-      leadPages("crm_social_people","last_seen",["platform","person_key"]),leadPages("crm_social_engagements","first_seen",["platform","post_id","person_key","kind"]),
-      sb.from("crm_sync_runs").select("*").eq("platform","linkedin").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]}),
-      leadPages("crm_ig_threads","checked_at",["account","thread_id"]).catch(()=>[]),   // Instagram DMs (7 Nov); empty until that job is set up
-      sb.from("crm_sync_runs").select("*").eq("platform","instagram").order("started_at",{ascending:false}).limit(5).then(r=>r.data||[])]);
+    // Only rows changed since the last load come down (incLoad); run history and settings are small and read as they are.
+    const desc=k=>a=>a.sort((x,y)=>String(y[k]||"")<String(x[k]||"")?-1:String(y[k]||"")>String(x[k]||"")?1:0);
+    const slow=Date.now()-(LD.slowAt||0)>5*60e3;if(slow)LD.slowAt=Date.now();
+    const [rows,st,events,sp,sc,sppl,seng,runs,igt,igr]=await Promise.all([incLoad("crm_leads","updated_at",r=>r.id).then(x=>desc("updated_at")(x.rows)),   // archived too, so Bring in can restore them
+      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),incLoad("crm_lead_events","updated_at",r=>r.id).then(x=>desc("at")(x.rows)),
+      incLoad("crm_social_posts","updated_at",r=>r.platform+"|"+r.post_id).then(x=>desc("posted_at")(x.rows)),incLoad("crm_social_checks","at",r=>r.platform+"|"+r.post_id+"|"+r.at).then(x=>desc("at")(x.rows)),
+      incLoad("crm_social_people","updated_at",r=>r.platform+"|"+r.person_key).then(x=>desc("last_seen")(x.rows)),incLoad("crm_social_engagements","updated_at",r=>[r.platform,r.post_id,r.person_key,r.kind].join("|")).then(x=>desc("first_seen")(x.rows)),
+      slow||!SOC.runs.length?sb.from("crm_sync_runs").select("*").eq("platform","linkedin").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]}):Promise.resolve(SOC.runs),
+      incLoad("crm_ig_threads","updated_at",r=>r.account+"|"+r.thread_id).then(x=>desc("checked_at")(x.rows)).catch(()=>[]),   // Instagram DMs (7 Nov)
+      slow||!SOC.igRuns.length?sb.from("crm_sync_runs").select("*").eq("platform","instagram").order("started_at",{ascending:false}).limit(5).then(r=>r.data||[]):Promise.resolve(SOC.igRuns)]);
     // A save that started while this was loading has newer data than what came back, so keep the page as it is and load again.
     if(gen===LD.gen&&!LD.pending){LD.rows=rows;LD.settings=Object.fromEntries(st.map(x=>[x.key,x.value]));LD.events=events;LD.loaded=true;LD.at=Date.now();
       SOC.posts=sp;SOC.checks=sc;SOC.people=sppl;SOC.eng=seng;SOC.runs=runs;SOC.ig=igt;SOC.igRuns=igr;SOC.loaded=true}
@@ -1137,7 +1154,7 @@ async function leadNote(id,kind,text){
 async function leadNoteDelete(eid){
   const before=LD.events;LD.events=LD.events.filter(e=>e.id!==eid);emit();
   const r=await leadWrite("the note",()=>sb.from("crm_lead_events").delete().eq("id",eid));
-  if(r===undefined){LD.events=before;emit()}
+  if(r===undefined){LD.events=before;emit()}else if(INC.crm_lead_events)INC.crm_lead_events.map.delete(eid);
 }
 async function leadSettingSave(key,value){
   const before=LD.settings[key];LD.settings={...LD.settings,[key]:value};emit();
