@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -109,6 +109,61 @@ async function hello(b: any) {
 }
 async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { last_error: String(b.error).slice(0, 500), last_error_at: now() } : {}), ...(b.note ? { last_note: String(b.note).slice(0, 300) } : {}), ...(b.diag ? { diag: b.diag } : {}) }); return { ok: true }; }
 
+// ───────── InMail (14 Nov): only for high-intent people we're not connected to; 30 credits a month ─────────
+// inmail_draft: the CRM picks the people (score 8+, a real sign of intent); each gets a subject and a short note written for them,
+// waiting for Reyansh's OK (never sent without it). inmail_test: asks the extension to open an InMail to someone and fill it in
+// without sending, so we know it works before a credit is spent; inmail_tested is its answer.
+const INMAIL_MONTH = 30;
+const VSL_LINK = "https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view";
+async function inmail_draft(b: any) {
+  const ids = (Array.isArray(b.lead_ids) ? b.lead_ids : []).slice(0, 10);
+  if (!ids.length) return { made: 0 };
+  const { data: ls } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").in("id", ids);
+  const { data: had } = await db.from("crm_li_tasks").select("lead_id").eq("kind", "inmail").in("lead_id", ids);
+  const skip = new Set((had ?? []).map((t: any) => t.lead_id));
+  const todo = ((ls ?? []) as Lead[]).filter((l) => !skip.has(l.id) && !l.fields?.li?.acc && !l.fields?.li?.dm && !l.fields?.li?.inmail);
+  const items = todo.map((l) => {
+    const li = l.fields?.li ?? {}, ic = l.fields?.li_icp ?? {}, iv = l.fields?.gtm?.intel ?? {};
+    const how = ({ liked: "liked one of my LinkedIn posts", commented: "commented on one of my LinkedIn posts", viewed: "viewed my LinkedIn profile", tagged: "I tagged them in one of my LinkedIn posts (a list of founders worth watching)",
+      inbound: "sent me a connection request", niche: "commented on a founder's post I also commented on", outbound: "I sent them a connection request that's still pending" } as Record<string, string>)[srcOf(l)] ?? "engaged with my posts";
+    const facts = [l.role ? "Role: " + l.role : "", l.company ? "Company: " + l.company : "", ic.one_liner ? "What the company does: " + ic.one_liner : "", ic.funding || iv.round?.v ? "Funding: " + (ic.funding || [iv.round?.v, iv.amount?.v].filter(Boolean).join(" ")) : "",
+      l.source_detail ? "What they did: " + clip(String(l.source_detail), 300) : ""].filter(Boolean).join("\n");
+    return { id: l.id, prompt: [
+      "Write a LinkedIn InMail from Reyansh, founder of SOVE7GN, to " + l.name + ". We are not connected. They " + how + ".",
+      facts,
+      "SOVE7GN is a GTM growth studio for funded seed to Series C founders: founder content on X and LinkedIn, warm-signal outreach (inbound, midbound, outbound), all linked into one CRM, turned into booked sales calls.",
+      "Proof you may use once: we got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. A 3-minute video of how it works: " + VSL_LINK,
+      "Rules: subject under 45 characters, specific to them, no clickbait, no emojis. Body 60 to 100 words, plain and warm, like a founder writing to a founder.",
+      "Open with the real reason you're writing (what they did, or something specific about their company). One line on what we do. The proof line. End with one easy question (open to a quick 15-minute chat, or would they like the video).",
+      "No dashes used as punctuation, no 'I hope this finds you well', no hype words, no bullet points. Use their first name once. Sign off as Reyansh.",
+      "Answer with JSON only: {\"subject\": \"...\", \"body\": \"...\"}"].filter(Boolean).join("\n\n") };
+  });
+  const out = items.length ? await llmMany(items) : {};
+  const rows: any[] = [];
+  for (const l of todo) {
+    const j = parseJson(out[l.id] ?? "");
+    if (!j?.body) continue;
+    const body = String(j.body).replace(/\s*[\u2014\u2013]\s*/g, ", ").trim(), subject = clip(String(j.subject ?? "").replace(/["\u201c\u201d]/g, "").trim(), 60);
+    rows.push({ lead_id: l.id, kind: "inmail", step: 0, subject, text: clip(body, 1900), status: "review" });
+  }
+  if (rows.length) { const { error } = await db.from("crm_li_tasks").upsert(rows, { onConflict: "lead_id,kind,step", ignoreDuplicates: true }); if (error) throw error; }
+  for (const r of rows) await log(r.lead_id, "InMail written, waiting for your OK on LinkedIn > Bot and outreach: " + r.subject, "engaged");
+  return { made: rows.length, asked: ids.length };
+}
+async function inmail_test(b: any) {
+  const { data: l } = await db.from("crm_leads").select("id,name,linkedin,fields").eq("id", b.lead_id).maybeSingle();
+  if (!l) return { ok: false, error: "No such lead" };
+  await saveStatus({ inmail_test: { lead_id: l.id, name: l.name, urn: urnOf(l as any), pid: pidOf(l as any), profile: (l as any).linkedin, at: now() } });
+  return { ok: true };
+}
+async function inmail_tested(b: any) {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
+  const cur: any = (data?.value as any)?.inmail_test ?? {};
+  const r = b.result ?? {};
+  await saveStatus({ inmail_test: { ...cur, done: now(), result: r }, ...(r.credits != null ? { inmail_credits: r.credits, inmail_credits_at: now() } : {}) });
+  return { ok: true };
+}
+
 // ───────── Refresh (13 Nov): the CRM's Refresh button asks the extension for a LinkedIn read now ─────────
 // refresh: called by the CRM. poll: the extension asks every few minutes whether a read was asked for (then runs its sync).
 async function refresh(_b: any) {
@@ -120,7 +175,9 @@ async function refresh(_b: any) {
 async function poll(_b: any) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
   const v: any = data?.value ?? {};
-  return { sync: (Date.parse(v.refresh_at ?? "") || 0) > (Date.parse(v.last_scan ?? "") || 0) && (Date.now() - (Date.parse(v.refresh_at ?? "") || 0)) < 3600e3 };
+  const it = v.inmail_test && !v.inmail_test.done && Date.now() - (Date.parse(v.inmail_test.at ?? "") || 0) < 3600e3 ? v.inmail_test : null;
+  return { sync: (Date.parse(v.refresh_at ?? "") || 0) > (Date.parse(v.last_scan ?? "") || 0) && (Date.now() - (Date.parse(v.refresh_at ?? "") || 0)) < 3600e3,
+    inmail_test: it ? { urn: it.urn, pid: it.pid, profile: it.profile, name: it.name } : null };
 }
 
 // ───────── Moving a LinkedIn post to another day (13 Nov) ─────────
@@ -418,7 +475,12 @@ async function plan(_b: any) {
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
     const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && !l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)); };
     const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
-    const msg = (ready ?? []).filter((t) => t.kind !== "invite" && ok(t)).slice(0, 10);
+    // InMails (14 Nov): 30 credits a month on Premium, so never more than what's left this month (IST), and 2 per run at most.
+    const m0 = new Date(Date.now() + 19800e3); const monthStart = new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth(), 1) - 19800e3).toISOString();
+    const { count: imSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "inmail").eq("status", "sent").gte("sent_at", monthStart);
+    const imLeft = Math.max(0, Math.min(2, INMAIL_MONTH - (imSent ?? 0)));
+    const ims = (ready ?? []).filter((t) => t.kind === "inmail" && ok(t)).slice(0, imLeft);
+    const msg = [...(ready ?? []).filter((t) => t.kind !== "invite" && t.kind !== "inmail" && ok(t)).slice(0, 10), ...ims];
     tasks = [...msg, ...inv];
     if (tasks.length) {
       // A request goes out at least 45 minutes after the warm touch (12 Nov, was 3 hours) (visit their profile, like their latest post).
@@ -514,6 +576,7 @@ async function done(b: any) {
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
     await log(lead.id, "LinkedIn follow-up " + t.step + " sent:\n" + t.text);
   } else if (t.kind === "inmail") {
+    if (b.credits != null) await saveStatus({ inmail_credits: b.credits, inmail_credits_at: now() });
     li.inmail = at; li.last = at;
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, "LinkedIn InMail sent" + (t.subject ? " (" + t.subject + ")" : "") + ":\n" + t.text);

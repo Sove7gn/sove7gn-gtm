@@ -250,6 +250,9 @@ async function tick() {
       let a = await op("acceptInvite", { inv: t.inv, urn, pid });
       if (!a.ok) { await go("https://www.linkedin.com/mynetwork/invitation-manager/received/"); a = await op("acceptInvite", { urn, pid }); await go("https://www.linkedin.com/feed/"); }
       r = a.ok ? (await sleep(rand(3000, 7000)), await op("message", { urn, text: t.text, me })) : a;
+    } else if (t.kind === "inmail") {                                // (14 Nov) through their profile page, like a person
+      await go("https://www.linkedin.com/in/" + (pid || urn) + "/"); await sleep(rand(4000, 8000));
+      r = await op("inmail", { subject: t.subject || "", text: t.text }); await go("https://www.linkedin.com/feed/");
     } else r = t.kind === "invite" ? await op("invite", { urn, text: t.text }) : await op("message", { urn, text: t.text, me });
     await api("done", { id: t.id, urn, pid, ...r });
     if (r.limit) { await store.set({ queue: queue.filter((q) => q.kind !== "invite") }); await log("LinkedIn says the weekly request limit is reached. Requests wait until it resets.", true); }
@@ -333,6 +336,18 @@ async function xop(name, args = {}) {
   return r.result;
 }
 // One approved X DM at a time: ask the CRM for a few, then send them one per tick, skipping some ticks at random.
+// InMail test (14 Nov), asked from the CRM: open an InMail to that person, fill it in, close it without sending (no credit used).
+async function inmailTest(t) {
+  if (busy) return; busy = true; const ka = keepAlive();
+  try {
+    await go("https://www.linkedin.com/in/" + (t.pid || t.urn) + "/"); await sleep(rand(4000, 7000));
+    const r = await op("inmail", { test: true, subject: "Quick question", text: "Hi, this is a test and will not be sent." });
+    await go("https://www.linkedin.com/feed/");
+    await api("inmail_tested", { result: r }); await log("InMail test on " + (t.name || "a profile") + ": " + (r.ok ? "works, nothing sent" : "problem: " + (r.error || "see the CRM")) + ".", !r.ok);
+  } catch (e) { try { await api("inmail_tested", { result: { ok: false, error: String(e.message || e) } }); } catch (_) {} }
+  finally { busy = false; clearInterval(ka); }
+}
+
 async function xTick() {
   if (xbusy) return;
   xbusy = true; const ka = keepAlive();
@@ -342,7 +357,8 @@ async function xTick() {
     const { pollAt = 0 } = await store.get("pollAt");
     if (Date.now() - pollAt > 3 * 60e3) {
       await store.set({ pollAt: Date.now() });
-      try { const r = await api("poll", {}); if (r.sync && !busy) setTimeout(() => sync(false), 1500); } catch (_) {}
+      try { const r = await api("poll", {}); if (r.sync && !busy) setTimeout(() => sync(false), 1500);
+        if (r.inmail_test && !busy) setTimeout(() => inmailTest(r.inmail_test), 3000); } catch (_) {}
     }
     let { xqueue = [], xplanAt = 0 } = await store.get(["xqueue", "xplanAt"]);
     xqueue = xqueue.filter((t) => Date.now() - t.handed < 50 * 60e3);

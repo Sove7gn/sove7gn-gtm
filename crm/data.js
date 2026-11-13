@@ -1304,6 +1304,20 @@ async function liTips(id){
     toast(data&&data.made?"3 tips ready.":"Couldn't write them yet. Try again in a minute.",!(data&&data.made));leadsLoad();return true}
   catch(e){toast("Couldn't write the tips: "+(e.message||e),true);return false}
 }
+// InMail (14 Nov): li-bot writes a subject and note for each chosen person, waiting for your OK on Bot and outreach.
+async function liInmail(ids){
+  if(!sb||!canEdit()||!ids.length)return false;S.busy.add("inmail");emit();toast("Writing "+ids.length+" InMail"+(ids.length===1?"":"s")+". About 30 seconds.");
+  try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"inmail_draft",lead_ids:ids}});if(error)throw error;
+    toast(data&&data.made?data.made+" InMail"+(data.made===1?"":"s")+" ready for your OK below.":"Couldn't write them yet. Try again in a minute.",!(data&&data.made));LBT.at=0;lbtLoad();return !!(data&&data.made)}
+  catch(e){toast("Couldn't write them: "+(e.message||e),true);return false}
+  finally{S.busy.delete("inmail");emit()}
+}
+async function liInmailTest(id){
+  if(!sb||!canEdit())return false;
+  try{const {error}=await sb.functions.invoke("li-bot",{body:{action:"inmail_test",lead_id:id}});if(error)throw error;
+    toast("Test asked. The extension opens an InMail, fills it in and closes it without sending, within about 3 minutes.");leadsLoad();return true}
+  catch(e){toast("Couldn't ask for the test: "+(e.message||e),true);return false}
+}
 // Call brief (11 Nov): li-bot researches the lead and writes the call plan and pitch (it also runs every 15 minutes on its own).
 async function liBrief(id){
   if(!sb)return false;toast("Writing the call brief. About a minute.");
@@ -1651,7 +1665,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

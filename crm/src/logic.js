@@ -1743,7 +1743,7 @@ class Component extends DCLogic {
       seenMin>45?{t:'The extension last checked in '+this.since(st.seen)+'. It only runs while Chrome is open.',c:'var(--warn)'}:
       {t:'The extension is running. Last check '+this.since(st.seen)+'.',c:'var(--ok)'};
     const save=patch=>{if(!AK.canEdit())return;AK.leadSettingSave('li_bot',{...(AK.LD.settings.li_bot||{}),...patch});};
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+t.step:'InMail'+(t.subject?' · subject: '+t.subject:'')+' (uses 1 of your 30 credits)';
     const card=t=>{const l=byId.get(t.lead_id)||{};const ed=(s.lbtEd||{})[t.id];const tx=ed!=null?ed:t.text;
       return{...avatar(l.name||'?'),id:t.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),kind:kindLabel(t),text:tx,
         chars:t.kind==='invite'?tx.length+' / 300':tx.length+' characters',
@@ -1794,11 +1794,41 @@ class Component extends DCLogic {
       hoursText:(set.rush_until&&Date.parse(set.rush_until)>Date.now()?'Fast mode until '+new Date(set.rush_until).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'})+': approved items go out as soon as possible, not at their local morning. ':'')+((H.from!=null?H.from:10)===0&&(H.to!=null?H.to:24)===24?'Sends any time of day':'Sends between '+(H.from!=null?H.from:10)+':00 and '+(H.to!=null?H.to:24)+':00 IST')+', a few at a time with random gaps. '+waiting.length+' approved and waiting to send.',
       funnel,review:review.slice(0,showN).map(card),reviewN:String(review.length),hasReview:review.length>0,noReview:!review.length,
       moreReview:review.length>showN,showMore:()=>this.setState({lbtN:showN+40}),
-      approveAll:()=>{if(!AK.canEdit())return;const n=review.length;AK.lbtSet(review.map(t=>t.id),{status:'ready'}).then(ok=>ok&&this.toast('Approved '+n+'. The extension sends them a few at a time.'));},
+      approveAll:()=>{if(!AK.canEdit())return;const rv=review.filter(t=>t.kind!=='inmail');const n=rv.length;if(!n){this.toast('Only InMails are waiting. Approve those one by one.');return;}AK.lbtSet(rv.map(t=>t.id),{status:'ready'}).then(ok=>ok&&this.toast('Approved '+n+(review.length>n?'. InMails stay for you to approve one by one':'')+'. The extension sends them a few at a time.'));},
+      im:this.inmailVals(all,T,st),
       failed:failed.map(card),hasFailed:failed.length>0,failedN:String(failed.length),sent:sent.slice(0,8).map(card),hasSent:sent.length>0,
       tpls,warmLabel:set.include_warm?'Warm leads too: on':'Warm leads too: off',toggleWarm:()=>save({include_warm:!set.include_warm}),
       writing:AK.LBT.running,idle:!AK.LBT.running,write:()=>{if(AK.canEdit())AK.lbtRun();},
       noReviewText:AK.LBT.loaded?'Nothing waiting for your approval.':'Loading…'};}
+  // InMail (14 Nov): 30 credits a month, so only high-intent people we're not connected to. Who qualifies: score 7+, a fit, not
+  // connected or messaged, still early in the pipeline, and a real sign of intent (commented, viewed our profile, we tagged them,
+  // 2+ likes on our posts, or a request of ours they've left for 7+ days). Strongest signals first.
+  inmailVals(all,T,st){const s=this.state;const LI=l=>(l.fields||{}).li||{};const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);
+    const sentM=T.filter(t=>t.kind==='inmail'&&t.status==='sent'&&new Date(t.sent_at)>=m0).length;
+    const handM=all.filter(l=>LI(l).inmail&&new Date(LI(l).inmail)>=m0&&!T.some(t=>t.kind==='inmail'&&t.lead_id===l.id&&t.status==='sent')).length;
+    const used=sentM+handM,left=Math.max(0,30-used);const has=new Set(T.filter(t=>t.kind==='inmail'&&t.status!=='skipped').map(t=>t.lead_id));
+    const likes=new Map();for(const e of AK.SOC.eng)if(e.platform==='linkedin')likes.set(e.person_key,(likes.get(e.person_key)||0)+(e.kind==='commented'?3:1));
+    const W={commented:50,viewed:40,inbound:30,niche:25,tagged:15};   // tagged is our move, not theirs: it only counts with a sign from them
+    const C=all.filter(l=>l.source==='LinkedIn'&&!l.archived&&/^(new|contacted|follow up)$/i.test(l.stage||'')&&!has.has(l.id)).map(l=>{const x=LI(l);
+      if(x.acc||x.dm||x.inmail||x.replied||x.stop||this.liNotFit(l))return null;const S=this.liPipeScore(l);if(S.n<7)return null;
+      const src=liSrcOf(l);const pk=String(l.origin_key||'').startsWith('li-person:')?String(l.origin_key).slice(10):'';const eng=pk?likes.get(pk)||0:0;
+      const stale=x.req&&Date.now()-Date.parse(x.req)>7*864e5;const why=[];let w=W[src]||0;
+      if(W[src])why.push((LI_SRC[src]||[src])[0]);if(eng>=1){w+=10*Math.min(eng,5);why.push(eng>=3?'Engaged with our posts ('+eng+' pts)':eng===2?'Liked 2 of our posts':'Liked one of our posts');}
+      if(stale){w+=20;why.push('Left our request '+Math.round((Date.now()-Date.parse(x.req))/864e5)+' days');}
+      if(!w||(src==='tagged'&&eng<1&&!stale))return null;return{l,S,w:w+S.n,why};}).filter(Boolean).sort((a,b)=>b.w-a.w);
+    const pick=s.imPick||{};const chosen=C.filter(c=>pick[c.l.id]);const busy=AK.S.busy.has('inmail');const tr=(st.inmail_test||{});const res=tr.result||null;
+    return{used:used+' / 30 used this month',left,credits:st.inmail_credits!=null?'LinkedIn shows '+st.inmail_credits+' credits left ('+this.since(st.inmail_credits_at)+')':'',hasCredits:st.inmail_credits!=null,
+      none:!C.length,noneText:'Nobody qualifies right now: score 7+, not connected, and a real sign of intent.',
+      items:C.slice(0,12).map(({l,S,why})=>({...avatar(l.name||'?'),id:l.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),score:S.n+'/10',why:why.join(' · '),
+        on:!!pick[l.id],box:pick[l.id]?'✓':'',boxBg:pick[l.id]?'#0a66c2':'#fff',toggle:()=>this.setState(x=>({imPick:{...(x.imPick||{}),[l.id]:!(x.imPick||{})[l.id]}})),open:()=>this.openLead(l.id)})),
+      count:C.length+' qualify',canWrite:chosen.length>0&&!busy,writeLabel:busy?'Writing… about 30 seconds':chosen.length?'Write '+chosen.length+' InMail'+(chosen.length===1?'':'s'):'Tick who should get one',
+      write:async()=>{if(!AK.canEdit()||!chosen.length||busy)return;if(chosen.length>left){this.toast('Only '+left+' InMails left this month.',null,true);return;}
+        const ok=await AK.liInmail(chosen.map(c=>c.l.id));if(ok)this.setState({imPick:{}});},
+      test:()=>{const c=C[0];if(!c){this.toast('Nobody to test on yet.',null,true);return;}AK.liInmailTest(c.l.id);},
+      testText:!tr.at?'Not tested yet. Test opens an InMail to the first person here, fills it in and closes it without sending: no credit used.':!tr.done?'Test asked '+this.since(tr.at)+'. The extension runs it within about 3 minutes while Chrome is open.':
+        res&&res.ok?'Test passed '+this.since(tr.done)+' on '+(tr.name||'a profile')+': subject box '+(res.subject?'found':'not shown')+', text typed, Send ready'+(res.free?', free InMail for them':'')+(res.credits!=null?', '+res.credits+' credits shown':'')+'. Nothing was sent.':
+        'Test found a problem '+this.since(tr.done)+': '+((res&&res.error)||'Send button not ready')+'. Don’t approve InMails until this passes.',
+      testOk:!!(res&&res.ok),testC:res&&!res.ok?'var(--bad)':res&&res.ok?'#16723b':'var(--ink-3)',noWrite:!(chosen.length>0&&!busy)};}
   liOutVals(){const L=this.leadsAll();const t0=new Date();t0.setHours(0,0,0,0);const today=l=>new Date(l.stage_at||0)>=t0;
     const contacted=L.filter(l=>/^contacted$/i.test(l.stage)&&today(l)).length;const fresh=L.filter(l=>/^new$/i.test(l.stage)).length;
     const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const w0=AK.weekStart(0);const at=(x,f)=>x&&new Date(x)>=f;

@@ -309,6 +309,57 @@ export async function liOp(op, a = {}) {
     return { ok: false, error: "LinkedIn answered " + r.status + ": " + t.slice(0, 200) };
   }
 
+  // InMail (14 Nov): done the way a person does it, on their profile page: Message, subject, text, Send. LinkedIn has no
+  // documented call for it, and a wrong guess could burn a credit. test: true fills everything in, then closes and discards
+  // the draft without sending, so nothing is spent. Reports what it found (subject box, credits LinkedIn shows, free InMail).
+  async function inmail(x) {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const vis = (e) => !!e && e.getClientRects().length > 0;
+    const lab = (e) => String((e && (e.getAttribute("aria-label") || e.innerText)) || "").replace(/\s+/g, " ").trim();
+    const wait = async (fn, ms = 9000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = fn(); if (v) return v; await sleep(250); } return null; };
+    const setVal = (el, v) => { const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value"); d.set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); };
+    await wait(() => document.querySelector("main"), 8000);
+    const top = document.querySelector("main section") || document.querySelector("main");
+    let btn = [...(top ? top.querySelectorAll("button, a") : [])].filter(vis).find((b) => /^message\b/i.test(lab(b)));
+    if (!btn) {
+      const more = [...(top ? top.querySelectorAll("button") : [])].filter(vis).find((b) => /^more( actions)?$/i.test(lab(b)) || /more actions/i.test(lab(b)));
+      if (more) { more.click(); await sleep(700); btn = [...document.querySelectorAll("[role=menu] [role=button], [role=menuitem], .artdeco-dropdown__content [role=button]")].filter(vis).find((b) => /^message\b/i.test(lab(b))); }
+    }
+    if (!btn) return { ok: false, error: "No Message button on their profile, so InMail isn't open for them", step: "button" };
+    btn.click();
+    const box = await wait(() => [...document.querySelectorAll(".msg-form__contenteditable[contenteditable='true'], div[role='textbox'][contenteditable='true']")].filter(vis).pop());
+    if (!box) return { ok: false, error: "The message window didn't open", step: "box" };
+    const scope = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper, .msg-form, form") || document.body;
+    const win = box.closest(".msg-overlay-conversation-bubble, .msg-convo-wrapper") || scope;
+    await sleep(800);
+    const subj = [...win.querySelectorAll("input[name='subject'], input[placeholder*='ubject'], input[aria-label*='ubject']")].find(vis) || null;
+    const info = String(win.innerText || "").replace(/\s+/g, " ");
+    const cm = info.match(/(\d+)\s+InMail credits?/i) || info.match(/Use 1 of (\d+)/i) || info.match(/(\d+)\s+credits?\s+(left|remaining|available)/i);
+    const credits = cm ? +cm[1] : null, free = /free message|free inmail|open profile/i.test(info);
+    const old = win.querySelectorAll(".msg-s-event-listitem, .msg-s-message-list__event").length;
+    const close = async () => {
+      const x2 = [...win.querySelectorAll("button")].filter(vis).find((b) => /close your (conversation|draft)|^close\b|dismiss/i.test(lab(b)));
+      if (x2) { x2.click(); await sleep(700); }
+      const disc = [...document.querySelectorAll("button")].filter(vis).find((b) => /^discard$/i.test(lab(b)));
+      if (disc) { disc.click(); await sleep(400); }
+    };
+    if (!subj && !free && old > 0) { await close(); return { ok: false, already: "connected", error: "This opened your existing chat with them, so they're already connected", step: "kind", credits }; }
+    if (subj) setVal(subj, x.subject || "");
+    box.focus(); document.execCommand("selectAll", false, null); document.execCommand("insertText", false, x.text);
+    box.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await sleep(600);
+    const typed = String(box.innerText || "").trim().length >= Math.min(20, String(x.text || "").length);
+    const send = [...win.querySelectorAll("button")].filter(vis).find((b) => /^send( now)?$/i.test(lab(b)) || b.classList.contains("msg-form__send-button"));
+    const found = { subject: !!subj, typed, send: !!send && !send.disabled, credits, free };
+    if (x.test) { if (box) { box.focus(); document.execCommand("selectAll", false, null); document.execCommand("delete", false, null); } if (subj) setVal(subj, ""); await close(); return { ok: typed && found.send, test: true, ...found }; }
+    if (!typed) { await close(); return { ok: false, error: "Couldn't type the message into LinkedIn's box", step: "type", ...found }; }
+    if (!found.send) { await close(); return { ok: false, error: "LinkedIn's Send button stayed off" + (credits === 0 ? " (no InMail credits left)" : ""), step: "send", ...found }; }
+    send.click();
+    const okSent = await wait(() => win.querySelectorAll(".msg-s-event-listitem, .msg-s-message-list__event").length > old || String(box.innerText || "").trim() === "" || !box.isConnected, 9000);
+    await sleep(800); await close();
+    return okSent ? { ok: true, ...found } : { ok: false, error: "Pressed Send but couldn't see it go out; check their chat before retrying", step: "confirm", ...found };
+  }
+
   async function message(x) {
     const rand = new Uint8Array(16); crypto.getRandomValues(rand);
     const body = { message: { body: { attributes: [], text: x.text }, renderContentUnions: [], originToken: crypto.randomUUID() },
@@ -513,6 +564,7 @@ export async function liOp(op, a = {}) {
   switch (op) {
     case "me": return me();
     case "lookup": return lookup(a);
+    case "inmail": return inmail(a);
     case "engagers": return engagers(a);
     case "connections": return connections();
     case "threads": return threads(a);
