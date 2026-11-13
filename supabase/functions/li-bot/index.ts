@@ -1272,7 +1272,10 @@ const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oc
 async function xSettings() {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
   const v: any = data?.value ?? {};
-  return { paused: !!v.paused, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), from: +(v.from ?? 9), to: +(v.to ?? 23.5),
+  // (14 Nov) X said "this request looks like it might be automated": after that the bot holds off for 24 hours by itself
+  // (cooldown_until), and it sends at most one DM every gap_min minutes (default 12, plus a random few) so it never bursts.
+  const cool = Date.parse(v.cooldown_until ?? "") > Date.now();
+  return { paused: !!v.paused || cool, cooling: cool, cooldown_until: v.cooldown_until ?? null, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), gap: Math.max(5, +(v.gap_min ?? 12) || 12), from: +(v.from ?? 9), to: +(v.to ?? 23.5),
     fu: X_FU_MORE.map((d, i) => String((Array.isArray(v.fu) ? v.fu[i] : "") || d)) };
 }
 // X follow-ups 3 to 7 (13 Nov; 1 and 2 come from each DM Templates version). One a day after follow-up 2, until they reply.
@@ -1362,7 +1365,10 @@ async function x_plan(b: any) {
   const left = Math.max(0, set.cap - (sentToday ?? 0));
   const inHours = hr >= set.from && hr < set.to;
   if (set.paused || !inHours || !left || !b.me?.signed_in) return { tasks: [], paused: set.paused, in_hours: inHours, left, sent_today: sentToday ?? 0 };
-  const { data: ready } = await db.from("crm_x_tasks").select("*").eq("status", "ready").order("created_at").limit(Math.min(6, left));
+  const { data: lastSent } = await db.from("crm_x_tasks").select("sent_at").eq("status", "sent").order("sent_at", { ascending: false }).limit(1);
+  const since = Date.now() - (Date.parse(lastSent?.[0]?.sent_at ?? "") || 0), gapMs = (set.gap + Math.random() * 6) * 60e3;
+  if (since < gapMs) return { tasks: [], paused: false, in_hours: true, left, sent_today: sentToday ?? 0, wait_min: Math.ceil((gapMs - since) / 60e3) };
+  const { data: ready } = await db.from("crm_x_tasks").select("*").eq("status", "ready").order("created_at").limit(1);
   const tasks: any[] = [];
   for (const t of ready ?? []) {
     let uid = String(t.user_id ?? "");
@@ -1383,6 +1389,8 @@ async function x_claim(b: any) {
   if (!t || !["sending", "ready"].includes(t.status)) return { ok: false };
   const c = await pipeRow(t.row);
   const skip = async (why: string) => { await db.from("crm_x_tasks").update({ status: "skipped", error: why }).eq("id", t.id); return { ok: false, why }; };
+  const xs = await xSettings();
+  if (xs.paused) { await db.from("crm_x_tasks").update({ status: "ready", claimed_at: null }).eq("id", t.id); return { ok: false, why: xs.cooling ? "X asked us to slow down, waiting until " + String(xs.cooldown_until).slice(11, 16) + " UTC" : "X sending is paused" }; }
   if (!c || c["Name"] !== t.name) return await skip("Their row in the DM Pipeline moved or changed");
   // (12 Nov) No "Hey Not," messages, no cold DM to someone we're already talking to, and nobody twice.
   if (/^(not specified|unknown|n\/?a|none|null|-)?$/i.test(String(t.name ?? "").trim()) || !/^[\p{L}]{2,}/u.test(String(t.name ?? "").trim())) return await skip("No real name on their row");
@@ -1412,6 +1420,14 @@ async function x_done(b: any) {
     const w = await write({ Status: "Not now", "DM result": "Not sent on X (" + new Date(now.getTime() + IST_MS).getUTCDate() + " " + MON3[new Date(now.getTime() + IST_MS).getUTCMonth()] + "): DMs closed or need a passcode" });
     await db.from("crm_x_tasks").update({ status: "skipped", error: "Their DMs are closed or need a passcode" + (/^ok/.test(w) ? "" : " (row not updated: " + w + ")") }).eq("id", t.id);
     return { ok: true };
+  }
+  if (!b.ok && /automated|spam|malicious|rate limit|over capacity|\b(226|88|429)\b/i.test(String(b.error ?? "")) || b.limit) {
+    const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+    const until = new Date(Date.now() + 24 * 3600e3).toISOString(), cur: any = xb?.value ?? {};
+    await db.from("crm_lead_settings").upsert({ key: "x_bot", value: { ...cur, cooldown_until: until, cap: Math.min(+(cur.cap ?? 40) || 40, 15), cooldown_why: clip(String(b.error ?? "X limit"), 200) }, updated_at: now.toISOString() });
+    await db.from("crm_x_tasks").update({ status: "ready", claimed_at: null, error: "X asked us to slow down; trying again after a 24 hour pause" }).eq("id", t.id);
+    await xStatus({ last_error: "X flagged the DMs as automated, so sending paused for 24 hours (then 15 a day max)", last_error_at: now.toISOString() });
+    return { ok: true, cooldown: until };
   }
   if (!b.ok) {
     await db.from("crm_x_tasks").update({ status: "failed", error: clip(String(b.error ?? "Failed"), 300) }).eq("id", t.id);

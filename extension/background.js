@@ -379,7 +379,7 @@ async function xTick() {
       const c = await api("x_claim", { id: t.id });
       if (!c.ok) { if (c.why) await log("X: skipped " + t.name + " (" + c.why + ")."); return; }
       const perm = await xop("canDm", { user_id: t.user_id });
-      if (perm.known && !perm.can) { await api("x_done", { id: t.id, cant: true }); await log("X: " + t.name + "'s DMs are closed or need a passcode, so they're off today's list."); return; }
+      if (perm && perm.known && !perm.can) { await api("x_done", { id: t.id, cant: true }); await log("X: " + t.name + "'s DMs are closed or need a passcode, so they're off today's list."); return; }
       await sleep(rand(3000, 9000));
       const r = await xop("send", { user_id: t.user_id, text: t.text });
       await api("x_done", { id: t.id, ...r });
