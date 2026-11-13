@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -227,7 +227,8 @@ async function funding(b: any) {
   const schema = { type: "object", required: ["rounds"], properties: { rounds: { type: "array", items: { type: "object", properties: {
     company: { type: "string" }, what_it_does: { type: "string", description: "one line" }, sells_to_businesses: { type: "boolean", description: "true if B2B or B2B2C" },
     round: { type: "string", description: "Pre-seed, Seed, Series A, Series B or Series C" }, amount_usd: { type: "number" },
-    founder_names: { type: "array", items: { type: "string" }, description: "founders or CEO named in the article" }, source_url: { type: "string" } } } } } };
+    founder_names: { type: "array", items: { type: "string" }, description: "founders or CEO named in the article" }, investors: { type: "string", description: "lead and other investors named" },
+    announced: { type: "string", description: "announcement date YYYY-MM-DD" }, use_of_funds: { type: "string", description: "what they say the money is for, one line" }, source_url: { type: "string" } } } } } };
   const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: "startup announces seed or Series A or Series B funding round, founders quoted", category: "news", numResults: 25, startPublishedDate: since, outputSchema: schema,
       systemPrompt: "List each startup funding round announced in these results: company, what it does, whether it sells to businesses, the round, the amount in USD, the founders named, and the article URL. Only facts the results state." }) });
@@ -237,23 +238,15 @@ async function funding(b: any) {
   const { data: have } = await db.from("crm_leads").select("name,company,linkedin").eq("source", "LinkedIn").limit(5000);
   const key = (n: unknown, c: unknown) => String(n ?? "").toLowerCase().replace(/[^a-z]/g, "") + "|" + String(c ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const known = new Set((have ?? []).map((l: any) => key(l.name, l.company))), knownLi = new Set((have ?? []).map((l: any) => String(l.linkedin ?? "").toLowerCase().replace(/\/+$/, "")).filter(Boolean));
-  let added = 0; const out: string[] = [];
+  let added = 0; const out: string[] = []; const K2 = await knownLeads();
   for (const r of rounds.slice(0, +(b.max ?? 10))) {
-    const name = String(r.founder_names[0]).trim(); if (!name || known.has(key(name, r.company))) continue;
-    const pr = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: name + " " + r.company + " founder", category: "linkedin profile", numResults: 3 }) });
-    const pj = pr.ok ? await pr.json() : {}; cost += pj.costDollars?.total ?? 0;
-    const hit = (pj.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url ?? "") && new RegExp(name.split(/\s+/)[0], "i").test(String(x.title ?? "") + " " + String(x.url ?? "")));
-    if (!hit) continue;
-    const li = String(hit.url).split("?")[0].replace(/\/+$/, "");
-    if (knownLi.has(li.toLowerCase())) continue;
     // Exa sometimes gives the amount in millions (70 for $70M): small numbers are read as millions; anything odd is left out.
     const usd = +r.amount_usd > 0 && +r.amount_usd < 5000 ? +r.amount_usd * 1e6 : +r.amount_usd || 0;
     const amt = usd >= 1e5 && usd <= 5e8 ? "$" + (usd >= 1e6 ? Math.round(usd / 1e5) / 10 + "M" : Math.round(usd / 1e3) + "K") : "";
-    const { error } = await db.from("crm_leads").insert({ name, company: r.company, role: String(hit.title ?? "").split(/ [-|] /)[1]?.slice(0, 80) || "Founder", source: "LinkedIn", stage: "New", heat: "Hot", linkedin: li,
-      origin_key: "li-src:funding:" + li.toLowerCase(), source_detail: "Announced " + [r.round, amt].filter(Boolean).join(" ") + " (" + clip(String(r.source_url ?? ""), 160) + ")",
-      fields: { li: { src: "funding", round: [r.round, amt].filter(Boolean).join(" ") }, li_icp: { funding: [r.round, amt].filter(Boolean).join(" "), one_liner: clip(String(r.what_it_does ?? ""), 200) } } });
-    if (!error) { added++; known.add(key(name, r.company)); out.push(name + " (" + r.company + ", " + [r.round, amt].filter(Boolean).join(" ") + ")"); }
+    const name = String(r.founder_names[0]).trim(); if (!name || known.has(key(name, r.company))) continue;
+    const res2 = await addSignal("funding", { company: String(r.company).trim(), name, what: r.what_it_does, detail: "Raised " + [amt, r.round].filter(Boolean).join(" ") + (r.investors ? " from " + clip(String(r.investors), 80) : ""),
+      url: String(r.source_url ?? ""), extra: { round: r.round ?? "", amount: amt, investors: clip(String(r.investors ?? ""), 160), date: String(r.announced ?? "").slice(0, 10), use: clip(String(r.use_of_funds ?? ""), 160) } }, K2);
+    if (res2) { added++; known.add(key(name, r.company)); out.push(res2.who + " " + [r.round, amt].filter(Boolean).join(" ")); cost += res2.cost; }
   }
   await saveStatus({ last_funding: now(), last_funding_result: { found: rounds.length, added, people: out, cost } });
   return { found: rounds.length, added, people: out, cost };
@@ -284,13 +277,35 @@ async function founderOf(company: string, name = ""): Promise<{ url: string; nam
 }
 // guess: the founder was matched by company name only (Product Hunt's feed names the hunter, not the makers), so the lead comes
 // in Warm, for Reyansh to check on Leads > Signals, and the bot doesn't write them a request on its own.
-async function addSignal(kind: string, it: { company: string; name?: string; what?: string; detail: string; url: string; guess?: boolean }, K: any) {
+// Their X account (14 Nov): twitterapi.io's people search by name. A match needs the same name, and their bio or website naming
+// the company (or an exact name match when the company is a common word). Exa no longer indexes X profiles.
+async function findX(name: string, company: string): Promise<string> {
+  if (!TWAPI || !name) return "";
+  try {
+    const r = await fetch("https://api.twitterapi.io/twitter/user/search?query=" + encodeURIComponent(name), { headers: { "X-API-Key": TWAPI } });
+    if (!r.ok) return "";
+    const users = ((await r.json()).users ?? []) as any[];
+    const norm = (x: unknown) => String(x ?? "").toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+    const n = norm(name), co = norm(String(company).replace(/\b(inc|labs?|ai|hq|co)\b/gi, "")), first = norm(name.split(/\s+/)[0]);
+    const scored = users.map((u) => { const nm = norm(u.name), bio = norm(String(u.description ?? "") + " " + String(u.url ?? "") + " " + JSON.stringify(u.entities ?? ""));
+      return { u, s: (nm === n ? 2 : nm.includes(first) ? 1 : 0) + (co.length >= 3 && bio.includes(co) ? 3 : 0) }; }).filter((x) => x.s >= 3 || (x.s === 2 && users.length <= 3));
+    scored.sort((a, b) => b.s - a.s);
+    return scored[0] ? String(scored[0].u.userName ?? scored[0].u.username ?? scored[0].u.screen_name ?? "") : "";
+  } catch (_) { return ""; }
+}
+const WHY: Record<string, string> = { funding: "Just raised: founders spend on GTM right after a round, and they're hiring for it now.",
+  hiring: "Hiring for growth or GTM: they need pipeline now, and we can run it faster than a new hire can ramp.",
+  launch: "Just launched: they want distribution this week, and launch traffic fades fast without a system behind it." };
+async function addSignal(kind: string, it: { company: string; name?: string; what?: string; detail: string; url: string; guess?: boolean; extra?: Record<string, unknown> }, K: any) {
   if (!it.company || K.companies.has(K.co(it.company))) return null;
   const f = await founderOf(it.company, it.name ?? "").catch(() => null); if (!f || !f.name) return null;
   if (K.li.has(f.url.toLowerCase())) return null;
-  const { error } = await db.from("crm_leads").insert({ name: f.name, company: it.company, role: f.title, source: "LinkedIn", stage: "New", heat: it.guess ? "Warm" : "Hot", linkedin: f.url,
+  const x = await findX(f.name, it.company);
+  const { error } = await db.from("crm_leads").insert({ name: f.name, company: it.company, role: f.title, source: "LinkedIn", stage: "New", heat: "Warm", linkedin: f.url, x_handle: x ? "@" + x : "",
     origin_key: "li-src:" + kind + ":" + f.url.toLowerCase(), source_detail: it.detail + (it.url ? " (" + clip(it.url, 160) + ")" : ""),
-    fields: { li: { src: kind, signal: it.detail, signal_url: it.url, ...(it.guess ? { check: "founder matched by company name: check it's the right person" } : {}) }, li_icp: { one_liner: clip(String(it.what ?? ""), 200) } } });
+    fields: { li: { src: kind, signal: it.detail, signal_url: it.url, signal_status: "new", ...(it.guess ? { check: "founder matched by company name: check it's the right person" } : {}) },
+      signal: { kind, headline: it.detail, url: it.url, what: clip(String(it.what ?? ""), 240), why: WHY[kind] ?? "", found_at: now(), guess: !!it.guess, ...(it.extra ?? {}) },
+      li_icp: { one_liner: clip(String(it.what ?? ""), 200) } } });
   if (error) return null;
   K.companies.add(K.co(it.company)); K.li.add(f.url.toLowerCase());
   return { who: f.name + " (" + it.company + ")", cost: f.cost };
@@ -333,7 +348,8 @@ async function hiring(b: any) {
     systemPrompt: "List each job opening in these results for a growth, GTM, marketing or demand generation role: company, role title, what the company does, whether it sells to businesses, its funding stage, and the job URL. Only facts the results state." });
   cost += c;
   const jobs = ((out.output?.content?.jobs ?? []) as any[]).filter((j) => j.company && /growth|gtm|go.to.market|marketing|demand|revops|founding/i.test(String(j.role ?? "")) && j.sells_to_businesses !== false && !/series [d-z]|later|public/i.test(String(j.stage ?? "")));
-  for (const j of jobs) { if (people.length >= max) break; const r = await addSignal("hiring", { company: String(j.company).trim(), what: j.what_company_does, detail: "Hiring a " + clip(String(j.role), 60) + (j.stage && !/unknown/i.test(j.stage) ? " (" + j.stage + ")" : ""), url: j.url ?? "" }, K); if (r) { people.push(r.who); cost += r.cost; } }
+  for (const j of jobs) { if (people.length >= max) break; const r = await addSignal("hiring", { company: String(j.company).trim(), what: j.what_company_does, detail: "Hiring a " + clip(String(j.role), 60) + (j.stage && !/unknown/i.test(j.stage) ? " (" + j.stage + ")" : ""), url: j.url ?? "",
+        extra: { role: clip(String(j.role), 80), stage: j.stage && !/unknown/i.test(j.stage) ? j.stage : "", job_url: j.url ?? "" } }, K); if (r) { people.push(r.who); cost += r.cost; } }
   await saveStatus({ last_hiring: now(), last_hiring_result: { found: jobs.length, added: people.length, people, cost } });
   return { found: jobs.length, added: people.length, people, cost };
 }
@@ -341,6 +357,56 @@ async function hiring(b: any) {
 async function signals_daily(b: any) {
   const a = await launches(b).catch((e) => ({ error: String(e) })), h = await hiring(b).catch((e) => ({ error: String(e) }));
   return { launches: a, hiring: h };
+}
+
+// Signals review (14 Nov), from Leads > Signals: find their LinkedIn and X again, add them to outreach, or trash them.
+async function signalLead(id: string) { const { data } = await db.from("crm_leads").select("*").eq("id", id).maybeSingle(); return data as any; }
+async function signal_find(b: any) {
+  const l = await signalLead(b.lead_id); if (!l) return { ok: false, error: "No such lead" };
+  const patch: any = {}; let cost = 0;
+  if (!l.linkedin || b.relook) { const f = await founderOf(l.company, b.relook ? "" : l.name).catch(() => null); if (f) { patch.linkedin = f.url; if (!l.name || b.relook) patch.name = f.name; patch.role = f.title; cost += f.cost; } }
+  const x = await findX(patch.name ?? l.name, l.company); if (x) patch.x_handle = "@" + x;
+  if (Object.keys(patch).length) await db.from("crm_leads").update(patch).eq("id", l.id);
+  return { ok: true, linkedin: patch.linkedin ?? l.linkedin, x: patch.x_handle ?? l.x_handle ?? "", cost };
+}
+async function signal_approve(b: any) {
+  const l = await signalLead(b.lead_id); if (!l) return { ok: false, error: "No such lead" };
+  const li = { ...(l.fields?.li ?? {}), signal_status: "approved", approved_at: now() };
+  await db.from("crm_leads").update({ heat: "Hot", archived: false, fields: { ...(l.fields ?? {}), li } }).eq("id", l.id);
+  await log(l.id, "Added to outreach from Leads > Signals (" + (l.fields?.signal?.headline ?? l.source_detail ?? "signal") + ").", "engaged");
+  let x = "";
+  if (b.x !== false && l.x_handle) x = await toXPipeline(l).catch((e) => "not added: " + String(e).slice(0, 80));
+  return { ok: true, linkedin: !!l.linkedin, x };
+}
+async function signal_trash(b: any) {
+  const l = await signalLead(b.lead_id); if (!l) return { ok: false, error: "No such lead" };
+  const li = { ...(l.fields?.li ?? {}), signal_status: "trashed", trashed_at: now() };
+  await db.from("crm_leads").update({ archived: true, fields: { ...(l.fields ?? {}), li } }).eq("id", l.id);
+  await stopTasks(l.id, "Trashed on Leads > Signals");
+  return { ok: true };
+}
+// A row in the X DM Pipeline (same columns the X lead finder writes), with the signal as the hook. It shows on X > Send today.
+async function toXPipeline(l: any): Promise<string> {
+  const h = String(l.x_handle ?? "").replace(/^@/, ""); if (!h) return "no X handle";
+  const { data: rows } = await db.from("crm_sheet").select("tab,row,cells").in("tab", ["DM Pipeline", "DM Templates"]).order("row").limit(5000);
+  const P = (rows ?? []).filter((r: any) => r.tab === "DM Pipeline"), hdr = P.find((r: any) => (r.cells ?? []).includes("X handle"));
+  if (!hdr) return "no DM Pipeline header";
+  const ix = (k: string) => (hdr.cells as string[]).indexOf(k);
+  if (P.some((r: any) => r.row > hdr.row && String(r.cells?.[ix("X handle")] ?? "").replace(/^@/, "").toLowerCase() === h.toLowerCase())) return "already in the X pipeline";
+  const T = (rows ?? []).filter((r: any) => r.tab === "DM Templates"), th = T.find((r: any) => (r.cells ?? [])[0] === "ID");
+  const live = th ? T.filter((r: any) => r.row > th.row && /^[A-Z]\d+[A-Z]?$/.test(String(r.cells?.[0] ?? "")) && !/^off/i.test(String(r.cells?.[(th.cells as string[]).indexOf("Verdict")] ?? ""))).map((r: any) => String(r.cells[0])) : [];
+  const used = (id: string) => P.filter((r: any) => r.row > hdr.row && r.cells?.[ix("Template")] === id).length;
+  const tpl = live.sort((a: string, b: string) => used(a) - used(b))[0] ?? "";
+  const next = Math.max(...P.map((r: any) => r.row)) + 1, sig = l.fields?.signal ?? {}, kind = sig.kind ?? l.fields?.li?.src ?? "";
+  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : "Launch";
+  const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : "Congrats on the launch.";
+  const ist = new Date(Date.now() + IST_MS); const stamp = ist.getUTCDate() + " " + MON3[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + String(ist.getUTCHours()).padStart(2, "0") + ":" + String(ist.getUTCMinutes()).padStart(2, "0");
+  const writes = [{ row: next, col: ix("Name") + 1, values: [[l.name, l.company || "Unknown", l.role || "Founder", "Reyansh", "X DM", "Cold", seg, "9", h, l.linkedin || "", "", clip(String(sig.headline ?? l.source_detail ?? ""), 180), sig.url || "", stamp, tpl, "", "To send"]] },
+    { row: next, col: ix("Notes") + 1, values: [["Added from Leads > Signals on " + stamp + ". " + (sig.why ?? "") + (sig.what ? " " + l.company + ": " + sig.what : "")]] },
+    { row: next, col: ix("Funding stage") + 1, values: [[kind === "funding" ? [sig.round, sig.amount, sig.date].filter(Boolean).join(", ") : sig.stage || "", sig.url || "", hook]] }];
+  const { error } = await db.rpc("crm_call", { body: { action: "rows", writes } });
+  if (error) return "not added: " + error.message;
+  return "added to X > Send today";
 }
 
 // 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
@@ -494,7 +560,9 @@ async function pool(set?: Bot): Promise<Lead[]> {
   const { data, error } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key")
     .eq("source", "LinkedIn").eq("archived", false).limit(3000);
   if (error) throw error;
-  return ((data ?? []) as Lead[]).filter((l) => (isOurs(l) && heats.includes(l.heat)) || !!(l.fields?.li?.req || l.fields?.li?.dm || l.fields?.li?.acc || l.fields?.li?.src === "inbound"));
+  // (14 Nov) Signals (funding, launches, hiring) wait on Leads > Signals until Reyansh approves them; trashed ones never come back.
+  return ((data ?? []) as Lead[]).filter((l) => !["new", "trashed"].includes(String(l.fields?.li?.signal_status ?? "")))
+    .filter((l) => (isOurs(l) && heats.includes(l.heat)) || !!(l.fields?.li?.req || l.fields?.li?.dm || l.fields?.li?.acc || l.fields?.li?.src === "inbound"));
 }
 const isEngager = (l: Lead) => String(l.origin_key ?? "").startsWith("li-person:");
 // Who we never message, from what we know (same rule as the CRM's Pipeline): unknown never rules anyone out.
@@ -657,7 +725,8 @@ async function plan(_b: any) {
         if (text.length > 300) text = clip(text, 300);
         notesLeft--;
       }
-      newRows.push({ lead_id: l.id, kind: "invite", step: 0, text, status });
+      // An approved signal was already OK'd on Leads > Signals, so its request goes straight out.
+      newRows.push({ lead_id: l.id, kind: "invite", step: 0, text, status: l.fields?.li?.signal_status === "approved" ? "ready" : status });
     }
   }
   // Requests already written for people who turned out not to fit (after their research came in) are taken back.

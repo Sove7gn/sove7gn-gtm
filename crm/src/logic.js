@@ -1837,46 +1837,54 @@ class Component extends DCLogic {
       asked,hasAsked:asked.length>0,
       funding:st.last_funding?'Last search '+this.since(st.last_funding)+': '+(fr.found||0)+' rounds found, '+(fr.added||0)+' founders added'+((fr.people||[]).length?' ('+fr.people.slice(0,4).join('; ')+')':'')+'. '+fund+' funding leads so far.':'Runs every morning at 8:30 IST.',
       site:site?site+' website visitors in Leads so far.':'No website visitors yet. Once RB2B is connected to sove7gn.org, every visitor it identifies lands in Leads as hot.'};}
-  // Signals page (14 Nov): everything the signal jobs find, with where each person is now.
+  // Signals page (14 Nov): every signal job's finds wait here for Reyansh. Each card: who, the signal in full (amount and investors,
+  // the role they're hiring, the launch), what the company does, why now, LinkedIn and X. Add to outreach starts the LinkedIn
+  // request (no second OK) and puts them in X > Send today; the bin archives them. Website visitors and magnet asks are below.
   leadSignalsVals(){const s=this.state;const L=this.leadsAll();const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows||[];const LI=l=>(l.fields||{}).li||{};
     const TALK=/In talks|Call booked|Proposal sent|Won/;
     const step=l=>{const x=LI(l);if(/^lost$/i.test(l.stage||''))return['Lost','var(--ink-4)'];if(TALK.test(l.stage||''))return[l.stage,'#16723b'];if(x.replied)return['Replied','#16723b'];
       if(x.inmail)return['InMail sent','#0a66c2'];if(x.dm)return[x.fu?'Follow-up '+x.fu+' of 7':'First message sent','#0a66c2'];if(x.acc)return['Connected','#0a66c2'];if(x.req)return['Request sent '+this.since(x.req),'#9a5b00'];
       const t=T.find(t=>t.lead_id===l.id&&['review','ready','sending'].includes(t.status));if(t)return[t.status==='review'?'Request waiting for your OK':'Request going out','#9a5b00'];
       if(this.liNotFit(l))return['Filtered out: '+this.liNotFit(l),'var(--ink-4)'];return['Request being written','var(--ink-3)'];};
-    const row=(l,extra)=>{const st2=step(l);const S=this.liPipeScore(l);return{...avatar(l.name||'?'),name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),extra,score:S.n+'/10',
-      step:st2[0],stepC:st2[1],when:this.since(l.created_at),open:()=>this.openLead(l.id),hasLi:!!l.linkedin,li:()=>window.open(l.linkedin,'_blank','noopener')};};
-    const by=k=>(a,b)=>String(b[k]||'').localeCompare(String(a[k]||''));
-    const F=L.filter(l=>String(l.origin_key||'').startsWith('li-src:funding:')).sort(by('created_at'));
-    const art=l=>(String(l.source_detail||'').match(/https?:\/\/[^\s)]+/)||[''])[0];
-    const fr=st.last_funding_result||{};const busy=AK.S.busy.has('funding');
-    const funding=F.map(l=>{const a=art(l);const r=row(l,(LI(l).round||((l.fields||{}).li_icp||{}).funding||'Raised')+(((l.fields||{}).li_icp||{}).one_liner?' · '+((l.fields||{}).li_icp||{}).one_liner:''));return{...r,hasArt:!!a,art:()=>window.open(a,'_blank','noopener'),artHost:a?a.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]:''};});
-    const withArt=(list,lab)=>list.map(l=>{const a=String(LI(l).signal_url||art(l)||'');const one=((l.fields||{}).li_icp||{}).one_liner||'';const sig=String(LI(l).signal||l.source_detail||lab);const r=row(l,sig+(one&&!sig.includes(one.slice(0,30))?' · '+one:'')+(LI(l).check&&l.heat!=='Hot'?' · ⚠ check it’s the right founder (make them Hot to start outreach)':''));return{...r,hasArt:!!a,art:()=>window.open(a,'_blank','noopener'),artHost:a?a.replace(/^https?:\/\/(www\.)?/,'').split('/')[0]:''};});
-    const LA=L.filter(l=>String(l.origin_key||'').startsWith('li-src:launch:')).sort(by('created_at')),HI=L.filter(l=>String(l.origin_key||'').startsWith('li-src:hiring:')).sort(by('created_at'));
-    const runLine=(at,r)=>at?'Last run '+this.since(at)+': '+((r||{}).found||0)+' found, '+((r||{}).added||0)+' new founders added'+((r||{}).cost!=null?' (cost $'+Number(r.cost).toFixed(2)+')':'')+'.':'Runs every morning.';
-    const V=L.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI(l).site_at).sort((a,b)=>String(LI(b).site_at||b.created_at).localeCompare(String(LI(a).site_at||a.created_at)));
-    const visitors=V.map(l=>row(l,String(l.source_detail||'Visited the site').replace(/^Visited /,'Visited ')));
-    const M=L.filter(l=>Object.keys(LI(l).magnets||{}).length).sort((a,b)=>String(Object.values(LI(b).magnets).sort().pop()).localeCompare(String(Object.values(LI(a).magnets).sort().pop())));
-    const magnets=M.map(l=>{const x=LI(l);return row(l,Object.keys(x.magnets).map(k=>k+((x.magnet_sent||{})[k]?' (sent)':' (answer by hand)')).join(', '));});
-    const conv=list=>{const c=list.filter(l=>LI(l).acc).length,t=list.filter(l=>TALK.test(l.stage||'')||LI(l).replied).length;return list.length?c+' connected · '+t+' talking to us':'';};
-    return{scope:[
-        {k:'When',v:'Every morning at 8:30 IST (and whenever you press Run now)'},
-        {k:'Where',v:'News from the last 2 days (Exa news search), then each founder’s LinkedIn profile'},
-        {k:'Who',v:'B2B or B2B2C startups announcing a pre-seed, seed, Series A, B or C round, with a founder named'},
-        {k:'How many',v:'Up to 10 founders a day; anyone already in Leads is skipped'},
-        {k:'Then',v:'Added as a hot lead. The LinkedIn bot visits their profile, then writes a “congrats on the raise” connection request for your OK, then the usual DM and follow-ups. They also qualify for InMail.'}],
-      last:st.last_funding?'Last run '+this.since(st.last_funding)+': '+(fr.found||0)+' rounds in the news, '+(fr.added||0)+' new founders added'+(fr.cost!=null?' (cost $'+Number(fr.cost).toFixed(2)+')':'')+'.':'Not run yet.',
-      runLabel:busy?'Searching… about a minute':'Run now',run:()=>{if(!busy&&AK.canEdit())AK.liFunding();},
-      funding,hasFunding:funding.length>0,fundCount:funding.length+(funding.length===1?' founder':' founders')+(conv(F)?' · '+conv(F):''),
-      visitors,hasVisitors:visitors.length>0,visCount:visitors.length?visitors.length+' identified'+(conv(V)?' · '+conv(V):''):'',
-      visEmpty:'Nobody identified yet. RB2B identifies US visitors to gtm.sove7gn.org and sends them here (free trial until about 21 Nov; after that the webhook needs a paid plan).',
-      magnets,hasMagnets:magnets.length>0,magEmpty:'Nobody has asked yet. When someone DMs or comments a keyword from a post (LIST, 90DAYS…), they show up here. Set the message for each word on LinkedIn > Bot and outreach.',
-      launches:withArt(LA,'Launched'),hasLaunches:LA.length>0,laCount:LA.length+(LA.length===1?' founder':' founders')+(conv(LA)?' · '+conv(LA):''),laLast:runLine(st.last_launches,st.last_launches_result),
-      laScope:'Every morning at 9:00 IST: Launch HN posts (YC companies launching) from the last 7 days, Show HN posts with 30+ points, and B2B launches on Product Hunt from the last 2 days. Up to 6 new founders a day, found on LinkedIn, then a "congrats on the launch" request for your OK.',
-      hires:withArt(HI,'Hiring'),hasHires:HI.length>0,hiCount:HI.length+(HI.length===1?' founder':' founders')+(conv(HI)?' · '+conv(HI):''),hiLast:runLine(st.last_hiring,st.last_hiring_result),
-      hiScope:'Every morning at 9:30 IST: job posts from the last 4 days on YC Work at a Startup, Wellfound, Ashby, Greenhouse and Lever for Head of Growth, founding GTM, growth or first marketing hires, at B2B startups up to Series C. The founder or CEO is found on LinkedIn and added, up to 6 a day.',
-      runLa:()=>{if(AK.canEdit())AK.liSignal('launches');},runHi:()=>{if(AK.canEdit())AK.liSignal('hiring');},laBusy:AK.S.busy.has('launches')?'Searching…':'Run now',hiBusy:AK.S.busy.has('hiring')?'Searching… about 2 minutes':'Run now',
-      noVisitors:!visitors.length,noMagnets:!magnets.length,openBot:()=>this.go('liOut')};}
+    const host=u=>String(u||'').replace(/^https?:\/\/(www\.)?/,'').split('/')[0];
+    const KIND={funding:['💸','Raised'],hiring:['🧑‍💼','Hiring'],launch:['🚀','Launched']};
+    const all=AK.LD.rows.filter(l=>/^li-src:(funding|launch|hiring):/.test(String(l.origin_key||'')));   // trashed ones are archived
+    const stOf=l=>LI(l).signal_status||(l.archived?'trashed':'approved');
+    const view=s.sgView||'new',kind=s.sgKind||'all';
+    const inView=all.filter(l=>stOf(l)===view&&(kind==='all'||(LI(l).src||(l.fields||{}).signal&&(l.fields||{}).signal.kind)===kind))
+      .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+    const busy=k=>AK.S.busy.has(k);
+    const card=l=>{const g=(l.fields||{}).signal||{};const k=g.kind||LI(l).src||'';const S=this.liPipeScore(l);const x=String(l.x_handle||'').replace(/^@/,'');const sp=step(l);
+      const facts=k==='funding'?[g.amount&&('Amount: '+g.amount),g.round&&('Round: '+g.round),g.investors&&('Investors: '+g.investors),g.date&&('Announced '+g.date),g.use&&('For: '+g.use)]
+        :k==='hiring'?[g.role&&('Role: '+g.role),g.stage&&('Stage: '+g.stage)]:[g.url&&('On '+(/news\.ycombinator/.test(g.url)?'Hacker News':/producthunt/.test(g.url)?'Product Hunt':host(g.url)))];
+      return{...avatar(l.name||'?'),id:l.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),score:S.n+'/10',
+        icon:(KIND[k]||['📡'])[0],kindLabel:(KIND[k]||['','Signal'])[1],headline:g.headline||LI(l).signal||l.source_detail||'',
+        facts:facts.filter(Boolean).join(' · '),hasFacts:facts.filter(Boolean).length>0,what:g.what||((l.fields||{}).li_icp||{}).one_liner||'',hasWhat:!!(g.what||((l.fields||{}).li_icp||{}).one_liner),
+        why:g.why||'',hasWhy:!!g.why,check:LI(l).check&&view==='new'?'⚠ The founder was matched by company name. Check it’s the right person before adding.':'',hasCheck:!!(LI(l).check&&view==='new'),
+        hasSrc:!!g.url,src:()=>window.open(g.url,'_blank','noopener'),srcLabel:(k==='hiring'?'Job post':k==='funding'?'Article':'Launch')+' · '+host(g.url)+' ↗',
+        hasLi:!!l.linkedin,li:()=>window.open(l.linkedin,'_blank','noopener'),hasX:!!x,xLabel:'@'+x,xOpen:()=>window.open('https://x.com/'+x,'_blank','noopener'),noX:!x,
+        findLabel:busy('sgf'+l.id)?'Looking…':!l.linkedin?'Find LinkedIn & X':'Find X',find:()=>{if(!busy('sgf'+l.id))AK.sigAct('find',l.id);},
+        isNew:view==='new',isAdded:view==='approved',isTrashed:view==='trashed',
+        addLabel:busy('sga'+l.id)?'Adding…':'✓ Add to outreach'+(x?' (LinkedIn + X)':' (LinkedIn)'),add:()=>{if(!busy('sga'+l.id))AK.sigAct('approve',l.id);},
+        trash:()=>AK.sigAct('trash',l.id),restore:()=>AK.sigAct('restore',l.id),
+        step:sp[0],stepC:sp[1],xNote:LI(l).x_pipeline||'',hasXNote:!!LI(l).x_pipeline,when:this.since(l.created_at),open:()=>this.openLead(l.id)};};
+    const cnt=v=>all.filter(l=>stOf(l)===v).length;
+    const views=[['new','To review'],['approved','Added to outreach'],['trashed','Trashed']].map(([v,lab])=>{const on=view===v;return{label:lab,count:String(cnt(v)),go:()=>this.setState({sgView:v}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
+    const kinds=[['all','All'],['funding','💸 Raised'],['hiring','🧑‍💼 Hiring'],['launch','🚀 Launched']].map(([k,lab])=>{const on=kind===k;const n=all.filter(l=>stOf(l)===view&&(k==='all'||(LI(l).src)===k)).length;return{label:lab,count:String(n),go:()=>this.setState({sgKind:k}),bg:on?'#e8f1fb':'transparent',fg:on?'#0a66c2':'var(--ink-3)'};});
+    const run=(label,at,r,act,when)=>({label,last:at?'Last run '+this.since(at)+': '+((r||{}).found||0)+' found, '+((r||{}).added||0)+' added':'Not run yet',when,go:()=>{if(AK.canEdit())(act==='funding'?AK.liFunding():AK.liSignal(act));},btn:busy(act)?'Running…':'Run now'});
+    const LI2=l=>(l.fields||{}).li||{};
+    const row=(l,extra)=>{const sp=step(l);return{...avatar(l.name||'?'),name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),extra,step:sp[0],stepC:sp[1],when:this.since(l.created_at),open:()=>this.openLead(l.id),hasLi:!!l.linkedin,li:()=>window.open(l.linkedin,'_blank','noopener')};};
+    const V=L.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI2(l).site_at);
+    const M=L.filter(l=>Object.keys(LI2(l).magnets||{}).length);
+    return{views,kinds,cards:inView.map(card),hasCards:inView.length>0,noCards:!inView.length,
+      noCardsText:view==='new'?'Nothing to review. New signals arrive every morning (raised 8:30, launched 9:00, hiring 9:30 IST), or press Run now.':view==='approved'?'Nobody added yet.':'Nothing in the bin.',
+      runs:[run('💸 Raised: funding news, last 2 days, B2B pre-seed to Series C',st.last_funding,st.last_funding_result,'funding','8:30 IST'),
+        run('🚀 Launched: Launch HN, Show HN 30+, Product Hunt B2B',st.last_launches,st.last_launches_result,'launches','9:00 IST'),
+        run('🧑‍💼 Hiring: growth / GTM / first marketing roles on startup job boards',st.last_hiring,st.last_hiring_result,'hiring','9:30 IST')],
+      visitors:V.map(l=>row(l,String(l.source_detail||'Visited the site'))),hasVisitors:V.length>0,noVisitors:!V.length,
+      visEmpty:'Nobody identified yet. RB2B identifies US visitors to gtm.sove7gn.org and sends them here (trial until about 21 Nov).',
+      magnets:M.map(l=>{const x=LI2(l);return row(l,Object.keys(x.magnets).map(k=>k+((x.magnet_sent||{})[k]?' (sent)':' (answer by hand)')).join(', '));}),hasMagnets:M.length>0,noMagnets:!M.length,
+      magEmpty:'Nobody has asked yet. When someone DMs or comments a keyword from a post (LIST, 90DAYS…), they show up here.',openBot:()=>this.go('liOut')};}
   // InMail (14 Nov): 30 credits a month, so only high-intent people we're not connected to. Who qualifies: score 7+, a fit, not
   // connected or messaged, still early in the pipeline, and a real sign of intent (commented, viewed our profile, we tagged them,
   // 2+ likes on our posts, or a request of ours they've left for 7+ days). Strongest signals first.

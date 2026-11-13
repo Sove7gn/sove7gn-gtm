@@ -1312,6 +1312,25 @@ async function liFunding(){
   catch(e){toast("The search didn't finish: "+(e.message||e),true);return false}
   finally{S.busy.delete("funding");emit();setTimeout(leadsLoad,500)}
 }
+// Signals review (14 Nov): find their LinkedIn and X, add to outreach (LinkedIn request + X Send today), trash, or restore.
+async function sigAct(what,id){
+  if(!sb||!canEdit())return false;const k={find:"sgf",approve:"sga",trash:"sgt",restore:"sgr"}[what]+id;if(S.busy.has(k))return false;S.busy.add(k);emit();
+  try{
+    if(what==="restore"){const l=LD.rows.find(r=>r.id===id);if(!l)return false;const f={...(l.fields||{}),li:{...((l.fields||{}).li||{}),signal_status:"new"}};
+      LD.rows=LD.rows.map(r=>r.id===id?{...r,archived:false,fields:f}:r);emit();
+      const r=await leadWrite("the lead",()=>sb.from("crm_leads").update({archived:false,fields:f}).eq("id",id));toast("Back in To review.");return r!==undefined}
+    const {data,error}=await sb.functions.invoke("li-bot",{body:{action:"signal_"+(what==="approve"?"approve":what),lead_id:id}});if(error)throw error;
+    if(!data||!data.ok)throw new Error((data&&data.error)||"no answer");
+    {const l=LD.rows.find(r=>r.id===id);if(l&&what!=="find"){const li={...((l.fields||{}).li||{}),signal_status:what==="trash"?"trashed":"approved"};
+      LD.rows=LD.rows.map(r=>r.id===id?{...r,archived:what==="trash",heat:what==="approve"?"Hot":r.heat,fields:{...(r.fields||{}),li}}:r);emit();}}   // show it at once
+    if(what==="find")toast(data.x?"Found them on X: "+data.x+".":"No X account found that clearly matches. Add it by hand on the lead if you know it.");
+    if(what==="approve"){toast("Added to outreach. The LinkedIn request goes out with the next batch"+(data.x?"; X: "+data.x:"")+".");
+      if(data.x){const l=LD.rows.find(r=>r.id===id);if(l){const f={...(l.fields||{}),li:{...((l.fields||{}).li||{}),x_pipeline:data.x}};await sb.from("crm_leads").update({fields:f}).eq("id",id);}}}
+    if(what==="trash")toast("Moved to the bin. It won't come back.");
+    return true}
+  catch(e){toast("Couldn't do that: "+(e.message||e),true);return false}
+  finally{S.busy.delete(k);emit();leadsLoad()}
+}
 // Launches and hiring signals (14 Nov), also every morning: run one now from Leads > Signals.
 async function liSignal(kind){
   if(!sb||!canEdit()||S.busy.has(kind))return false;S.busy.add(kind);emit();toast(kind==="hiring"?"Searching job posts for growth and GTM roles. About 2 minutes.":"Searching Product Hunt and Hacker News launches. About a minute.");
@@ -1681,7 +1700,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
