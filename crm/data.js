@@ -1325,7 +1325,7 @@ async function sigAct(what,id){
       LD.rows=LD.rows.map(r=>r.id===id?{...r,archived:what==="trash",heat:what==="approve"?"Hot":r.heat,fields:{...(r.fields||{}),li}}:r);emit();}}   // show it at once
     if(what==="find")toast(data.x?"Found them on X: "+data.x+".":"No X account found that clearly matches. Add it by hand on the lead if you know it.");
     if(what==="approve"){toast("Added to outreach. The LinkedIn request goes out with the next batch"+(data.x?"; X: "+data.x:"")+".");
-      if(data.x){const l=LD.rows.find(r=>r.id===id);if(l){const f={...(l.fields||{}),li:{...((l.fields||{}).li||{}),x_pipeline:data.x}};await sb.from("crm_leads").update({fields:f}).eq("id",id);}}}
+}
     if(what==="trash")toast("Moved to the bin. It won't come back.");
     return true}
   catch(e){toast("Couldn't do that: "+(e.message||e),true);return false}

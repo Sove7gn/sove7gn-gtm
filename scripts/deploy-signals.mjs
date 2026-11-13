@@ -17,8 +17,9 @@ await sql`select cron.unschedule(jobid) from cron.job where jobname = 'li-bot-fu
 const call = "select net.http_post(url := 'https://" + ref + ".supabase.co/functions/v1/li-bot', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"funding\"}'::jsonb, timeout_milliseconds := 150000)";
 await sql`select cron.schedule('li-bot-funding', '0 3 * * *', ${call})`;   // 03:00 UTC = 8:30 IST
 console.log("schedule: li-bot-funding, daily 8:30 IST");
-// (14 Nov) Launches (Product Hunt, Show HN, Launch HN) at 9:00 IST and hiring posts at 9:30 IST, each on its own run.
-for (const [name, at, action] of [["li-bot-launches", "30 3 * * *", "launches"], ["li-bot-hiring", "0 4 * * *", "hiring"]]) {
+// (14 Nov) Launches (Product Hunt, Show HN, Launch HN) at 9:00 IST, hiring posts at 9:30 IST, and the LinkedIn top-up to 20 new
+// people a day at 7:00 and again at 13:00 IST (after the approvals of the morning), each on its own run.
+for (const [name, at, action] of [["li-bot-launches", "30 3 * * *", "launches"], ["li-bot-hiring", "0 4 * * *", "hiring"], ["li-bot-prospects", "30 1 * * *", "prospects"], ["li-bot-prospects-2", "30 7 * * *", "prospects"]]) {
   await sql`select cron.unschedule(jobid) from cron.job where jobname = ${name}`;
   const c = "select net.http_post(url := 'https://" + ref + ".supabase.co/functions/v1/li-bot', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"" + action + "\",\"max\":6}'::jsonb, timeout_milliseconds := 150000)";
   await sql`select cron.schedule(${name}, ${at}, ${c})`;

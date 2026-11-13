@@ -37,7 +37,7 @@ const callWhen=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
-const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound'],launch:['Just launched (PH / HN)','Outbound'],hiring:['Hiring for growth / GTM','Outbound']};
+const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound'],prospect:['Found by our ICP search','Outbound'],launch:['Just launched (PH / HN)','Outbound'],hiring:['Hiring for growth / GTM','Outbound']};
 const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o=String(l.origin_key||'');if(o.startsWith('li-src:'))return o.split(':')[1]||'outbound';if(o.startsWith('li-person:'))return /comment/i.test(l.source_detail||'')?'commented':'liked';return 'outbound';};
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
@@ -1570,7 +1570,19 @@ class Component extends DCLogic {
     const lim=s.outLim||25;
     const tabs=['All',...STEPS].map(k=>{const n=k==='All'?people.length:people.filter(p=>grp(p)===k).length;return{label:k+' '+n,on:k===f,show:n>0||k==='All',bg:k===f?'var(--ink)':'#fff',fg:k===f?'#fff':'var(--ink-2)',pick:()=>this.setState({outStep:k,outLim:25})};}).filter(t=>t.show);
     const COL={'Replied':['#e3f6ea','#16723b'],'Call booked':['#fff1dc','#9a5b00'],'Proposal sent':['#fff1dc','#9a5b00'],'Stopped':['var(--n-soft-2)','var(--ink-3)'],'Lost':['var(--n-soft-2)','var(--ink-3)'],'Cold':['var(--n-soft-2)','var(--ink-3)'],'Skipped':['var(--n-soft-2)','var(--ink-3)'],'Not connected':['var(--bad-soft)','var(--bad-ink)'],'By hand':['var(--n-soft-2)','var(--ink-3)'],'Accepted':['#e8f1fb','#0a66c2'],'Request sent':['#fff6e6','#9a5b00']};
-    return{li,x,tabs,
+    // Today's target (14 Nov): 30 new people a day, 20 on LinkedIn (requests, first DMs, InMails) and 10 first DMs on X.
+    const set=AK.LD.settings.li_bot||{},xs=AK.LD.settings.x_bot||{};const liT=+set.daily_new||20,xT=+xs.daily_new||10;
+    const FIRST=['invite','dm','inmail','accept'];const liNew=sentToday.filter(t=>FIRST.includes(t.kind)).length;
+    const xNew=(AK.XT.rows||[]).filter(t=>t.kind==='dm'&&t.status==='sent'&&ms(t.sent_at)>=t0).length;
+    const liWaitOk=review.filter(t=>FIRST.includes(t.kind)).length,liGoing=queued.filter(t=>FIRST.includes(t.kind)).length;
+    const xQd=(AK.XT.rows||[]).filter(t=>t.kind==='dm'&&(t.status==='ready'||t.status==='sending')).length;
+    const xToSend=((AK.M&&AK.M.contacts)||[]).filter(c=>/^(to send|)$/i.test(c.Status||'')&&c['X handle']).length;
+    const tot=liNew+xNew,goal=liT+xT;const pct=Math.min(100,Math.round(tot/goal*100));
+    const target={line:'New people today: '+tot+' of '+goal,pct:pct+'%',barC:tot>=goal?'#16723b':'#0a66c2',
+      li:'LinkedIn '+liNew+' of '+liT+(liGoing?' · '+liGoing+' going out':'')+(liWaitOk?' · '+liWaitOk+' waiting for your OK (LinkedIn > Pipeline)':''),
+      x:'X '+xNew+' of '+xT+(xQd?' · '+xQd+' queued':'')+(xToSend?' · '+xToSend+' ready on Send today: press Send with bot':''),
+      note:'Follow-ups go to everyone already contacted, one a day for 7 days, on both. The LinkedIn list is topped up at 7:00 and 13:00 IST so there are always enough new people to approve.'};
+    return{li,x,target,tabs,
       table:list.slice(0,lim).map(p=>{const c=COL[grp(p)]||['#f3eefc','#6b3fb8'];return{...avatar(p.l.name),name:p.l.name,sub:[p.l.role,p.l.company].filter(Boolean).join(' · '),step:p.st[0],sBg:c[0],sFg:c[1],when:p.st[2],next:p.st[3],open:()=>this.openLead(p.l.id)};}),
       hasMoreRows:list.length>lim,moreRows:'Show '+Math.min(50,list.length-lim)+' more of '+list.length,moreRowsGo:()=>this.setState(x=>({outLim:(x.outLim||25)+50}))};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
@@ -1857,6 +1869,9 @@ class Component extends DCLogic {
     const card=l=>{const g=(l.fields||{}).signal||{};const k=g.kind||LI(l).src||'';const S=this.liPipeScore(l);const x=String(l.x_handle||'').replace(/^@/,'');const sp=step(l);
       const facts=k==='funding'?[g.amount&&('Amount: '+g.amount),g.round&&('Round: '+g.round),g.investors&&('Investors: '+g.investors),g.date&&('Announced '+g.date),g.use&&('For: '+g.use)]
         :k==='hiring'?[g.role&&('Role: '+g.role),g.stage&&('Stage: '+g.stage)]:[g.url&&('On '+(/news\.ycombinator/.test(g.url)?'Hacker News':/producthunt/.test(g.url)?'Product Hunt':host(g.url)))];
+      // Launches and hiring: what they've raised, from the research the bot runs on every lead (or "not found yet").
+      if(k!=='funding'){const iv=((l.fields||{}).gtm||{}).intel||{};const fnd=((l.fields||{}).li_icp||{}).funding||[iv.round&&iv.round.v,iv.amount&&iv.amount.v?GTM.fmtMoney(iv.amount.v):'',iv.date&&iv.date.v?String(iv.date.v).slice(0,7):''].filter(Boolean).join(' · ');
+        facts.unshift(fnd?'Raised: '+fnd:((l.fields||{}).li_icp||{}).at?'Raised: no funding found':'Raised: researching…');}
       return{...avatar(l.name||'?'),id:l.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),score:S.n+'/10',
         icon:(KIND[k]||['📡'])[0],kindLabel:(KIND[k]||['','Signal'])[1],headline:g.headline||LI(l).signal||l.source_detail||'',
         facts:facts.filter(Boolean).join(' · '),hasFacts:facts.filter(Boolean).length>0,what:g.what||((l.fields||{}).li_icp||{}).one_liner||'',hasWhat:!!(g.what||((l.fields||{}).li_icp||{}).one_liner),

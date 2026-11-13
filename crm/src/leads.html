@@ -382,6 +382,11 @@
 <sc-if value="{{ is.leadBrief }}">
 <section style="display:flex; flex-direction:column; gap:10px;">
 <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:var(--fs-lg); font-weight:600;">Right now</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">live, updates as the bots send. Click a name to open them.</span></div>
+<div style="display:flex; flex-direction:column; gap:8px; padding:14px 16px; border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);">
+<div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;"><span style="font-size:var(--fs-md); font-weight:700;">{{ ld.ow.target.line }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.ow.target.li }} · {{ ld.ow.target.x }}</span></div>
+<div style="height:8px; border-radius:4px; background:var(--n-soft); overflow:hidden;"><div style="height:100%; width:{{ ld.ow.target.pct }}; background:{{ ld.ow.target.barC }}; border-radius:4px;"></div></div>
+<span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ ld.ow.target.note }}</span>
+</div>
 <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:10px;">
 <div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
 <div style="display:flex; align-items:center; gap:8px;"><span style="width:20px; height:20px; border-radius:5px; display:grid; place-items:center; background:#0a66c2; color:#fff; font-size:11px; font-weight:700;">in</span><span style="font-size:var(--fs-md); font-weight:600;">LinkedIn</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">right now</span></div>

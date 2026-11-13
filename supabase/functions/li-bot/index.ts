@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -374,8 +374,11 @@ async function signal_approve(b: any) {
   const li = { ...(l.fields?.li ?? {}), signal_status: "approved", approved_at: now() };
   await db.from("crm_leads").update({ heat: "Hot", archived: false, fields: { ...(l.fields ?? {}), li } }).eq("id", l.id);
   await log(l.id, "Added to outreach from Leads > Signals (" + (l.fields?.signal?.headline ?? l.source_detail ?? "signal") + ").", "engaged");
+  // A request written before review and set aside would block a new one (one per person): clear it so the next plan writes it.
+  await db.from("crm_li_tasks").delete().eq("lead_id", l.id).eq("kind", "invite").eq("status", "skipped");
   let x = "";
   if (b.x !== false && l.x_handle) x = await toXPipeline(l).catch((e) => "not added: " + String(e).slice(0, 80));
+  if (x) await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), li: { ...li, x_pipeline: x } } }).eq("id", l.id);
   return { ok: true, linkedin: !!l.linkedin, x };
 }
 async function signal_trash(b: any) {
@@ -407,6 +410,58 @@ async function toXPipeline(l: any): Promise<string> {
   const { error } = await db.rpc("crm_call", { body: { action: "rows", writes } });
   if (error) return "not added: " + error.message;
   return "added to X > Send today";
+}
+
+// 30 new people a day (14 Nov): 20 first touches on LinkedIn + 10 X DMs (settings li_bot.daily_new / x_bot.daily_new).
+// day_stats: where today stands. prospects (daily 7:00 IST, and from the CRM): when fewer LinkedIn first touches are sent or queued
+// today than the target, an ICP search on LinkedIn profiles fills the gap with founders at B2B startups, seed to Series C.
+// They go through the same research and fit check; their requests wait for Reyansh's OK like any other first touch.
+async function dayStats() {
+  const ist = new Date(Date.now() + IST_MS), dayStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_MS).toISOString();
+  const { data: bs } = await db.from("crm_lead_settings").select("key,value").in("key", ["li_bot", "x_bot"]);
+  const v = (k: string) => (bs ?? []).find((r: any) => r.key === k)?.value ?? {};
+  const liT = +(v("li_bot").daily_new ?? 20) || 20, xT = +(v("x_bot").daily_new ?? 10) || 10;
+  const first = ["invite", "dm", "inmail", "accept"];
+  const { count: liSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).in("kind", first).eq("status", "sent").gte("sent_at", dayStart);
+  const { count: liWait } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).in("kind", first).in("status", ["review", "ready", "sending"]);
+  const { count: xSent } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).eq("kind", "dm").eq("status", "sent").gte("sent_at", dayStart);
+  const { count: xWait } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).eq("kind", "dm").in("status", ["ready", "sending"]);
+  return { li_target: liT, x_target: xT, li_sent: liSent ?? 0, li_waiting: liWait ?? 0, x_sent: xSent ?? 0, x_waiting: xWait ?? 0 };
+}
+async function day_stats(_b: any) { return await dayStats(); }
+const ICP_QUERIES = ["founder and CEO of a seed-stage B2B SaaS startup", "co-founder CEO of a Series A AI startup selling to businesses", "Y Combinator founder building B2B software 2026",
+  "founder of a venture-backed developer tools startup", "co-founder of a Series B B2B fintech or vertical SaaS startup", "founder CEO of an AI agents startup for enterprises, recently raised"];
+async function prospects(b: any) {
+  if (!EXA) return { skipped: "No Exa key" };
+  const d = await dayStats();
+  // Uncontacted fits already waiting in the pool count too: the next plan run writes their requests.
+  const leads = await pool(await settings());
+  const ready = leads.filter((l) => !l.fields?.li?.req && !l.fields?.li?.dm && !l.fields?.li?.stop && !notFit(l)).length;
+  const need = Math.max(0, d.li_target - d.li_sent - d.li_waiting - ready);
+  if (!need && !b.force) return { need: 0, ...d, ready };
+  const K = await knownLeads(); const added: string[] = []; let cost = 0, tried = 0;
+  const startQ = new Date().getUTCDate() % ICP_QUERIES.length;
+  for (let i = 0; i < ICP_QUERIES.length && added.length < (b.force ? +(b.max ?? 10) : need); i++) {
+    const q = ICP_QUERIES[(startQ + i) % ICP_QUERIES.length];
+    const { out, cost: c } = await exaJson({ query: q, category: "linkedin profile", numResults: 25,
+      outputSchema: { type: "object", required: ["people"], properties: { people: { type: "array", items: { type: "object", properties: {
+        name: { type: "string" }, title: { type: "string", description: "current job title" }, company: { type: "string", description: "current company name only" },
+        linkedin_url: { type: "string" }, is_founder_or_ceo: { type: "boolean" }, sells_to_businesses: { type: "boolean" }, company_stage: { type: "string", description: "pre-seed, seed, Series A, B, C, later, or unknown" } } } } } },
+      systemPrompt: "List each person whose LinkedIn profile is in these results: their name, current title, current company (name only), the profile URL, whether they are a founder or CEO of that company, whether the company sells to businesses, and its funding stage if stated." }).catch(() => ({ out: {}, cost: 0 }));
+    cost += c; tried++;
+    for (const p of out.output?.content?.people ?? []) {
+      if (added.length >= (b.force ? +(b.max ?? 10) : need)) break;
+      const url = String(p.linkedin_url ?? "").split("?")[0].replace(/\/+$/, ""), name = String(p.name ?? "").trim(), co = String(p.company ?? "").trim();
+      if (!/linkedin\.com\/in\//.test(url) || K.li.has(url.toLowerCase()) || !name || !co || p.is_founder_or_ceo === false || p.sells_to_businesses === false) continue;
+      if (/series [d-z]|later|public|acquired/i.test(String(p.company_stage ?? "")) || K.companies.has(K.co(co))) continue;
+      const { error } = await db.from("crm_leads").insert({ name, company: co, role: clip(String(p.title || "Founder"), 120), source: "LinkedIn", stage: "New", heat: "Hot", linkedin: url,
+        origin_key: "li-src:prospect:" + url.toLowerCase(), direction: "Outbound", source_detail: "Found by the daily ICP search: “" + q + "”",
+        fields: { li: { src: "prospect" }, ...(p.company_stage && !/unknown/i.test(p.company_stage) ? { li_icp: { funding: p.company_stage } } : {}) } });
+      if (!error) { added.push(name + " (" + co + ")"); K.li.add(url.toLowerCase()); K.companies.add(K.co(co)); }
+    }
+  }
+  await saveStatus({ last_prospects: now(), last_prospects_result: { need, added: added.length, people: added.slice(0, 12), cost, ...d } });
+  return { need, added: added.length, people: added, cost, ...d, ready };
 }
 
 // 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
@@ -1115,7 +1170,7 @@ async function whereLookUp(l: any) {
 const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: "Commented on our post", viewed: "Viewed our profile", inbound: "Sent us a connection request",
   tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first",
   funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets",
-  launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM" };
+  launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM", prospect: "Found by our ICP search" };
 function srcOf(l: Lead): string {
   const li = l.fields?.li ?? {};
   if (li.src) return li.src;
@@ -1140,6 +1195,7 @@ const DEF_OPENERS: Record<string, string> = {
   magnet: "thanks for reaching out about the post!",
   launch: "congrats on the {company} launch, really liked what you're building.",
   hiring: "saw {company} is growing the GTM side, exciting stage to be at.",
+  prospect: "came across what you're building at {company} and wanted to connect.",
 };
 const DEF_ANGLES: Record<string, string> = {
   advice: "I'm Reyansh. Been building startups for the past couple of years and was also featured on Shark Tank.\n\nCurrently building something of my own in GTM space and would love to hear your thoughts and get some advice. Open to a 15-minute call sometime this week?",
@@ -1253,7 +1309,8 @@ async function people(b: any) {
     }
     const key = keyOfP(p);
     const { data: sp } = await db.from("crm_social_people").select("fit,judged_at,lead_id").eq("platform", "linkedin").eq("person_key", key).maybeSingle();
-    if (sp?.judged_at && sp.fit !== "hot") continue;                     // judged before and not a fit
+    // (14 Nov) People we tagged are our ICP by choice: they always become leads, whatever the fit check said.
+    if (sp?.judged_at && sp.fit !== "hot" && kind !== "tagged") continue;   // judged before and not a fit
     let fit = sp?.fit ?? "", o: any = {};
     if (!sp?.judged_at) {
       if (judged >= 25) continue;                                        // the rest wait for the next run
@@ -1264,7 +1321,7 @@ async function people(b: any) {
       await db.from("crm_social_people").update({ fit, why: o.why ?? "", role: o.role ?? "", company: o.company ?? "", company_what: o.company_what ?? "", company_stage: o.company_stage ?? "", judged_at: at, fit_by: "auto" })
         .eq("platform", "linkedin").eq("person_key", key);
     }
-    if (fit !== "hot") continue;
+    if (fit !== "hot" && kind !== "tagged") continue;
     const li: any = { src: kind, urn: p.urn || undefined, pid: p.pid || undefined, said: p.said ?? p.message ?? "", post_author: p.post_author ?? "", [kind === "inbound" ? "inbound_at" : kind]: at };
     if (kind === "inbound") li.inv = p.inv ?? null;
     const { data: lead, error } = await db.from("crm_leads").insert({ name: p.name ?? "", role: o.role || clip(p.headline ?? "", 120), company: o.company ?? "", linkedin: p.pid ? "https://www.linkedin.com/in/" + p.pid : "https://www.linkedin.com/in/" + p.urn,
