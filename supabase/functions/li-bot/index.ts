@@ -1184,8 +1184,20 @@ const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oc
 async function xSettings() {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
   const v: any = data?.value ?? {};
-  return { paused: !!v.paused, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), from: +(v.from ?? 9), to: +(v.to ?? 23.5) };
+  return { paused: !!v.paused, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), from: +(v.from ?? 9), to: +(v.to ?? 23.5),
+    fu: X_FU_MORE.map((d, i) => String((Array.isArray(v.fu) ? v.fu[i] : "") || d)) };
 }
+// X follow-ups 3 to 7 (13 Nov; 1 and 2 come from each DM Templates version). One a day after follow-up 2, until they reply.
+// Follow-up 3 is the VSL. Edited on X > Pipeline > Scripts (saved in x_bot.fu). {first} and {company} are filled in.
+const VSL = "https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view";
+const X_FU_MORE = [
+  "Hey {first}, sharing a short VSL we made: " + VSL + "\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
+  "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?",
+  "Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
+  "No worries if the timing's off, {first}. Would next week work better for a quick chat? https://cal.com/sove7gn-gtm/30min",
+  "Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}.",
+];
+const X_FU_KINDS = ["fu3", "fu4", "fu5", "fu6", "fu7"];
 async function xStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
   await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((data?.value as any) ?? {}), ...patch } });
@@ -1218,8 +1230,10 @@ async function xAutoFollowups(): Promise<number> {
   const obj = (h: any, r: any) => { const o: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
   const tpl = new Map(T.filter((r: any) => r.row > th.row).map((r: any) => obj(th, r)).filter((t) => t.ID).map((t) => [t.ID, t]));
   const pick = (t: Record<string, string>, prefix: string) => { const k = Object.keys(t).find((x) => x.startsWith(prefix)); return k ? t[k] : ""; };
-  const { data: had } = await db.from("crm_x_tasks").select("row,kind").in("kind", ["fu1", "fu2"]).limit(5000);
+  const { data: had } = await db.from("crm_x_tasks").select("row,kind,status,sent_at").in("kind", ["fu1", "fu2", ...X_FU_KINDS]).limit(10000);
   const done = new Set((had ?? []).map((t: any) => t.row + ":" + t.kind));
+  const sentAt = new Map((had ?? []).filter((t: any) => t.status === "sent").map((t: any) => [t.row + ":" + t.kind, Date.parse(t.sent_at) || 0]));
+  const more = (await xSettings()).fu;
   const now = Date.now(), add: any[] = [];
   for (const r of P.filter((x: any) => x.row > ph.row)) {
     const c = obj(ph, r); const name = c["Name"]; const handle = String(c["X handle"] ?? "").replace(/^@/, "");
@@ -1228,11 +1242,19 @@ async function xAutoFollowups(): Promise<number> {
     let kind = "";
     if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";
     else if (/^fu1 sent$/i.test(st) && !c["FU2 sent"] && f1 && now - f1 >= 24 * 3600e3) kind = "fu2";   // FU1 is a day, so this is the next day or later
+    else if (/^fu2 sent$/i.test(st)) {
+      // Follow-ups 3..7 live only in crm_x_tasks (the sheet keeps Status "FU2 sent"): the next one not made yet, a day after the last.
+      const i = X_FU_KINDS.findIndex((k) => !done.has(r.row + ":" + k));
+      const last = i === 0 ? sheetTime(c["FU2 sent"]) : i > 0 ? sentAt.get(r.row + ":" + X_FU_KINDS[i - 1]) ?? 0 : 0;
+      if (i >= 0 && last && now - last >= 24 * 3600e3) kind = X_FU_KINDS[i];
+    }
     if (!kind || done.has(r.row + ":" + kind)) continue;
-    const t = tpl.get(c["Template"]); if (!t) continue;
     const first = String(name).trim().split(/\s+/)[0];
     const company = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "your company";
-    const text = pick(t, kind === "fu1" ? "Follow-up 1" : "Follow-up 2").replace(/\[first name\]/gi, first).replace(/\[company\]/gi, company).replace(/\s*\[hook\]\s*/gi, " ").replace(/ {2,}/g, " ").trim();
+    const n = X_FU_KINDS.indexOf(kind);
+    const t = tpl.get(c["Template"]); if (!t && n < 0) continue;
+    const raw = n >= 0 ? more[n] : pick(t!, kind === "fu1" ? "Follow-up 1" : "Follow-up 2");
+    const text = raw.replace(/\[first name\]|\{first\}/gi, first).replace(/\[company\]|\{company\}/gi, company).replace(/[ \t]*\[hook\][ \t]*/gi, " ").replace(/ {2,}/g, " ").trim();
     if (!text) continue;
     add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind, text, status: "ready", decided_by: "auto: follow-up" });
     if (add.length >= 30) break;
@@ -1285,7 +1307,7 @@ async function x_claim(b: any) {
   if ((dup ?? 0) > 0) return await skip("Already sent this message to them");
   if (c["Replied on"]) return await skip("They replied");
   const st = c["Status"] || "To send";
-  const want = t.kind === "dm" ? /^(to send|)$/i : t.kind === "fu1" ? /^sent$/i : /^fu1 sent$/i;
+  const want = t.kind === "dm" ? /^(to send|)$/i : t.kind === "fu1" ? /^sent$/i : t.kind === "fu2" ? /^fu1 sent$/i : /^fu2 sent$/i;
   if (!want.test(st)) return await skip("Already " + st + " (sent by hand?)");
   return { ok: true };
 }
@@ -1308,8 +1330,9 @@ async function x_done(b: any) {
     await xStatus({ last_error: clip(String(b.error ?? "Failed"), 300), last_error_at: now.toISOString() });
     return { ok: true };
   }
-  const cells: Record<string, unknown> = t.kind === "dm" ? { Status: "Sent", "Sent on": sheetSerial(now, true) } : t.kind === "fu1" ? { Status: "FU1 sent", "FU1 sent": sheetSerial(now, false) } : { Status: "FU2 sent", "FU2 sent": sheetSerial(now, false) };
-  const w = await write(cells);
+  const cells: Record<string, unknown> | null = t.kind === "dm" ? { Status: "Sent", "Sent on": sheetSerial(now, true) } : t.kind === "fu1" ? { Status: "FU1 sent", "FU1 sent": sheetSerial(now, false) }
+    : t.kind === "fu2" ? { Status: "FU2 sent", "FU2 sent": sheetSerial(now, false) } : null;      // fu3..fu7: kept in crm_x_tasks only
+  const w = cells ? await write(cells) : "ok";
   await db.from("crm_x_tasks").update({ status: "sent", sent_at: now.toISOString(), error: /^ok/.test(w) ? null : "Sent, but the row didn't update: " + w }).eq("id", t.id);
   return { ok: true };
 }

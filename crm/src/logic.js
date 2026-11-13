@@ -201,7 +201,7 @@ class Component extends DCLogic {
     return {page,plat,lid:null,led:{},lnew:null,ltab:'intel',lnewForce:false,geTab:'new',geQ:'',geDraft:{},geAdd:{lead:'',url:'',at:'',text:'',draft:''},geMore:false,gv:'newconn',gf:{...GF0},gx:!!store.get('gtm-excl',false),gfMore:false,gmore:false,icpEd:null,lf:{q:'',source:'',group:'',cat:'',dir:'',heat:'',acct:'',rel:''},calDragging:null,calOver:null,lpf:{fit:'hot',kind:'',post:''},lsort:'touch',ldir:1,lmore:false,lcand:'X',lnote:'',lkind:'note',lsetNew:{},ldOver:null,ldMore:{},ldTip:null,owner:'Everyone',cid:null,lastCid:null,toastMsg:'',toastUndo:null,toastErr:false,toastOn:false,narrow:false,done:{},more:{},leaving:{},copied:null,tip:null,loading:true,entered:false,pal:false,palQ:'',notes:{},callAt:{},
     pend:{},anyway:store.get('anyway',{}),v:0,
     pipeTab:'Board',tplEd:{},tplNew:null,lch:store.get('lch',''),navTip:null,likersTxt:'',lisEd:{},lbtEd:{},lbtTpl:{},lbtN:20,inspTab:'drafts',engTab:'todo',sortKey:'pri',sortDir:1,fFund:'All',fStage:'Any stage',fCh:'Any channel',allCols:false,dragId:null,dragOver:null,
-    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calStats:{},calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
+    week:0,calDay:dow,postsTab:'To post',postType:'All',addOpen:false,addF:null,calPick:null,calPickKind:'All',calZone:store.get('calZone','ist')==='pst'?'pst':'ist',postPlat:'All',calOpen:{},calStats:{},xfuEd:null,calKind:'All',calEd:{},calLink:null,calLinkVal:'',linkFor:null,linkVal:'',cmpId:null,cmpOn:false,pdmTab:'To message',compTab:'Competitors',compId:null,compFilter:'All',trkMore:false};})();
   rootRef=React.createRef(); mainRef=React.createRef(); palRef=React.createRef();
   componentDidMount(){
     const el=this.rootRef.current;
@@ -643,7 +643,16 @@ class Component extends DCLogic {
         copy:()=>this.copy(t.Opener||'','tplc'+t.ID,t.ID+' copied')};});
     const nf=s.tplNew;const letters=new Set(T.map(t=>t.ID[0]));const nextId=(()=>{for(const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){if(!letters.has(c))return c+'1';}return 'Z9';})();
     const setN=k=>e=>{const v=e.target.value;this.setState(st=>({tplNew:{...st.tplNew,[k]:v}}));};
-    return{cards,none:!cards.length,summary:live.length+' versions in use. Every new lead gets the next one in turn, so each gets a fair share. '+(tot?tot+' sent so far, '+totR+' replies ('+Math.round(totR/tot*100)+'%).':'Nothing sent yet.'),
+    const XFU_DEF=["Hey {first}, sharing a short VSL we made: https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
+      "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?","Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
+      "No worries if the timing's off, {first}. Would next week work better for a quick chat? https://cal.com/sove7gn-gtm/30min","Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}."];
+    const xb=AK.leadSetting('x_bot')||{};const cur=XFU_DEF.map((d,i)=>(Array.isArray(xb.fu)&&xb.fu[i])||d);const ed=s.xfuEd;
+    const more={help:'Same for every version. One a day after follow-up 2, until they reply. {first} and {company} are filled in.',editing:!!ed,view:!ed,
+      saveLabel:AK.S.busy.has('xfu')?'Saving…':'Save',edit:()=>this.setState({xfuEd:cur.slice()}),cancel:()=>this.setState({xfuEd:null}),
+      save:async()=>{if(!AK.canEdit()||!ed)return;const ok=await AK.leadSettingSave('x_bot',{...(AK.leadSetting('x_bot')||{}),fu:ed.map(t=>String(t||'').trim())});if(ok){this.setState({xfuEd:null});this.toast('Saved. New follow-ups use it from now on.');}},
+      items:(ed||cur).map((t,i)=>({label:'Follow-up '+(i+3)+(i===0?' · the VSL':'')+(i===4?' · last one':''),text:t,rows:String(Math.max(2,Math.ceil(t.length/70)+1)),
+        set:e=>{const v=e.target.value;this.setState(st=>{const a=(st.xfuEd||cur).slice();a[i]=v;return{xfuEd:a};});}}))};
+    return{more,cards,none:!cards.length,summary:live.length+' versions in use. Every new lead gets the next one in turn, so each gets a fair share. '+(tot?tot+' sent so far, '+totR+' replies ('+Math.round(totR/tot*100)+'%).':'Nothing sent yet.'),
       help:'Write [first name], [company] and [hook] anywhere in a message. [hook] is a one-line opener the lead finder writes about that person\u2019s post. When someone answers, drag them to Replied in the Pipeline, and the reply rate here updates.',
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
@@ -1438,7 +1447,7 @@ class Component extends DCLogic {
       row('Messaged today',dmToday.length,'li-dm',dmToday.map(tName),reqToday.length?'Plus '+reqToday.length+' connection requests today':''),
       row('Replied',replied.length,'li-rep',replied.map(l=>chip(l.name,this.since(LI(l).replied)+' · '+l.stage,l.id)),'They move to In talks'),
       row('Request sent, not accepted yet',pending.length,'li-pend',pending.map(l=>chip(l.name,'sent '+this.since(LI(l).req),l.id)),'Old ones are withdrawn after 3 weeks'),
-      row('Going out next',queued.length,'li-q',queued.map(tName),review.length?review.length+' more waiting for your OK on LinkedIn > Pipeline':'Sent 12 AM to 12 PM IST, one every few minutes'),
+      row('Going out next',queued.length,'li-q',queued.map(tName),review.length?review.length+' more waiting for your OK on LinkedIn > Pipeline':'Sent one every few minutes while your Chrome is open'),
       row('Left to send',reviewFirst.length+accNoDm.length,'li-left',[...reviewFirst.map(t=>({...tName(t),sub:'waiting for your OK'})),...accNoDm.map(l=>chip(l.name,'accepted, first message next',l.id))],
         'First messages still to write or approve: '+(reviewFirst.length+accNoDm.length)+' · first messages queued now: '+qFirst.length+' · follow-ups queued now: '+qFu.length+' · follow-ups still to come on the ladder: '+fuLeft+' (up to 7 each, one a day)')]};
     // X
@@ -1446,24 +1455,25 @@ class Component extends DCLogic {
     const xc=(c,sub)=>chip(c.Name,sub,null);
     const xSent=XT.filter(t=>t.status==='sent'&&ms(t.sent_at)>=t0);
     const manual=C.filter(c=>[c['Sent on'],c['FU1 sent'],c['FU2 sent']].some(v=>xd(v)>=t0)&&!xSent.some(t=>t.name===c.Name));
-    const xKind={dm:'DM 1',fu1:'Follow-up 1',fu2:'Follow-up 2'};
+    const xKind={dm:'DM 1',fu1:'Follow-up 1',fu2:'Follow-up 2',fu3:'Follow-up 3 (VSL)',fu4:'Follow-up 4',fu5:'Follow-up 5',fu6:'Follow-up 6',fu7:'Follow-up 7'};
     const xRep=C.filter(c=>c['Replied on']).sort((a,b)=>xd(b['Replied on'])-xd(a['Replied on']));
     const xQ=XT.filter(t=>t.status==='ready'||t.status==='sending');
     const toSend=C.filter(c=>/^(to send|)$/i.test(c.Status||'')&&c['X handle']&&!xQ.some(t=>t.row===c._row));
-    const onLadder=C.filter(c=>/^(sent|fu1 sent)$/i.test(c.Status||'')&&!c['Replied on']);
-    const xFuLeft=onLadder.reduce((a,c)=>a+(/^sent$/i.test(c.Status)?2:1),0);
+    const moreDone=r=>XT.filter(t=>t.row===r&&/^fu[3-7]$/.test(t.kind)&&t.status!=='failed').length;
+    const onLadder=C.filter(c=>/^(sent|fu1 sent|fu2 sent)$/i.test(c.Status||'')&&!c['Replied on']);
+    const xFuLeft=onLadder.reduce((a,c)=>a+Math.max(0,(/^sent$/i.test(c.Status)?7:/^fu1/i.test(c.Status)?6:5-moreDone(c._row))),0);
     const cant=XT.filter(t=>t.status==='skipped'&&/closed|passcode/i.test(t.error||'')&&ms(t.claimed_at||t.created_at)>=t0);
     const x={rows:[
       row('Messaged today',xSent.length+manual.length,'x-dm',[...xSent.map(t=>chip(t.name,xKind[t.kind]+' · bot',null)),...manual.map(c=>xc(c,'by hand'))],cant.length?cant.length+' had closed or passcode DMs (marked Can’t DM)':''),
       row('Replied',xRep.length,'x-rep',xRep.map(c=>xc(c,'replied '+(c['Replied on']||'')))),
-      row('Going out next',xQ.length,'x-q',xQ.map(t=>chip(t.name,xKind[t.kind]+(t.status==='sending'?' · sending now':''),null)),'Sent 12 AM to 12 PM IST by the bot'),
+      row('Going out next',xQ.length,'x-q',xQ.map(t=>chip(t.name,xKind[t.kind]+(t.status==='sending'?' · sending now':''),null)),'Sent by the bot while your Chrome is open'),
       row('Left to send',toSend.length,'x-left',toSend.map(c=>xc(c,'first DM')),'First DMs not queued yet: '+toSend.length+' (press Send all with bot on Send today) · follow-ups still to come: '+xFuLeft+' (they queue themselves 24 hours apart)')]};
     // Where everyone is
     const STOP={replied:['Replied','in talks'],'in talks':['Replied','in talks'],booked:['Call booked','call booked'],lost:['Lost','marked lost'],'no reply':['Cold','no reply after 7 follow-ups'],skipped:['Skipped','skipped'],'not connected':['Not connected','LinkedIn says not connected'],'you messaged them':['By hand','you messaged them yourself']};
     const step=l=>{const x=LI(l);if(/^lost$/i.test(l.stage||''))return['Lost',0,'marked lost',''];if(/call booked|proposal|won/i.test(l.stage||''))return[l.stage,7,'',l.stage==='Call booked'?'Prep the call':''];
       if(x.replied)return['Replied',6,'replied '+this.since(x.replied),'In talks: answer them'];
       if(x.stop){const z=STOP[x.stop]||['Stopped',String(x.stop)];return[z[0],0,z[1],''];}
-      if(x.dm){const n=+x.fu||0;const next=ms(x.last||x.dm)+864e5;return[n?'Follow-up '+n+' of 7':'DM 1 sent',5,'last '+this.since(x.last||x.dm),n>=7?'Cold lead next':next<=Date.now()?'Follow-up '+(n+1)+' due now':'Follow-up '+(n+1)+' in '+Math.max(1,Math.ceil((next-Date.now())/36e5))+' h (12 AM to 12 PM IST)'];}
+      if(x.dm){const n=+x.fu||0;const next=ms(x.last||x.dm)+864e5;return[n?'Follow-up '+n+' of 7':'DM 1 sent',5,'last '+this.since(x.last||x.dm),n>=7?'Cold lead next':next<=Date.now()?'Follow-up '+(n+1)+' due now':'Follow-up '+(n+1)+' in '+Math.max(1,Math.ceil((next-Date.now())/36e5))+' h'];}
       if(x.acc)return['Accepted',4,'accepted '+this.since(x.acc),'First message next'];
       if(x.req)return['Request sent',3,'sent '+this.since(x.req),'Waiting for them to accept'];
       const r=T.find(t=>t.lead_id===l.id&&['review','ready','sending'].includes(t.status));

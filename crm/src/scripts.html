@@ -78,4 +78,14 @@
 </div>
 </sc-if>
 </div>
+
+<!-- X follow-ups 3 to 7 (13 Nov): the same for every version, one a day after follow-up 2 until they reply (x_bot.fu). -->
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }};">
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><span style="font-size:var(--fs-md); font-weight:700;">Follow-ups 3 to 7</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ scr.more.help }}</span>
+<div style="margin-left:auto; display:flex; gap:6px;"><sc-if value="{{ scr.more.view }}"><button onClick="{{ scr.more.edit }}" style="height:30px; padding:0 12px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Edit</button></sc-if><sc-if value="{{ scr.more.editing }}"><button onClick="{{ scr.more.cancel }}" style="height:30px; padding:0 12px; border:0; border-radius:8px; background:transparent; font-size:var(--fs-xs); color:var(--ink-2); cursor:pointer;">Cancel</button><button onClick="{{ scr.more.save }}" style="height:30px; padding:0 14px; border:0; border-radius:8px; background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ scr.more.saveLabel }}</button></sc-if></div></div>
+<sc-for list="{{ scr.more.items }}" as="m"><div style="display:flex; flex-direction:column; gap:4px;"><span style="font-size:var(--fs-3xs); font-weight:600; color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em;">{{ m.label }}</span>
+<sc-if value="{{ scr.more.view }}"><span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere;">{{ m.text }}</span></sc-if>
+<sc-if value="{{ scr.more.editing }}"><textarea value="{{ m.text }}" onChange="{{ m.set }}" rows="{{ m.rows }}" style="width:100%; box-sizing:border-box; padding:8px 10px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); line-height:1.5; font-family:inherit; resize:vertical; outline:none;"></textarea></sc-if>
+</div></sc-for>
+</div>
 </sc-if>
