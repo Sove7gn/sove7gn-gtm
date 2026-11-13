@@ -205,7 +205,7 @@ async function sync(fromButton) {
     if (st.accepted || st.replied) await log((st.accepted ? st.accepted + " accepted. " : "") + (st.replied ? st.replied + " replied (follow-ups stopped)." : ""));
 
     // 3. What to send next.
-    const p = await api("plan");
+    const p = await api("plan", { version: VERSION });
     for (const L of p.lookups || []) {
       try { const r = await op("lookup", L); await api("contact", { lead_id: L.lead_id, ...r }); } catch (e) { await log("Lookup failed: " + e.message, true); }
       await sleep(rand(1500, 4000));

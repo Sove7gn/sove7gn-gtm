@@ -479,7 +479,10 @@ async function plan(_b: any) {
     const m0 = new Date(Date.now() + 19800e3); const monthStart = new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth(), 1) - 19800e3).toISOString();
     const { count: imSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "inmail").eq("status", "sent").gte("sent_at", monthStart);
     const imLeft = Math.max(0, Math.min(2, INMAIL_MONTH - (imSent ?? 0)));
-    const ims = (ready ?? []).filter((t) => t.kind === "inmail" && ok(t)).slice(0, imLeft);
+    // Only an extension that can really send an InMail (1.2.8+, which says its version here) gets one; an older copy would send it
+    // as a plain message, fail, and mark them not connected.
+    const pv = String(_b?.version ?? "0").split(".").map((x: string) => +x || 0), canIm = pv[0] > 1 || (pv[0] === 1 && (pv[1] > 2 || (pv[1] === 2 && pv[2] >= 8)));
+    const ims = canIm ? (ready ?? []).filter((t) => t.kind === "inmail" && ok(t)).slice(0, imLeft) : [];
     const msg = [...(ready ?? []).filter((t) => t.kind !== "invite" && t.kind !== "inmail" && ok(t)).slice(0, 10), ...ims];
     tasks = [...msg, ...inv];
     if (tasks.length) {
