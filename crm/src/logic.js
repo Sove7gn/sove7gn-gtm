@@ -509,7 +509,8 @@ class Component extends DCLogic {
     const posted=this.postList().filter(p=>platOf(p.o)==='X'&&p.status==='Posted'&&sameDay(p.o._date)).length;
     const sent=P.filter(p=>[p.d[0],p.d[1],p.d[2]].some(x=>sameDay(AK.cellDate(x)))).length;
     const eng=this.engagers().filter(e=>sameDay(AK.parseDate(e['Found on']))&&verdictOf(e)!=='Skip');const done=eng.filter(e=>/Messaged|Replied|Dismissed/.test(e.Status||'')).length;
-    return[{name:'Posts on X today',v:posted,tgt:3},{name:'DMs sent today (first messages and follow-ups)',v:sent,tgt:30},{name:'People who engaged, answered',v:done,tgt:eng.length}];}
+    const replied=AK.XG.rows.filter(r=>r.status==='done'&&r.done_at&&sameDay(new Date(r.done_at))).length;
+    return[{name:'Posts on X today',v:posted,tgt:3},{name:'Replies under other people’s posts (10K plan)',v:replied,tgt:30},{name:'DMs sent today (first messages and follow-ups)',v:sent,tgt:30},{name:'People who engaged, answered',v:done,tgt:eng.length}];}
   // Replies to our DMs plus people who engaged with our posts, per week, for the last 6 weeks.
   weekReplies(E){const now=AK.weekStart(0).getTime();const wk=d=>now-Math.ceil((now-d.getTime())/(7*864e5))*7*864e5;const by={};
     for(const c of AK.M.contacts){const d=AK.cellDate(c['Replied on']);if(d)by[wk(d)]=(by[wk(d)]||0)+1;}
@@ -725,6 +726,15 @@ class Component extends DCLogic {
     const recent=AK.M.contacts.filter(c=>c['X handle']&&c['Funding stage']&&!/unknown/i.test(c['Funding stage'])).slice(-15).reverse();
     const listText='Here’s this week’s list of founders who just raised or launched:\n\n'+recent.map((c,i)=>(i+1)+'. '+c.Name+(c.Company?' ('+c.Company+')':'')+', '+c['Funding stage']+', x.com/'+String(c['X handle']).replace(/^@/,'')).join('\n')+'\n\nWho are you selling to? Happy to point you at the ones that fit.';
     const kw=[['LIST','Commented LIST or SEED (founders list, built from this week’s DM Pipeline)',listText],...G.kw].map(([w,label,text])=>{const b=this.copyBtn('kw'+w,'Copy DM');return{word:w,label,text,label2:b.label,bg:b.bg,fg:b.fg,sh:b.sh,copy:()=>this.copy(text,'kw'+w,'DM copied')};});
+    // the pipeline next to growth (15 Nov): X DMs (DM Pipeline) and LinkedIn + every lead (Leads)
+    const C=AK.M.contacts;const cs=r=>String(r.Status||'To send');
+    const xOut=C.filter(r=>/^(Sent|FU1 sent|FU2 sent|No reply)$/.test(cs(r))).length,xRep=C.filter(r=>/^(Replied|Call booked|Customer)$/.test(cs(r))).length,xQ=C.filter(r=>cs(r)==='To send').length;
+    const LR=(AK.LD.rows||[]).filter(l=>!l.archived&&/^(linkedin|x)$/i.test(l.source||''));const st=l=>String(l.stage||'');
+    const liC=LR.filter(l=>/linkedin/i.test(l.source||'')&&/^(Contacted|Follow up)$/i.test(st(l))).length;
+    const talks=LR.filter(l=>/^in talks$/i.test(st(l))).length,calls=LR.filter(l=>/^(call booked|proposal sent)$/i.test(st(l))).length,won=LR.filter(l=>/^(won|customer|client)$/i.test(st(l))).length;
+    const pipe=[{label:'X DMs out',v:String(xOut),sub:xQ+' queued, '+xRep+' replied',go:()=>this.go('pipeline')},{label:'LinkedIn in progress',v:String(liC),sub:'contacted or in follow-ups',go:()=>{this.setState({plat:'LinkedIn'});this.go('liOut');}},
+      {label:'In talks',v:String(talks),sub:'LinkedIn and X',go:()=>this.go('leads')},{label:'Calls booked',v:String(calls),sub:'LinkedIn and X',go:()=>this.go('leads')},{label:'Clients',v:String(won),sub:'goal: the first one this month',go:()=>this.go('leads')}];
+    const pipeTip=xOut>=20&&!xRep?'X DMs: '+xOut+' out and no replies yet. Cold DMs from a small account rarely land, so reply under a lead’s post first (the green Lead cards below), then DM them the next day.':'Reply under a lead’s post (the Lead cards below) before their DM goes out: a warm DM gets answered far more often.';
     return{now:fmtK(now),goal:fmtK(G.goal),onTrack:fmtK(onTrack),status,pct:pct.toFixed(1)+'%',daysLeft:String(daysLeft),
       need:now>=onTrack?'You’re on or above the line. Keep the daily routine.':'Tomorrow’s line is '+fmtK(tmrw)+' followers: '+fmtK(Math.max(0,tmrw-now))+' to go.',
       perDay:'The line grows about '+Math.round((Math.pow(G.goal/G.from,1/T)-1)*100)+'% a day: small at first, the last 2 weeks do most of it.',
@@ -734,7 +744,7 @@ class Component extends DCLogic {
       noRepliesText:AK.XG.loaded?'Nothing fresh right now. The list fills every hour from 7 AM to 9 PM New York time (5:40 PM to 7:40 AM IST).':'Loading…',
       hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,grow:lim+12}})),
       runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'Last check '+this.since(lr.started_at)+(lr.ok===false?' (failed: '+clip(lr.error||'',90)+')':''):'',
-      kit,kw,week:G.week.map(([d,t])=>({d,t}))};}
+      pipe,pipeTip,kit,kw,week:G.week.map(([d,t])=>({d,t}))};}
   engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
     const VO={'DM + reply':0,'Reply only':1};
     const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));

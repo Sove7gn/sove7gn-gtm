@@ -22,7 +22,7 @@ if (!r.ok) throw new Error("Saving secrets failed: " + r.status);
 console.log("secrets: APIFY_TOKEN, EXA_API_KEY, CRON_SECRET, COMPOSIO_API_KEY" + (env.TWITTERAPI_KEY ? ", TWITTERAPI_KEY (X now reads through twitterapi.io)" : "") + " saved");
 
 const JOBS = [
-  { slug: "x-leads", cron: "0 2,7 * * *", when: "7:30 and 12:30 IST" },     // 02:00 and 07:00 UTC
+  { slug: "x-leads", cron: "0 2,7,14,18,22 * * *", when: "7:30 AM, 12:30, 7:30 PM, 11:30 PM, 3:30 AM IST" },     // 15 Nov: 3 runs added in US hours, when most raise and launch posts go up
   { slug: "x-engage", cron: "45 0,6,12,18 * * *", when: "every 6 hours (6:15, 12:15, 18:15, 0:15 IST)" },
   { slug: "li-engage", cron: "15 2 * * *", when: "7:45 IST (10 LinkedIn posts to comment on)" },
 ];

@@ -34,6 +34,14 @@
 </section>
 
 <section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Pipeline: followers only count if they turn into calls</h2>
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:var(--s-3);">
+<sc-for list="{{ gr.pipe }}" as="p"><div onClick="{{ p.go }}" style="display:flex; flex-direction:column; gap:2px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi); cursor:pointer;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ p.label }}</span><span style="font-size:var(--fs-xl); font-weight:700;">{{ p.v }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ p.sub }}</span></div></sc-for>
+</div>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ gr.pipeTip }}</span>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
 <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px;">
 <h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Reply to these ({{ gr.repliedToday }} of 30 today)</h2>
 <button onClick="{{ gr.run }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ gr.runLabel }}</button>

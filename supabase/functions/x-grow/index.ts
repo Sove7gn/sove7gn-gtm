@@ -61,7 +61,9 @@ async function tw(path: string): Promise<any> {   // free tier: one request ever
   for (let attempt = 0; attempt < 3; attempt++) {
     const wait = Math.max(0, twNext - Date.now()); twNext = Math.max(Date.now(), twNext) + 5200;
     if (wait) await new Promise((r) => setTimeout(r, wait));
-    const r = await fetch("https://api.twitterapi.io" + path, { headers: { "X-API-Key": TWAPI } });
+    let r: Response;
+    try { r = await fetch("https://api.twitterapi.io" + path, { headers: { "X-API-Key": TWAPI } }); }
+    catch (e) { if (attempt === 2) throw e; continue; }   // a dropped connection: try again on the next turn
     if (r.status === 429) continue;
     if (!r.ok) throw new Error("twitterapi.io answered " + r.status + ": " + (await r.text()).slice(0, 160));
     return await r.json();
