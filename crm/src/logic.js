@@ -1689,7 +1689,7 @@ class Component extends DCLogic {
     const colOf=l=>{const g=String(l.stage||'').toLowerCase(),x=LI(l),t=open.get(l.id),go=t&&(t.status==='ready'||t.status==='sending');
       if(g==='won')return 'won';if(g==='lost'||g==='cold lead'||x.stop==='no reply'||x.stop==='withdrawn')return 'lost';if(g==='call booked'||g==='proposal sent')return 'booked';
       if(x.replied||g==='in talks')return 'talks';
-      if(go&&t.kind==='followup')return 'fu'+Math.min(7,t.step);if(go&&(t.kind==='dm'||t.kind==='accept'))return 'dm';
+      if(go&&t.kind==='followup')return 'fu'+Math.min(7,t.step%100);if(go&&(t.kind==='dm'||t.kind==='accept'))return 'dm';
       if(x.dm){const f=+x.fu||0;return f>0?'fu'+Math.min(7,f):'dm';}
       if(x.req||x.acc||(go&&t.kind==='invite'))return 'req';return 'found';};
     const q=String(s.lpQ||'').trim().toLowerCase(),min=+s.lpMin||0,showOut=!!s.lpOut;
@@ -1701,7 +1701,7 @@ class Component extends DCLogic {
     {const rank=l=>{const x=LI(l);return(/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)?16:0)+(x.replied?8:0)+(x.dm?4:0)+(x.acc?2:0)+(x.req?1:0);};
       const best=new Map();for(const l of pool){const k=GTM.normName(l.name)||l.id;const b=best.get(k);if(!b||rank(l)>rank(b))best.set(k,l);}
       const keep=new Set([...best.values()].map(l=>l.id));for(let i=pool.length-1;i>=0;i--)if(!keep.has(pool[i].id))pool.splice(i,1);}
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='accept'?'Accept their request + first message':t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+t.step:'InMail';
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='accept'?'Accept their request + first message':t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail';
     const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
     const btn=(label,fn)=>({label,go:e=>{e&&e.stopPropagation&&e.stopPropagation();fn();}});
     const card=(l,col,out)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
@@ -1742,7 +1742,7 @@ class Component extends DCLogic {
         onMsg:e=>{const v=e.target.value;this.setState(z=>({lbtEd:{...(z.lbtEd||{}),[t.id]:v}}));},
         saveMsg:()=>{const v=(this.state.lbtEd||{})[t&&t.id];if(!t||v==null||v===t.text)return;if(t.kind==='invite'&&v.length>300){this.toast('A connection note can be 300 characters at most.',true);return;}AK.lbtSet(t.id,{text:v});},
         approve:e=>{e&&e.stopPropagation&&e.stopPropagation();if(!t||!AK.canEdit())return;const v=(this.state.lbtEd||{})[t.id];const p={status:'ready'};if(v!=null&&v!==t.text&&!(t.kind==='invite'&&v.length>300))p.text=v;
-          AK.lbtSet(t.id,p).then(ok=>ok&&this.toast((l.name||'They')+' moved to '+NAME[t.kind==='invite'?'req':t.kind==='dm'||t.kind==='accept'?'dm':'fu'+t.step]+'. The bot sends it in the next few minutes.'));},
+          AK.lbtSet(t.id,p).then(ok=>ok&&this.toast((l.name||'They')+' moved to '+NAME[t.kind==='invite'?'req':t.kind==='dm'||t.kind==='accept'?'dm':'fu'+Math.min(7,t.step%100)]+'. The bot sends it in the next few minutes.'));},
         skip:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t&&AK.canEdit())AK.lbtSet(t.id,{status:'skipped'}).then(ok=>ok&&this.toast('Skipped '+(l.name||'them')+'. The bot won’t message them.'));},
         isFailed:!!t&&t.status==='failed',retry:e=>{e&&e.stopPropagation&&e.stopPropagation();if(t)AK.lbtSet(t.id,{status:'ready'});},
         moves:moves.map(([label,stage])=>btn(label,()=>this.liMove(l,stage))),hasMoves:moves.length>0&&!out,stop:e=>{e&&e.stopPropagation&&e.stopPropagation();},
@@ -1853,7 +1853,7 @@ class Component extends DCLogic {
       seenMin>45?{t:'The extension last checked in '+this.since(st.seen)+'. It only runs while Chrome is open.',c:'var(--warn)'}:
       {t:'The extension is running. Last check '+this.since(st.seen)+'.',c:'var(--ok)'};
     const save=patch=>{if(!AK.canEdit())return;AK.leadSettingSave('li_bot',{...(AK.LD.settings.li_bot||{}),...patch});};
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+t.step:'InMail'+(t.subject?' · subject: '+t.subject:'')+' (uses 1 of your 30 credits)';
+    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail'+(t.subject?' · subject: '+t.subject:'')+' (uses 1 of your 30 credits)';
     const card=t=>{const l=byId.get(t.lead_id)||{};const ed=(s.lbtEd||{})[t.id];const tx=ed!=null?ed:t.text;
       return{...avatar(l.name||'?'),id:t.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),kind:kindLabel(t),text:tx,
         chars:t.kind==='invite'?tx.length+' / 300':tx.length+' characters',

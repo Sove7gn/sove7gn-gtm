@@ -33,7 +33,9 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1).trimEnd
 const cleanName = (n: unknown) => String(n ?? "").replace(/\b(Verified|Premium)( Profile)?\b/gi, " ").replace(/[•·]?\s*\b(1st|2nd|3rd\+?)(?=\s|$)/gi, " ")
   .replace(/\((he|she|they)\/[a-z]+\)/gi, " ").replace(/\s+/g, " ").trim();
 const sameName = (a: unknown, b: unknown) => { const k = (x: unknown) => cleanName(x).toLowerCase().replace(/[^a-z]/g, ""); return !!k(a) && k(a) === k(b); };
-const ACTIVE = /^(new|contacted|follow up)$/i;     // stages the bot may still message in
+const ACTIVE = /^(new|contacted|follow up)$/i;
+// Follow-up order after the 3 tips: 1 booking link, 3 the VSL, 5 how they get customers, 2 bump, 6 next week?, 7 last nudge.
+const TIPS_FU = [1, 3, 5, 2, 6, 7];     // stages the bot may still message in
 
 async function allowed(req: Request): Promise<boolean> {
   if (TOKEN && req.headers.get("x-bot-token") === TOKEN) return true;
@@ -710,7 +712,7 @@ async function state(b: any) {
   for (const t of b.threads ?? []) {
     const l = find(t); if (!l || !t.them_at) continue;
     const li = { ...(l.fields?.li ?? {}) };
-    const since = Date.parse(li.req || li.dm || li.inmail || "") || 0;
+    const since = Math.max(Date.parse(li.req || li.dm || li.inmail || "") || 0, (Date.parse(li.prev_replied ?? "") || 0) + 1000);
     if (!li.replied && !li.stop && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 10 * 60e3) {
       await saveLi(l, { ...li, stop: "you messaged them" });
       await stopTasks(l.id, "You messaged them yourself");
@@ -767,6 +769,15 @@ async function plan(_b: any) {
   for (const l of leads) {
     const li = { ...(l.fields?.li ?? {}) };
     const ts = tasksOf.get(l.id) ?? [];
+    // (14 Nov) They replied, we sent the 3 tips, and they went quiet: after 24 hours their follow-ups start again (tips order below).
+    const tipsAt = Date.parse(l.fields?.tips?.sent_at ?? "") || 0;
+    if (tipsAt && li.replied && Date.parse(li.replied) < tipsAt && Date.now() - tipsAt >= 22 * 3600e3 && !li.restarted && /^(new|contacted|follow up|in talks)$/i.test(l.stage)) {
+      const r = { ...li, prev_replied: li.replied, restarted: now(), dm: li.dm || l.fields.tips.sent_at, fu: 0, last: l.fields.tips.sent_at };
+      delete r.replied; delete r.stop; delete r.draft;
+      await saveLi(l, r, { stage: "Follow up" });
+      await log(l.id, "No reply in 24 hours after the 3 tips, so their LinkedIn follow-ups start again (booking link first, then the VSL).", "note");
+      Object.assign(li, r); delete li.replied; delete li.stop; l.stage = "Follow up";
+    }
     if (li.stop || li.replied || !ACTIVE.test(l.stage)) continue;
     if (ts.some((t) => ["review", "ready", "sending"].includes(t.status))) continue;
     const had = (kind: string, step = 0) => ts.find((t) => t.kind === kind && t.step === step);
@@ -797,15 +808,21 @@ async function plan(_b: any) {
     if (li.dm) {
       const n = (li.fu ?? 0) + 1, due = (Date.parse(li.last || li.dm) || 0) + set.gap_days * 86400e3 - 2 * 3600e3;
       if (Date.now() < due) continue;
-      if (n > set.followups) {
+      // (14 Nov) After the 3 tips (they end on the call ask) the follow-ups go: booking link, then the VSL, then the rest, a day apart.
+      // Skips "want the 3 ideas?" since they have them. Order in TIPS_FU (numbers of the follow-ups in li_bot.fu).
+      const tipsSeq = !!(l.fields?.tips?.sent_at || /here they are/i.test(String(li.dm1 ?? "")));
+      const order = tipsSeq ? TIPS_FU.filter((k) => k <= set.fu.length) : null;
+      const maxFu = order ? order.length : set.followups;
+      if (n > maxFu) {
         await saveLi(l, { ...li, stop: "no reply" }, { stage: "Cold lead" });
-        await log(l.id, "No reply after DM 1 and " + set.followups + " follow-ups on LinkedIn. Moved to Cold lead.", "note");
+        await log(l.id, "No reply after DM 1 and " + maxFu + " follow-ups on LinkedIn. Moved to Cold lead.", "note");
         finished++; continue;
       }
-      const t = had("followup", n);
+      const stepNo = li.restarted ? 100 + n : n;        // a restarted sequence numbers its tasks 101, 102... so old ones never block it
+      const t = had("followup", stepNo);
       if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now() }); continue; }
       // (12 Nov) Follow-ups never wait for approval: Reyansh approves the first touch only. One a day (gap_days 1) up to 7.
-      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: n, text: fill(set.fu[n - 1] ?? "", l), status: "ready" });
+      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: stepNo, text: fill(set.fu[(order ? order[n - 1] : n) - 1] ?? "", l), status: "ready" });
     }
   }
   // Connection notes: one short opener per person, written from what we know about them.
@@ -945,9 +962,9 @@ async function done(b: any) {
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, "LinkedIn first message sent (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "followup") {
-    li.fu = t.step; li.last = at;
+    li.fu = t.step % 100; li.last = at;
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
-    await log(lead.id, "LinkedIn follow-up " + t.step + " sent:\n" + t.text);
+    await log(lead.id, "LinkedIn follow-up " + (t.step % 100) + " sent:\n" + t.text);
   } else if (t.kind === "magnet") {
     li.magnet_sent = { ...(li.magnet_sent ?? {}), [String(t.subject || "asset")]: at }; li.last = at;
     await log(lead.id, "Sent them the " + (t.subject || "asset") + " they asked for:\n" + t.text);
