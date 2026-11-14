@@ -6,7 +6,7 @@
   "pilot": {
     "start": "2026-11-02",
     "end": "2027-01-31",
-    "followerTarget": 1000
+    "followerTarget": 10000
   },
   "aimed": [
     "Founders",

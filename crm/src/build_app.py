@@ -339,7 +339,7 @@ src = src[:j0] + sel.replace('value="{{ owner }}" onChange="{{ onOwnerSel }}" ar
 
 # ---------- Leads (6 Nov): its pages go in front of the calendar, its panel right after the contact panel ----------
 k0 = src.index('<sc-if value="{{ is.calendar }}">')
-src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "li.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "engaged.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
+src = src[:k0] + open(os.path.join(HERE, "leads.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "social.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "li.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "gtm.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "scripts.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "engaged.html"), encoding="utf-8").read().strip() + "\n\n" + open(os.path.join(HERE, "growth.html"), encoding="utf-8").read().strip() + "\n\n" + src[k0:]
 
 # ---------- inspiration (9 Nov): drafts keep their line breaks, and threads show each tweet on its own ----------
 rep('<p style="margin:0; font-size:var(--fs-md); line-height:1.55; color:var(--ink-2); text-wrap:pretty;">{{ p.cText }}</p>',

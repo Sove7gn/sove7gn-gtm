@@ -1,0 +1,122 @@
+<!-- 10K plan (15 Nov): 10,000 followers on X by 31 Dec and clients from them. Spliced in by build_app.py; values from growthVals() in logic.js (gr). -->
+<sc-if value="{{ is.growth }}">
+<section style="display:flex; flex-direction:column; gap:14px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 24px;">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Followers now</span><span style="font-size:40px; font-weight:700; letter-spacing:-0.03em; line-height:1;">{{ gr.now }} <span style="font-size:var(--fs-md); font-weight:500; color:var(--ink-3);">of {{ gr.goal }}</span></span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Where the line is today</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.onTrack }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Days left</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.daysLeft }}</span></div>
+<span style="height:24px; display:inline-flex; align-items:center; padding:0 10px; border-radius:var(--r-pill); background:{{ gr.status.bg }}; color:{{ gr.status.fg }}; box-shadow:{{ gr.status.bd }}; font-size:var(--fs-2xs); font-weight:600;">{{ gr.status.label }}</span>
+</div>
+<div style="height:8px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ gr.pct }}; background:var(--in); border-radius:var(--r-pill);"></div></div>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ gr.need }} {{ gr.perDay }}</span>
+<div style="display:flex; align-items:flex-end; gap:4px; height:68px;" title="Followers, last 14 days"><sc-for list="{{ gr.bars }}" as="b"><div title="{{ b.t }}" style="flex:1; height:{{ b.h }}; background:{{ b.bg }}; border-radius:3px;"></div></sc-for></div>
+<div style="display:flex; flex-wrap:wrap; gap:8px;"><sc-for list="{{ gr.miles }}" as="m"><div style="display:flex; flex-direction:column; gap:3px; padding:8px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ m.label }}</span><span style="font-size:var(--fs-md); font-weight:600;">{{ m.tgt }}</span><span style="align-self:flex-start; height:18px; display:inline-flex; align-items:center; padding:0 7px; border-radius:var(--r-pill); background:{{ m.st.bg }}; color:{{ m.st.fg }}; font-size:var(--fs-3xs); font-weight:600;">{{ m.st.label }}</span></div></sc-for></div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Today's routine</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ gr.checks }}" as="c">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="flex:1 1 260px; font-size:var(--fs-sm); font-weight:500;">{{ c.name }}</span>
+<div style="flex:0 0 140px; height:6px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ c.w }}; background:var(--ink);"></div></div>
+<span style="flex:0 0 64px; font-size:var(--fs-sm); font-weight:600; text-align:right;">{{ c.vS }} / {{ c.tS }}</span>
+<sc-if value="{{ c.hasGo }}"><button onClick="{{ c.go }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">{{ c.cta }}</button></sc-if>
+</div>
+</sc-for>
+<sc-for list="{{ gr.manual }}" as="m">
+<div onClick="{{ m.toggle }}" style="display:flex; align-items:center; gap:12px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline); cursor:pointer; opacity:{{ m.op }};">
+<span style="width:18px; height:18px; flex:0 0 18px; border-radius:6px; background:{{ m.fill }}; box-shadow:{{ m.ring }};"></span>
+<span style="font-size:var(--fs-sm); text-decoration:{{ m.strike }};">{{ m.text }}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px;">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Reply to these ({{ gr.repliedToday }} of 30 today)</h2>
+<button onClick="{{ gr.run }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ gr.runLabel }}</button>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ gr.lastRun }}</span>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.5;">Fresh posts from GTM creators your buyers follow, and from founders in your pipeline. Reply in the first 30 to 60 minutes with your own take: a number, a short story, or a question. Write it yourself (AI-sounding replies get ignored). Replying to a lead before you DM them makes the DM warm. Then press Replied.</span>
+<sc-if value="{{ gr.hasReplies }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ gr.replies }}" as="r">
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:flex-start; gap:8px;"><div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">{{ r.who }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }}</span></div>
+<span style="height:20px; display:inline-flex; align-items:center; padding:0 8px; border-radius:var(--r-pill); background:{{ r.hot.bg }}; color:{{ r.hot.fg }}; font-size:var(--fs-3xs); font-weight:600; white-space:nowrap;">{{ r.hot.label }}</span></div>
+<span style="align-self:flex-start; height:20px; display:inline-flex; align-items:center; padding:0 8px; border-radius:var(--r-pill); background:{{ r.kind.bg }}; color:{{ r.kind.fg }}; box-shadow:{{ r.kind.bd }}; font-size:var(--fs-3xs); font-weight:600;">{{ r.kind.label }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap;">{{ r.text }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.nums }}</span>
+<div style="display:flex; gap:6px;">
+<button onClick="{{ r.open }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open on X ↗</button>
+<button onClick="{{ r.done }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Replied</button>
+<button onClick="{{ r.skip }}" style="height:28px; padding:0 10px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-3); font-size:var(--fs-xs); cursor:pointer;">Skip</button>
+</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ gr.hasMore }}"><button onClick="{{ gr.more }}" style="align-self:center; height:var(--btn-h-sm); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">Show {{ gr.moreN }} more</button></sc-if>
+</sc-if>
+<sc-if value="{{ gr.noReplies }}"><div style="padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ gr.noRepliesText }}</div></sc-if>
+</section>
+
+<section style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (21 posts)</h2>
+<sc-for list="{{ gr.mix }}" as="m">
+<div style="display:flex; flex-direction:column; gap:4px;">
+<div style="display:flex; justify-content:space-between; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.k }}</span><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.n }} / {{ m.tgt }}</span></div>
+<div style="height:6px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ m.w }}; background:{{ m.bg }};"></div></div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ m.what }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ gr.hasUntagged }}"><span style="font-size:var(--fs-xs); color:var(--warn-ink);">{{ gr.untagged }}</span></sc-if>
+</div>
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">The week (7:30 PM · 9:45 PM · 11:30 PM IST)</h2>
+<sc-for list="{{ gr.week }}" as="w"><div style="display:flex; gap:10px; font-size:var(--fs-sm);"><span style="flex:0 0 36px; font-weight:600;">{{ w.d }}</span><span style="color:var(--ink-2);">{{ w.t }}</span></div></sc-for>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. Plus one news post a day whenever something big breaks.</span>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Last 7 days: do more of the top, less of the bottom</h2>
+<sc-if value="{{ gr.hasBW }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); overflow:hidden;"><span style="padding:10px var(--s-4); font-size:var(--fs-xs); font-weight:600; color:var(--ok-ink);">Top 20%</span>
+<sc-for list="{{ gr.best }}" as="b"><div onClick="{{ b.open }}" style="display:flex; flex-direction:column; gap:2px; padding:10px var(--s-4); border-top:1px solid var(--hairline); cursor:pointer;"><span style="font-size:var(--fs-sm);">{{ b.text }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ b.views }} · {{ b.tag }}</span></div></sc-for></div>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); overflow:hidden;"><span style="padding:10px var(--s-4); font-size:var(--fs-xs); font-weight:600; color:var(--bad-ink);">Bottom 20%</span>
+<sc-for list="{{ gr.worst }}" as="b"><div onClick="{{ b.open }}" style="display:flex; flex-direction:column; gap:2px; padding:10px var(--s-4); border-top:1px solid var(--hairline); cursor:pointer;"><span style="font-size:var(--fs-sm);">{{ b.text }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ b.views }} · {{ b.tag }}</span></div></sc-for></div>
+</div>
+</sc-if>
+<sc-if value="{{ gr.noBW }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Shows up once 3 posts from the last 7 days have numbers.</span></sc-if>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">When someone comments a word, DM them this</h2>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ gr.kw }}" as="k">
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<span style="font-size:var(--fs-sm); font-weight:600;">{{ k.label }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap; max-height:220px; overflow:auto;">{{ k.text }}</span>
+<button onClick="{{ k.copy }}" style="align-self:flex-start; height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ k.bg }}; color:{{ k.fg }}; box-shadow:{{ k.sh }}; font-size:var(--fs-xs); cursor:pointer;">{{ k.label2 }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Profile kit (people decide to follow on your profile)</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ gr.kit }}" as="k">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="flex:0 0 90px; font-size:var(--fs-xs); font-weight:600; color:var(--ink-3);">{{ k.label }}</span>
+<span style="flex:1 1 260px; font-size:var(--fs-sm); line-height:1.5;">{{ k.text }}</span>
+<button onClick="{{ k.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ k.bg }}; color:{{ k.fg }}; box-shadow:{{ k.sh }}; font-size:var(--fs-xs); cursor:pointer;">{{ k.label2 }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+</sc-if>

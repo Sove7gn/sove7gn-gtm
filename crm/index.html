@@ -7,7 +7,7 @@
 <title>SOVE7GN CRM</title>
 <style>.ak-board::-webkit-scrollbar{height:10px}.ak-board::-webkit-scrollbar-thumb{background:rgba(19,20,24,.22);border-radius:6px}.ak-board::-webkit-scrollbar-track{background:rgba(19,20,24,.05);border-radius:6px}.ak-board{scrollbar-color:rgba(19,20,24,.25) rgba(19,20,24,.05)}.ak-nav .ak-nav-i{opacity:0;transition:opacity .15s}.ak-nav:hover .ak-nav-i,.ak-nav:focus-visible .ak-nav-i{opacity:1}@media (hover:none){.ak-nav .ak-nav-i{opacity:1}}</style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script>window.CRM_CONFIG={"brand": "SOVE7GN", "accounts": [{"name": "Reyansh", "x": "r3yanshJuneja", "liName": "Reyansh Juneja"}], "pilot": {"start": "2026-11-02", "end": "2027-01-31", "followerTarget": 1000}, "aimed": ["Founders", "Growth leads", "Sales leaders", "Everyone"], "folders": [], "automation": {"linkedin_profile": "https://www.linkedin.com/in/reyansh-juneja/", "icp": "We sell go-to-market help and short-form clipping to startups: getting funded founders seen on LinkedIn and X by the people who buy from them. Hot = a founder, co-founder, CEO, or head of growth, marketing or sales at a startup or growing business that could buy this. Warm = could buy or refer later: investors, senior operators, consultants, coaches. Not a fit = students, job seekers, people selling to us, unrelated roles, and other clipping or GTM agencies (they are competitors)."}, "icp": {"references": ["Aktoria.com", "Alibaba Distribution Head", "Cedar YC founders", "Imagine.ai", "Ankit from Riceberg Ventures"]}, "supabaseUrl": "https://rmadxyyvdiqdujuwecdt.supabase.co", "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtYWR4eXl2ZGlxZHVqdXdlY2R0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTgxNzcsImV4cCI6MjEwODk3NDE3N30.18PORo5Mu4Uidu-5CZtKCZZjEAASk3YWW9O2HWqpa2k"};</script>
+<script>window.CRM_CONFIG={"brand": "SOVE7GN", "accounts": [{"name": "Reyansh", "x": "r3yanshJuneja", "liName": "Reyansh Juneja"}], "pilot": {"start": "2026-11-02", "end": "2027-01-31", "followerTarget": 10000}, "aimed": ["Founders", "Growth leads", "Sales leaders", "Everyone"], "folders": [], "automation": {"linkedin_profile": "https://www.linkedin.com/in/reyansh-juneja/", "icp": "We sell go-to-market help and short-form clipping to startups: getting funded founders seen on LinkedIn and X by the people who buy from them. Hot = a founder, co-founder, CEO, or head of growth, marketing or sales at a startup or growing business that could buy this. Warm = could buy or refer later: investors, senior operators, consultants, coaches. Not a fit = students, job seekers, people selling to us, unrelated roles, and other clipping or GTM agencies (they are competitors)."}, "icp": {"references": ["Aktoria.com", "Alibaba Distribution Head", "Cedar YC founders", "Imagine.ai", "Ankit from Riceberg Ventures"]}, "supabaseUrl": "https://rmadxyyvdiqdujuwecdt.supabase.co", "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtYWR4eXl2ZGlxZHVqdXdlY2R0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzOTgxNzcsImV4cCI6MjEwODk3NDE3N30.18PORo5Mu4Uidu-5CZtKCZZjEAASk3YWW9O2HWqpa2k"};</script>
 <script>
 /* GTM intelligence (8 Nov): the ICP as one definition, evidence-based ICP scoring, relationship classification
    (New / Outbound / Midbound / Inbound), acquisition source and engagement status, the Buying Window Radar, outreach drafts,
@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=458368c42f"></script>
+<script src="./data.js?v=b063de647d"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -437,9 +437,28 @@ const open=url=>{const u=AK.safeUrl(url);if(u)window.open(u,'_blank','noopener')
 const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'').replace(/^@/,'').trim();
   const u=/^\d+$/.test(id)?'https://x.com/messages/compose?recipient_id='+id+(text?'&text='+encodeURIComponent(text):''):h?'https://x.com/'+h:'';if(u)window.open(u,'_blank','noopener');};
 
-const PAGES={home:{sec:'home',label:'Home'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
+// 10K plan on X (15 Nov): from 95 followers on 15 Nov to 10,000 on 31 Dec 2026. The line grows by the same % every day.
+// Funnel: Reach = top (gets new people in), Trust = middle (proof, stories, numbers), Convert = bottom (comment a word, offers).
+const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11,31,23,59),
+  miles:[['2026-11-22','22 Nov'],['2026-11-29','29 Nov'],['2026-12-06','6 Dec'],['2026-12-13','13 Dec'],['2026-12-20','20 Dec'],['2026-12-27','27 Dec'],['2026-12-31','31 Dec']],
+  mix:[['Reach',10,'New people find you: founders-to-watch lists, save-worthy tactics, news takes'],['Trust',6,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
+  week:[['Mon','Founders list (Reach) · Trust · Reach'],['Tue','Founders list (Reach) · Reach · Trust'],['Wed','Founders list (Reach) · Trust (proof) · Convert'],['Thu','Founders list (Reach) · Trust · Convert'],
+    ['Fri','Founders list (Reach) · Reach · Convert (the offer)'],['Sat','Founders list (Reach) · Personal (Trust) · Convert'],['Sun','Founders list (Reach) · Weekly numbers (Trust) · Convert']],
+  kit:[['bio','Bio','I run founder content + DMs on X and LinkedIn for funded B2B founders. Seed to Series C. Daily lists of founders who just raised.'],
+    ['name','Name','Reyansh | founder-led GTM'],
+    ['pin','Pinned post','Pin the best Convert post of the week (the one with the most comments). Change it every Sunday.'],
+    ['link','Link','gtm.sove7gn.org'],
+    ['banner','Banner','https://rmadxyyvdiqdujuwecdt.supabase.co/storage/v1/object/public/crm-media/x-tiles/x_banner.png (open, save, upload as your X header)']],
+  kw:[['DM','Commented DM (the 3 DM scripts)','Here are the 3 DMs I’m testing on funded founders this month:\n\nA. The pitch: one line on what you do, one line of proof, one question.\nB. Ask for advice: "you’ve done X, how would you approach Y?"\nC. Value first: 3 specific ideas for their X and LinkedIn, no ask.\n\nI’ll share which one gets the most replies at the end of the month. Which one would you reply to?'],
+    ['CRM','Commented CRM (the walkthrough)','Here’s the walkthrough: [paste your Loom link]\n\nEvery morning it finds founders on X who just raised, launched or are hiring for GTM, writes the first DM, and flags anyone who replies to my posts. What are you using for this today?'],
+    ['HANDLE','Dropped their handle (3 changes to their X)','Had a look at your X. 3 things I’d change:\n\n1. [bio: say who you help and the result]\n2. [pinned post: your best proof, not your launch]\n3. [one post format that fits you, e.g. a weekly numbers update]\n\nWant me to do the same for your LinkedIn?'],
+    ['POSTS','Commented POSTS (7 free posts, pick 5 founders)','Picked you for the 7 free posts. To write them in your voice I need 2 things:\n\n1. Your last launch or raise post (link)\n2. One number you’re proud of (customers, revenue, users, anything)\n\nI’ll send the 7 posts within 2 days. You post them, keep them.'],
+    ['PLAYBOOK','Commented PLAYBOOK (the 1-page X routine)','Here’s the playbook:\n\nTHE GOAL: followers who could buy, not views.\n\nEVERY DAY\n1. 3 posts: one to reach new people (a list of founders, a tactic worth saving), one to build trust (real numbers, how you work), one to convert (comment a word to get something, or the offer).\n2. 30 replies under posts your buyers read, in the first hour. Your own take, a number or a question.\n3. DM everyone who replies, comments or follows and fits.\n4. One post on the big news of the day, within an hour.\n\nEVERY WEEK\n1. Sunday: post your numbers.\n2. Look at your top 20% and bottom 20% of posts. More of the first, none of the second.\n3. Schedule next week (3 a day), not more.\n\nPROFILE\nBio = who you help + the result. Pinned = your best proof. Banner = the same promise.\n\nWhat are you selling, and to who? Happy to point you at the first 10 people to DM.'],
+    ['AUDIT','Commented AUDIT (3-minute video)','Recording yours now. Quick one first: who’s your buyer, and what’s the one thing you want them to do after reading your posts?\n\nI’ll send the video in the next 24 hours.'],
+    ['GTM','DMed GTM (the service)','Thanks for reaching out! Here’s what the first 30 days look like when we run it for you:\n\nWeek 1: your profile, your voice, a list of the founders and buyers to reach.\nWeek 2 to 4: 3 posts a day on X and LinkedIn written for you to approve, replies under your buyers’ posts, and a DM to everyone who engages.\nEvery week: the calls booked and what we change next.\n\nWant to see if it fits? Pick a time here: https://cal.com/sove7gn-gtm/30min']]};
+const PAGES={home:{sec:'home',label:'Home'},growth:{sec:'home',label:'10K plan'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
   leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},leadSignals:{sec:'leads',label:'Signals'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
-const SECS=[{id:'home',label:'Home',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
+const SECS=[{id:'home',label:'Home',pages:['home','growth']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
@@ -459,7 +478,7 @@ const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
-const PAGE_INFO={leadSignals:'Buying signals we watch for you: founders who just announced a raise (every morning), people who visit gtm.sove7gn.org (RB2B), and people who ask for one of our lead magnets. Each becomes a lead and enters the LinkedIn sequence.',leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
+const PAGE_INFO={growth:'The plan to reach 10,000 followers on X by 31 December, and to turn them into clients: where you are against the line, the daily routine (3 posts, 30 replies, answer and DM everyone who engages or follows), this week’s Reach / Trust / Convert mix, fresh posts to reply to (found every hour in US hours), your best and worst posts, and the profile kit.',leadSignals:'Buying signals we watch for you: founders who just announced a raise (every morning), people who visit gtm.sove7gn.org (RB2B), and people who ask for one of our lead magnets. Each becomes a lead and enters the LinkedIn sequence.',leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
   pipeline:'Everyone we\u2019ve DMed on X and where they are. Board and People show the stages; Scripts is where you edit the 3 DM versions and see which gets replies.',
   calendar:'Your X posts for each day: write them, move them, add an image, mark them scheduled or posted.',
@@ -800,7 +819,7 @@ class Component extends DCLogic {
     const folder=AK.FOLDERS.find(f=>o['Drive folder']&&(o['Drive folder'].indexOf(f.id)>=0||AK.norm(o['Drive folder']).indexOf(AK.norm(f.name))>=0));
     const time=st==='later'?'Later':o._date?AK.dayWord(o._date)+(o['Time (IST)']?', '+o['Time (IST)']+' IST':''):'Not set';
     const cNums=!t?'Its numbers aren’t saved in Their posts':t._li?fmtK(num(t.Reactions))+' reactions · '+fmtK(num(t.Comments))+' comments':(num(t.Views)?fmtK(num(t.Views))+' views · ':'')+fmtK(num(t.Likes))+' likes';
-    const ptype=String(o['Post type']||'').trim();
+    const ptype=[String(o.Funnel||'').trim(),String(o['Post type']||'').trim()].filter(Boolean).join(' · ');
     // Suggested media (Our Posts AA, filled by the media-picks task): "File name | Drive link | why it fits".
     const sg=String(o['Suggested media']||'').split('|').map(x=>x.trim());const sugUrl=AK.safeUrl(sg[1]||'');
     return {id:o._key,o,status,ptype,kind:slotOf(o)||'Other',slot:slotOf(o),comp,compH:t?(t.Account||'')+(t.Platform?' · '+t.Platform:''):(o.Platform||'X'),
@@ -846,6 +865,7 @@ class Component extends DCLogic {
       else{const today=this.ownPosts().filter(p=>p.status!=='Later'&&p.o._date&&AK.sameDay(p.o._date,new Date()));
         h=ts.length&&!AK.dmsPaused()?{...h,next:'No replies waiting. '+ts.length+' DMs are ready to send, and '+today.length+(today.length===1?' post is':' posts are')+' planned for today (goal: 3).',cta:'Go to Send today',go:()=>this.go('send')}
           :{...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' of 3 planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
+    if(page==='growth'){h.eyebrow='Home · 10K plan';h.title='10,000 followers by 31 December';h.next='Do the daily routine below: 3 posts, 30 replies on other people’s posts, and a DM for everyone who comments or follows. Track the line, not single posts.';}
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
     if(page==='pipeline'&&s.pipeTab==='Scripts'){h.next='Each new lead gets the next script in turn. Edit one here and every unsent message uses the new text.';}
@@ -1062,6 +1082,76 @@ class Component extends DCLogic {
         return{code,isBest:code===best&&r>=0.04,sent:String(sent),rep:String(rep),rate:sent?Math.round(r*100)+'%':'–',rateW:this.state.entered?Math.min(100,r*500)+'%':'0%',rateBg:tone==='ok'?'var(--ok)':tone==='bad'?'var(--bad)':tone==='warn'?'var(--warn)':'var(--ink-4)',verdict:pill(vt,tone),open:x.Opener,f1:(f1&&x[f1])||'–',f2:(f2&&x[f2])||'–',copyLabel:cb.label,cbg:cb.bg,cfg:cb.fg,csh:cb.sh,copy:()=>this.copy(x.Opener,k,code+' opener copied')};})};});}
   /* Engaged (9 Nov): DM replies, calls, and everyone who replied to, quoted or mentioned our posts, with the reply and the
      DM ready to copy. Done puts an engager in the Pipeline as Contacted. */
+  // 10K plan (15 Nov): followers goal curve to 31 Dec, today's growth checklist, this week's funnel mix (Reach / Trust / Convert),
+  // fresh posts to reply to (x-grow job), best and worst posts of the last 7 days, and the profile kit. Values for growth.html (gr).
+  growthVals(P){const s=this.state;const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
+    const G=GROWTH;const f=this.followers()[0]||{};const now=num(f.v)||G.from;
+    const T=(G.end-G.start)/864e5;const curve=d=>Math.round(G.from*Math.pow(G.goal/G.from,Math.min(1,Math.max(0,(d-G.start)/864e5/T))));
+    const onTrack=curve(today);const tmrw=curve(new Date(today.getTime()+864e5));const daysLeft=Math.max(0,Math.ceil((G.end-today)/864e5));
+    const gap=onTrack-now;const pct=Math.min(100,now/G.goal*100);
+    const status=now>=onTrack?pill('On track','ok'):gap<=onTrack*.25?pill('A little behind','warn'):pill('Behind','bad');
+    const miles=G.miles.map(([iso,lbl])=>{const d=new Date(iso+'T23:59:00');const tgt=curve(d);const past=d<today;const hit=now>=tgt;
+      return{label:lbl,tgt:fmtK(tgt),st:hit?pill('Done','ok'):past?pill('Missed','bad'):d-today<7*864e5?pill('This week','warn'):pill('Later','neutral')};});
+    // followers per day from the tracker (last value each day), for the small chart
+    const byDay={};for(const r of AK.M.tracking.filter(r=>r.Account==='Reyansh'&&num(r.Followers)!=null)){const d=r._t?new Date(r._t):AK.parseDate(r['Checked at (IST)']);if(d)byDay[d.toDateString()]=num(r.Followers);}
+    const days=[...Array(14)].map((_,i)=>new Date(today.getTime()-(13-i)*864e5));let last=null;
+    const vals=days.map(d=>{const v=byDay[d.toDateString()];if(v!=null)last=v;return last;});const mx=Math.max(1,...vals.filter(v=>v!=null));
+    const bars=days.map((d,i)=>({h:vals[i]==null?'3px':Math.max(3,Math.round(vals[i]/mx*64))+'px',t:d.getDate()+' '+AK.MON[d.getMonth()]+': '+(vals[i]==null?'no check':vals[i]+' followers'),bg:i===13?'var(--in)':'var(--n-soft-2)'}));
+    // today's checklist
+    const xp=this.postList().filter(p=>platOf(p.o)==='X');
+    const postedToday=xp.filter(p=>p.status==='Posted'&&sameDay(p.o._date)).length;
+    const repliedToday=AK.XG.rows.filter(r=>r.status==='done'&&r.done_at&&sameDay(new Date(r.done_at))).length;
+    const E=this.engagers();const fol=E.filter(e=>e.How==='Followed'&&verdictOf(e)!=='Skip');
+    const folDone=fol.filter(e=>/Messaged|Replied/.test(e.Status||'')).length;const folWait=fol.filter(e=>(e.Status||'To message')==='To message').length;
+    const eng=E.filter(e=>e.How!=='Followed'&&e.How!=='Tagged'&&verdictOf(e)!=='Skip');const engWait=eng.filter(e=>(e.Status||'To message')==='To message').length;
+    const tick=store.get('growTicks',{});const tk=today.toDateString();const ticked=k=>!!(tick[tk]||{})[k];
+    const toggle=k=>()=>{const t=store.get('growTicks',{});const d={...(t[tk]||{})};d[k]=!d[k];store.set('growTicks',{[tk]:d});this.setState({growTick:Date.now()});};
+    const dmGoal=(this.todayGoals(P).find(g=>/DMs sent/.test(g.name))||{v:0});
+    const checks=[
+      {name:'3 posts on X (Reach, Trust, Convert)',v:postedToday,tgt:3,go:()=>this.go('calendar'),cta:'Calendar'},
+      {name:'30 replies under other people’s posts (list below)',v:repliedToday,tgt:30,go:null,cta:''},
+      {name:'Answer everyone who replied, quoted or commented a keyword',v:eng.length-engWait,tgt:eng.length,go:()=>this.go('engaged'),cta:engWait?engWait+' waiting':'Engaged'},
+      {name:'DM every new follower who fits',v:folDone,tgt:fol.length,go:()=>this.go('engaged'),cta:folWait?folWait+' to DM':'Engaged'},
+      {name:'30 DMs to funded founders',v:dmGoal.v,tgt:30,go:()=>this.go('send'),cta:'Send today'},
+    ].map(c=>({...c,vS:String(c.v),tS:String(c.tgt),w:c.tgt?Math.min(100,c.v/c.tgt*100)+'%':'100%',hasGo:!!c.go,go:c.go||(()=>{})}));
+    const manual=[['trend','1 post on today’s big news in AI, startups or GTM, within an hour of it breaking (name the product or person: people search for it)'],
+      ['friends','3 to 5 founder friends liked and replied to your best post in its first hour'],
+      ['bigtag','Tagged one bigger creator in a post that makes them look good (a result you got from their advice)']]
+      .map(([k,t])=>({text:t,toggle:toggle(k),fill:ticked(k)?'var(--ink)':'transparent',ring:ticked(k)?'inset 0 0 0 1.5px var(--ink)':'inset 0 0 0 1.5px var(--hairline-strong)',strike:ticked(k)?'line-through':'none',op:ticked(k)?'.5':'1'}));
+    // this week's funnel mix (Mon to Sun)
+    const wk0=AK.weekStart(0).getTime(),wk1=wk0+7*864e5;const wk=xp.filter(p=>p.o._date&&p.o._date.getTime()>=wk0&&p.o._date.getTime()<wk1&&p.status!=='Later');
+    const fn=p=>String(p.o.Funnel||'').trim();
+    const mix=G.mix.map(([k,tgt,what])=>{const n=wk.filter(p=>fn(p)===k).length;return{k,what,n:String(n),tgt:String(tgt),w:Math.min(100,n/tgt*100)+'%',bg:k==='Reach'?'var(--in)':k==='Trust'?'var(--mid)':'var(--out)'};});
+    const untagged=wk.filter(p=>!fn(p)&&p.status!=='Posted').length;
+    // best and worst of the last 7 days
+    const since=today.getTime()-7*864e5;const vw=p=>num(p.o.Views);
+    const done=xp.filter(p=>p.status==='Posted'&&p.o._date&&p.o._date.getTime()>=since&&vw(p)!=null).sort((a,b)=>vw(b)-vw(a));
+    const cut=Math.max(1,Math.round(done.length*.2));
+    const row=p=>({text:clip(firstLine(p.text),110),views:fmtK(vw(p))+' views',tag:[fn(p),String(p.o['Post type']||'')].filter(Boolean).join(' · ')||'No tag',open:()=>{const u=AK.safeUrl(p.o['Posted link']);if(u)window.open(u,'_blank','noopener');}});
+    const best=done.length>=3?done.slice(0,cut).map(row):[],worst=done.length>=3?done.slice(-cut).reverse().map(row):[];
+    // posts to reply to
+    const open=AK.XG.rows.filter(r=>r.status==='new').sort((a,b)=>new Date(b.posted_at||b.created_at)-new Date(a.posted_at||a.created_at));
+    const lim=s.more.grow||12;
+    const replies=open.slice(0,lim).map(r=>{const age=r.posted_at?AK.ago(new Date(r.posted_at).getTime()):'';const fresh=r.posted_at&&Date.now()-new Date(r.posted_at)<45*6e4;
+      return{who:(r.name||r.author),sub:'@'+r.author+(r.followers!=null?' · '+fmtK(r.followers)+' followers':''),kind:r.kind==='lead'?pill('Lead: reply before you DM','out'):pill('Creator','in'),
+        hot:fresh?pill('Fresh: reply now','ok'):pill(age||'Earlier','neutral'),text:clip(r.post_text,320),nums:[r.views!=null?fmtK(r.views)+' views':'',r.replies!=null?r.replies+' replies':''].filter(Boolean).join(' · '),
+        open:()=>window.open(r.url,'_blank','noopener'),done:()=>{AK.xgSet(r.url,'done');this.toast('Nice. '+(repliedToday+1)+' of 30 today.');},skip:()=>AK.xgSet(r.url,'skipped')};});
+    const lr=AK.XG.runs[0];
+    // profile kit and what to DM people who comment a keyword
+    const kit=G.kit.map(([k,label,text])=>{const b=this.copyBtn('gk'+k,'Copy');return{label,text,label2:b.label,bg:b.bg,fg:b.fg,sh:b.sh,copy:()=>this.copy(text,'gk'+k,label+' copied')};});
+    const recent=AK.M.contacts.filter(c=>c['X handle']&&c['Funding stage']&&!/unknown/i.test(c['Funding stage'])).slice(-15).reverse();
+    const listText='Here’s this week’s list of founders who just raised or launched:\n\n'+recent.map((c,i)=>(i+1)+'. '+c.Name+(c.Company?' ('+c.Company+')':'')+', '+c['Funding stage']+', x.com/'+String(c['X handle']).replace(/^@/,'')).join('\n')+'\n\nWho are you selling to? Happy to point you at the ones that fit.';
+    const kw=[['LIST','Commented LIST or SEED (founders list, built from this week’s DM Pipeline)',listText],...G.kw].map(([w,label,text])=>{const b=this.copyBtn('kw'+w,'Copy DM');return{word:w,label,text,label2:b.label,bg:b.bg,fg:b.fg,sh:b.sh,copy:()=>this.copy(text,'kw'+w,'DM copied')};});
+    return{now:fmtK(now),goal:fmtK(G.goal),onTrack:fmtK(onTrack),status,pct:pct.toFixed(1)+'%',daysLeft:String(daysLeft),
+      need:now>=onTrack?'You’re on or above the line. Keep the daily routine.':'Tomorrow’s line is '+fmtK(tmrw)+' followers: '+fmtK(Math.max(0,tmrw-now))+' to go.',
+      perDay:'The line grows about '+Math.round((Math.pow(G.goal/G.from,1/T)-1)*100)+'% a day: small at first, the last 2 weeks do most of it.',
+      miles,bars,checks,manual,mix,hasUntagged:untagged>0,untagged:untagged+(untagged===1?' planned post this week has':' planned posts this week have')+' no funnel tag yet (Reach, Trust or Convert, set when that week\u2019s drafts are written).',
+      best,worst,hasBW:best.length>0,noBW:!best.length,
+      replies,hasReplies:replies.length>0,noReplies:!replies.length,repliedToday:String(repliedToday),openN:String(open.length),
+      noRepliesText:AK.XG.loaded?'Nothing fresh right now. The list fills every hour from 7 AM to 9 PM New York time (5:40 PM to 7:40 AM IST).':'Loading…',
+      hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,grow:lim+12}})),
+      runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'Last check '+this.since(lr.started_at)+(lr.ok===false?' (failed: '+clip(lr.error||'',90)+')':''):'',
+      kit,kw,week:G.week.map(([d,t])=>({d,t}))};}
   engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
     const VO={'DM + reply':0,'Reply only':1};
     const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));
@@ -1124,7 +1214,7 @@ class Component extends DCLogic {
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
       add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
-  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='xShared')o.xs=this.xSharedVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(pg==='growth')o.gr=this.growthVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='xShared')o.xs=this.xSharedVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -5078,6 +5168,129 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </sc-if>
 
 <sc-if value="{{ eng.none }}"><div style="padding:var(--s-6); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ eng.noneText }}</div></sc-if>
+</sc-if>
+
+<!-- 10K plan (15 Nov): 10,000 followers on X by 31 Dec and clients from them. Spliced in by build_app.py; values from growthVals() in logic.js (gr). -->
+<sc-if value="{{ is.growth }}">
+<section style="display:flex; flex-direction:column; gap:14px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 24px;">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Followers now</span><span style="font-size:40px; font-weight:700; letter-spacing:-0.03em; line-height:1;">{{ gr.now }} <span style="font-size:var(--fs-md); font-weight:500; color:var(--ink-3);">of {{ gr.goal }}</span></span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Where the line is today</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.onTrack }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Days left</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.daysLeft }}</span></div>
+<span style="height:24px; display:inline-flex; align-items:center; padding:0 10px; border-radius:var(--r-pill); background:{{ gr.status.bg }}; color:{{ gr.status.fg }}; box-shadow:{{ gr.status.bd }}; font-size:var(--fs-2xs); font-weight:600;">{{ gr.status.label }}</span>
+</div>
+<div style="height:8px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ gr.pct }}; background:var(--in); border-radius:var(--r-pill);"></div></div>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ gr.need }} {{ gr.perDay }}</span>
+<div style="display:flex; align-items:flex-end; gap:4px; height:68px;" title="Followers, last 14 days"><sc-for list="{{ gr.bars }}" as="b"><div title="{{ b.t }}" style="flex:1; height:{{ b.h }}; background:{{ b.bg }}; border-radius:3px;"></div></sc-for></div>
+<div style="display:flex; flex-wrap:wrap; gap:8px;"><sc-for list="{{ gr.miles }}" as="m"><div style="display:flex; flex-direction:column; gap:3px; padding:8px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ m.label }}</span><span style="font-size:var(--fs-md); font-weight:600;">{{ m.tgt }}</span><span style="align-self:flex-start; height:18px; display:inline-flex; align-items:center; padding:0 7px; border-radius:var(--r-pill); background:{{ m.st.bg }}; color:{{ m.st.fg }}; font-size:var(--fs-3xs); font-weight:600;">{{ m.st.label }}</span></div></sc-for></div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Today's routine</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ gr.checks }}" as="c">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="flex:1 1 260px; font-size:var(--fs-sm); font-weight:500;">{{ c.name }}</span>
+<div style="flex:0 0 140px; height:6px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ c.w }}; background:var(--ink);"></div></div>
+<span style="flex:0 0 64px; font-size:var(--fs-sm); font-weight:600; text-align:right;">{{ c.vS }} / {{ c.tS }}</span>
+<sc-if value="{{ c.hasGo }}"><button onClick="{{ c.go }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">{{ c.cta }}</button></sc-if>
+</div>
+</sc-for>
+<sc-for list="{{ gr.manual }}" as="m">
+<div onClick="{{ m.toggle }}" style="display:flex; align-items:center; gap:12px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline); cursor:pointer; opacity:{{ m.op }};">
+<span style="width:18px; height:18px; flex:0 0 18px; border-radius:6px; background:{{ m.fill }}; box-shadow:{{ m.ring }};"></span>
+<span style="font-size:var(--fs-sm); text-decoration:{{ m.strike }};">{{ m.text }}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px;">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Reply to these ({{ gr.repliedToday }} of 30 today)</h2>
+<button onClick="{{ gr.run }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ gr.runLabel }}</button>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ gr.lastRun }}</span>
+</div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.5;">Fresh posts from GTM creators your buyers follow, and from founders in your pipeline. Reply in the first 30 to 60 minutes with your own take: a number, a short story, or a question. Write it yourself (AI-sounding replies get ignored). Replying to a lead before you DM them makes the DM warm. Then press Replied.</span>
+<sc-if value="{{ gr.hasReplies }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ gr.replies }}" as="r">
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:flex-start; gap:8px;"><div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-md); font-weight:600;">{{ r.who }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.sub }}</span></div>
+<span style="height:20px; display:inline-flex; align-items:center; padding:0 8px; border-radius:var(--r-pill); background:{{ r.hot.bg }}; color:{{ r.hot.fg }}; font-size:var(--fs-3xs); font-weight:600; white-space:nowrap;">{{ r.hot.label }}</span></div>
+<span style="align-self:flex-start; height:20px; display:inline-flex; align-items:center; padding:0 8px; border-radius:var(--r-pill); background:{{ r.kind.bg }}; color:{{ r.kind.fg }}; box-shadow:{{ r.kind.bd }}; font-size:var(--fs-3xs); font-weight:600;">{{ r.kind.label }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap;">{{ r.text }}</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.nums }}</span>
+<div style="display:flex; gap:6px;">
+<button onClick="{{ r.open }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open on X ↗</button>
+<button onClick="{{ r.done }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Replied</button>
+<button onClick="{{ r.skip }}" style="height:28px; padding:0 10px; border:0; border-radius:var(--r-btn); background:transparent; color:var(--ink-3); font-size:var(--fs-xs); cursor:pointer;">Skip</button>
+</div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ gr.hasMore }}"><button onClick="{{ gr.more }}" style="align-self:center; height:var(--btn-h-sm); padding:0 16px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:var(--fs-xs); cursor:pointer;">Show {{ gr.moreN }} more</button></sc-if>
+</sc-if>
+<sc-if value="{{ gr.noReplies }}"><div style="padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">{{ gr.noRepliesText }}</div></sc-if>
+</section>
+
+<section style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (21 posts)</h2>
+<sc-for list="{{ gr.mix }}" as="m">
+<div style="display:flex; flex-direction:column; gap:4px;">
+<div style="display:flex; justify-content:space-between; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.k }}</span><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.n }} / {{ m.tgt }}</span></div>
+<div style="height:6px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ m.w }}; background:{{ m.bg }};"></div></div>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ m.what }}</span>
+</div>
+</sc-for>
+<sc-if value="{{ gr.hasUntagged }}"><span style="font-size:var(--fs-xs); color:var(--warn-ink);">{{ gr.untagged }}</span></sc-if>
+</div>
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">The week (7:30 PM · 9:45 PM · 11:30 PM IST)</h2>
+<sc-for list="{{ gr.week }}" as="w"><div style="display:flex; gap:10px; font-size:var(--fs-sm);"><span style="flex:0 0 36px; font-weight:600;">{{ w.d }}</span><span style="color:var(--ink-2);">{{ w.t }}</span></div></sc-for>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. Plus one news post a day whenever something big breaks.</span>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Last 7 days: do more of the top, less of the bottom</h2>
+<sc-if value="{{ gr.hasBW }}">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); overflow:hidden;"><span style="padding:10px var(--s-4); font-size:var(--fs-xs); font-weight:600; color:var(--ok-ink);">Top 20%</span>
+<sc-for list="{{ gr.best }}" as="b"><div onClick="{{ b.open }}" style="display:flex; flex-direction:column; gap:2px; padding:10px var(--s-4); border-top:1px solid var(--hairline); cursor:pointer;"><span style="font-size:var(--fs-sm);">{{ b.text }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ b.views }} · {{ b.tag }}</span></div></sc-for></div>
+<div style="display:flex; flex-direction:column; border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); overflow:hidden;"><span style="padding:10px var(--s-4); font-size:var(--fs-xs); font-weight:600; color:var(--bad-ink);">Bottom 20%</span>
+<sc-for list="{{ gr.worst }}" as="b"><div onClick="{{ b.open }}" style="display:flex; flex-direction:column; gap:2px; padding:10px var(--s-4); border-top:1px solid var(--hairline); cursor:pointer;"><span style="font-size:var(--fs-sm);">{{ b.text }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ b.views }} · {{ b.tag }}</span></div></sc-for></div>
+</div>
+</sc-if>
+<sc-if value="{{ gr.noBW }}"><span style="font-size:var(--fs-sm); color:var(--ink-3);">Shows up once 3 posts from the last 7 days have numbers.</span></sc-if>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">When someone comments a word, DM them this</h2>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
+<sc-for list="{{ gr.kw }}" as="k">
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
+<span style="font-size:var(--fs-sm); font-weight:600;">{{ k.label }}</span>
+<span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap; max-height:220px; overflow:auto;">{{ k.text }}</span>
+<button onClick="{{ k.copy }}" style="align-self:flex-start; height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ k.bg }}; color:{{ k.fg }}; box-shadow:{{ k.sh }}; font-size:var(--fs-xs); cursor:pointer;">{{ k.label2 }}</button>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display:flex; flex-direction:column; gap:var(--s-3);">
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">Profile kit (people decide to follow on your profile)</h2>
+<div style="border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); overflow:hidden;">
+<sc-for list="{{ gr.kit }}" as="k">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:var(--row-py) var(--s-4); border-top:1px solid var(--hairline);">
+<span style="flex:0 0 90px; font-size:var(--fs-xs); font-weight:600; color:var(--ink-3);">{{ k.label }}</span>
+<span style="flex:1 1 260px; font-size:var(--fs-sm); line-height:1.5;">{{ k.text }}</span>
+<button onClick="{{ k.copy }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:{{ k.bg }}; color:{{ k.fg }}; box-shadow:{{ k.sh }}; font-size:var(--fs-xs); cursor:pointer;">{{ k.label2 }}</button>
+</div>
+</sc-for>
+</div>
+</section>
 </sc-if>
 
 <sc-if value="{{ is.calendar }}">

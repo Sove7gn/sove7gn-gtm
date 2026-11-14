@@ -21,7 +21,7 @@ const RANGES={
   comps:"'Competitors'!A3:O60",
   people:"'Competitor People'!A3:H200",
   theirs:"'Their Posts'!A3:AB1000",
-  ours:"'Our Posts'!A3:AB1500",
+  ours:"'Our Posts'!A3:AC1500",  // AC "Funnel" (15 Nov): Reach / Trust / Convert
   accounts:"'Our Accounts'!A3:H6",
   weekly:"'Our Accounts'!A8:E40",
   tracking:"'Post Tracking'!A3:J5000",
@@ -407,6 +407,7 @@ async function publicLoad(){
   leadsLoad();
   if(!XJ.loadedAt||Date.now()-XJ.loadedAt>5*6e4){XJ.loadedAt=Date.now();xRunsLoad()}
   if(!LIS.at||Date.now()-LIS.at>10*6e4){LIS.at=Date.now();lisLoad()}
+  if(!XG.at||Date.now()-XG.at>5*6e4){XG.at=Date.now();xgLoad()}
   if(!LBT.at||Date.now()-LBT.at>2*6e4){LBT.at=Date.now();lbtLoad()}
   if(!BR.at||Date.now()-BR.at>15*6e4){BR.at=Date.now();briefLoad()}
   if(!XT.at||Date.now()-XT.at>2*6e4){XT.at=Date.now();xtLoad()}
@@ -1221,6 +1222,31 @@ async function lisRun(){
   catch(e){toast("Couldn't find posts: "+(e.message||e),true)}
   finally{LIS.running=false;await lisLoad()}
 }
+/* X growth (15 Nov, 10K plan): fresh posts to reply to (crm_x_reply, x-grow job) and the job's last runs. Replies are written by hand. */
+const XG={rows:[],runs:[],loaded:false,running:false,at:0};
+async function xgLoad(){
+  if(!sb||!session||!member)return;
+  try{const since=new Date(Date.now()-2*864e5).toISOString();
+    const [a,b]=await Promise.all([sb.from("crm_x_reply").select("*").gte("created_at",since).order("posted_at",{ascending:false}).limit(150),
+      sb.from("crm_sync_runs").select("*").eq("platform","x-grow").order("started_at",{ascending:false}).limit(5)]);
+    if(a.error)throw a.error;XG.rows=a.data||[];XG.runs=b.data||[];XG.loaded=true;emit()}catch(e){XG.loaded=true;XG.err=String(e.message||e);emit()}
+}
+async function xgSet(url,status){
+  const before=XG.rows;const who=session&&session.user?session.user.email:"";
+  const p={status,done_by:status==="new"?"":who,done_at:status==="new"?null:new Date().toISOString()};
+  XG.rows=XG.rows.map(r=>r.url===url?{...r,...p}:r);emit();
+  const {error}=await sb.from("crm_x_reply").update(p).eq("url",url);
+  if(error){XG.rows=before;emit();toast("Couldn't save: "+error.message,true);return false}
+  return true;
+}
+async function xgRun(){
+  if(!sb||XG.running)return;XG.running=true;emit();
+  try{const {data,error}=await sb.functions.invoke("x-grow",{body:{replies:true}});
+    if(error){let msg=error.message||String(error);try{const b=await error.context.json();if(b&&b.error)msg=b.error}catch(e){}throw new Error(msg)}
+    const r=(data&&data.replies)||{};toast(r.added?"Found "+r.added+" new posts to reply to.":"No new posts in the last 3 hours. Try again later.")}
+  catch(e){toast("Couldn't check X: "+(e.message||e),true)}
+  finally{XG.running=false;await xgLoad()}
+}
 /* LinkedIn bot (11 Nov): the Chrome extension's queue (crm_li_tasks). Approve, edit or skip here; the extension sends. */
 const LBT={rows:[],loaded:false,running:false,at:0};
 async function lbtLoad(){
@@ -1701,7 +1727,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
