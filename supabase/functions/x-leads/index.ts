@@ -153,7 +153,7 @@ const QUERIES = (s: string) => [
 const SEG_RANK: Record<string, number> = { "Raised recently": 0, "Hiring signal": 1, "YC launch": 2, "Founder-led sales": 3 };
 
 const FOUNDERISH = /(co-?founder|founder|\bceo\b|\bcmo\b|\bcro\b|\bcoo\b|chief|head of (growth|marketing|sales|gtm)|building @|building\b|\bbuilt\b)/i;
-const NOT_BUYER = /(crypto|web3|defi|\$[A-Z]{2,6}|onchain|blockchain|\bvc\b|venture|investor|investing|\bpartner at\b|angel|\bfund\b|capital\b|journalist|reporter|editor at|recruit|talent|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|gtm studio|consultant|freelanc|student)/i;
+const NOT_BUYER = /(crypto|web3|defi|\$[A-Z]{2,6}\b|onchain|blockchain|\bvc\b|venture|investor|investing|\bpartner at\b|angel|\bfund\b|capital\b|journalist|reporter|editor at|recruit|talent|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|gtm studio|consultant|freelanc|student)/i;
 
 const ICP = "We sell a done-for-you GTM service (founder content on X and LinkedIn, warm-signal DMs, outbound, booked sales calls) for $20,000 a month. " +
   "Hot = a co-founder, CEO, C-suite or CMO at a B2B or B2B2C software or deep tech startup of roughly 5 to 50 people that raised pre-seed to Series C in the last 6 months " +

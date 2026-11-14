@@ -14,6 +14,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 const EXA_KEY_ = Deno.env.get("EXA_API_KEY") ?? "";
 const CMP_KEY_ = Deno.env.get("COMPOSIO_API_KEY") ?? "";
 let exaKeyEmpty_ = false;
+let REDRAFT = false;
 async function exaFetch(url: string, init: RequestInit): Promise<Response> {
   if (EXA_KEY_ && !exaKeyEmpty_) {
     const r = await fetch(url, init);
@@ -75,6 +76,12 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Only the team can run this." }, 401);
   if (!TWAPI) return json({ error: "TWITTERAPI_KEY is missing." }, 500);
   const body = await req.json().catch(() => ({}));
+  if (body.posts) {   // the daily News / Shoutout posts run on their own
+    try { return json({ posts: await dailyPosts(!!body.force) }); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 500); }
+  }
+  if (body.redraft) {   // write the reply drafts again for open posts (after a prompt change)
+    await db.from("crm_x_reply").update({ draft: "" }).eq("status", "new"); REDRAFT = true;
+  }
   const both = !body.replies && !body.followers;
   const { data: run } = await db.from("crm_sync_runs").insert({ platform: "x-grow" }).select("id").single();
   const out: Record<string, unknown> = {};
@@ -161,8 +168,8 @@ async function replyTargets() {
   let drafted = 0;
   if (COMPOSIO) {
     const { data: miss } = await db.from("crm_x_reply").select("url,author,name,followers,kind,post_text").eq("status", "new").eq("draft", "")
-      .gte("created_at", new Date(Date.now() - 6 * 3600e3).toISOString()).order("created_at", { ascending: false }).limit(30);
-    const todo = (miss ?? []).filter((r) => r.kind === "lead" || (r.followers ?? 0) >= 1000).slice(0, 12);
+      .gte("created_at", new Date(Date.now() - (REDRAFT ? 48 : 6) * 3600e3).toISOString()).order("created_at", { ascending: false }).limit(REDRAFT ? 80 : 30);
+    const todo = (miss ?? []).filter((r) => r.kind === "lead" || (r.followers ?? 0) >= 1000).slice(0, REDRAFT ? 40 : 12);
     if (todo.length) {
       const d = await draftReplies(todo).catch(() => ({} as Record<string, string>));
       for (const [i, r] of todo.entries()) { const t = noDash(d[String(i)] || ""); if (t) { await db.from("crm_x_reply").update({ draft: t }).eq("url", r.url); drafted++; } }
@@ -183,16 +190,20 @@ async function mcp(name: string, args: Record<string, unknown>) {
   if (j.error) throw new Error("Composio: " + String(j.error.message ?? j.error).slice(0, 200));
   return JSON.parse(j.result?.content?.[0]?.text ?? "{}");
 }
-const REPLY_PROMPT = (r: any) =>
-  "Write Reyansh's reply under this X post. Reyansh is 20, runs SOVE7GN (founder content and DMs on X and LinkedIn for funded B2B founders) and built his own outbound CRM.\n" +
-  "Post by " + r.name + " (@" + r.author + ", " + (r.followers ?? 0) + " followers" + (r.kind === "lead" ? ", a funded founder he may sell to later: be useful and curious about their company" : ", a GTM creator whose audience is founders") + "):\n\"\"\"\n" +
+// (15 Nov v2) Replies that sound like a 20-year-old founder typing on his phone: short, one point, casual, on the post's own topic.
+const REPLY_PROMPT = (r: any, i: number) =>
+  "You write a reply under an X post, as Reyansh: 20, Indian founder of a small GTM agency for startups, casual and a bit funny, types fast on his phone.\n" +
+  "Post by " + r.name + " (@" + r.author + ", " + (r.followers ?? 0) + " followers, " + (r.kind === "lead" ? "a startup founder" : "a creator who posts about sales and growth") + "):\n\"\"\"\n" +
   String(r.post_text).slice(0, 1200) + "\n\"\"\"\n" +
-  "Rules: max 200 characters, react to what the post actually says. Add something of his own: a specific take, an example, or one sharp question. Talk like a peer. " +
-  "Mention his outbound, CRM or content work only when the post is about sales, GTM, content or getting customers, and never more than half a sentence. " +
-  "Never pitch, no links, no hashtags, no em dashes, never start with praise (great, love, so true, congrats), no 'it's not X, it's Y'. Plain casual words, lowercase is fine. " +
-  "If the post is only a link or there is nothing worth saying, answer SKIP. Answer with the reply text only.";
+  "First work out what the post is really about (work, a product, sales, a joke, sport, travel, life, news). Reply about THAT. " +
+  "If it is not about work (football, food, a meme, a trip, a personal win), reply like a friend would: about that thing only, never bring up GTM, sales, outbound, content or his agency. " +
+  "If it is about work, give one direct point of his own (a quick take, a small example, or agreeing and adding one thing). Mention his own work only if it truly fits, in a few words.\n" +
+  "Style: 1 or 2 short lines, under 140 characters, plain simple words, lowercase is fine, basic grammar is fine, a little humour when it fits. " +
+  "Make a statement, not a question" + (i % 3 === 2 ? " (one short question at the end is allowed this time)" : " (no question this time)") + ". " +
+  "Never: pitch, links, hashtags, emojis more than one, em dashes, starting with praise (great, love this, so true, congrats, this is gold), 'it's not X, it's Y', sounding like a LinkedIn post, big words. " +
+  "If the post is only a link with no text, or there is nothing natural to say, answer SKIP. Answer with the reply text only.";
 async function draftReplies(rows: any[]): Promise<Record<string, string>> {
-  const items = rows.map((r, i) => ({ id: String(i), prompt: REPLY_PROMPT(r) }));
+  const items = rows.map((r, i) => ({ id: String(i), prompt: REPLY_PROMPT(r, i) }));
   const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
   const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
     "items = json.loads(base64.b64decode('" + payload + "').decode())",
@@ -204,6 +215,73 @@ async function draftReplies(rows: any[]): Promise<Record<string, string>> {
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(res)) { const t = String(v || "").trim().replace(/^"|"$/g, ""); if (t && !/^skip\b/i.test(t) && !/^(great|love|so true|congrats|amazing)\b/i.test(t)) clean[k] = t.slice(0, 280); }
   return clean;
+}
+
+// 4. Daily posts on the Calendar (15 Nov): every day a News post (the biggest AI / startup / GTM story of the last day, named, so
+//    people searching for it find us) at 6:30 PM IST = 8 AM New York; Mon, Wed, Fri a Shoutout post at 10:45 PM IST that tags a
+//    bigger GTM creator, says what they got right and quotes their best post of the last 2 days (their audience sees it, they often
+//    repost). Both are drafts in Our Posts (status To post, Funnel Reach) for Reyansh to schedule. Never written twice for a day.
+const POST_RULES = "Rules: write as Reyansh (20, founder of SOVE7GN, a done-for-you GTM agency for funded B2B startups). First line is the hook, under 120 characters. " +
+  "Short lines, plain words, under 500 characters in total, one clear point, end with a short line that invites replies. Only facts from the material given, never invent numbers or results. " +
+  "No em dashes, no en dashes, no hashtags, no emojis, no 'it's not X, it's Y', no 'no X, no Y' lists, no pitching the agency. Answer with the post text only.";
+async function llm(prompts: string[]): Promise<string[]> {
+  const items = prompts.map((prompt, i) => ({ id: String(i), prompt }));
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
+  const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
+    "items = json.loads(base64.b64decode('" + payload + "').decode())",
+    "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
+    "with ThreadPoolExecutor(4) as ex: res = dict(ex.map(one, items))",
+    "print('@@' + json.dumps(res))"].join("\n");
+  const out = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write X posts for the CRM calendar" });
+  const res = JSON.parse(String(out?.data?.stdout ?? "").split("@@").pop() || "{}");
+  return prompts.map((_, i) => noDash(String(res[String(i)] ?? "").trim().replace(/^"|"$/g, "").replace(/#\w+/g, "").trim()));
+}
+async function dailyPosts(force = false) {
+  const now = new Date(), x = new Date(now.getTime() + 330 * 60e3);
+  const date = x.getUTCDate() + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear(), dow = x.getUTCDay();
+  const { data: op } = await db.from("crm_sheet").select("row,cells").eq("tab", "Our Posts").gte("row", 4);
+  const have = (slot: string) => (op ?? []).some((r) => r.cells?.[1] === date && r.cells?.[27] === slot);
+  const usedTags = new Set((op ?? []).flatMap((r) => [...String(r.cells?.[9] ?? "").matchAll(/@(\w+)/g)].map((m) => m[1].toLowerCase())));
+  const jobs: { slot: string; time: string; type: string; prompt: string; their?: string; link?: string; why: string }[] = [];
+  // News: Exa picks the story (via exaFetch), the model writes the post.
+  if (force || !have("News")) {
+    const since = new Date(now.getTime() - 30 * 3600e3).toISOString();
+    const schema = { type: "object", required: ["headline", "what", "who", "url"], properties: {
+      headline: { type: "string", description: "The single biggest story of the last day that startup founders and people who sell to them are talking about: a big AI model or product launch, a big raise or acquisition, a big move by a well-known founder or company. Prefer AI and startups." },
+      what: { type: "string", description: "3 to 5 plain facts about it: who, what, numbers, why founders care" },
+      who: { type: "string", description: "The product, company or person name people will search for" }, url: { type: "string" } } };
+    const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "biggest AI and startup news today", category: "news", numResults: 8, startPublishedDate: since, outputSchema: schema,
+        systemPrompt: "Pick one story only, from the last 24 hours. Use the search results as the source." }) });
+    const j = r.ok ? await r.json() : null; const s = j?.output?.content;
+    if (s?.headline) jobs.push({ slot: "News", time: "6:30 PM", type: "News take", link: s.url || "", their: s.headline + "\n\n" + s.what,
+      why: "News post (TOFU): people search for " + (s.who || "this") + " today, so naming it in line 1 brings them to us. Post within the hour. Source: " + (s.url || "search"),
+      prompt: "Write an X post reacting to today's news. Name " + (s.who || "the product or company") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. " +
+        "News: " + s.headline + ". Facts: " + s.what + "\n" + POST_RULES });
+  }
+  // Shoutout: Mon, Wed, Fri. The creator's best post of the last 2 days from the reply list, someone not tagged before if possible.
+  if ((force || [1, 3, 5].includes(dow)) && (force || !have("Shoutout"))) {
+    const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
+      .gte("created_at", new Date(now.getTime() - 2 * 864e5).toISOString()).order("likes", { ascending: false, nullsFirst: false }).limit(30);
+    const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
+    if (pick) jobs.push({ slot: "Shoutout", time: "10:45 PM", type: "Shoutout (tag a bigger creator)", link: pick.url, their: pick.post_text,
+      why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
+      prompt: "Write an X post that gives credit to @" + pick.author + " (" + pick.name + ") for this post of theirs:\n\"\"\"\n" + String(pick.post_text).slice(0, 1200) + "\n\"\"\"\n" +
+        "Start with @" + pick.author + " and what they got right in one line. Then 2 or 3 short lines on why it matters for startup founders, or how Reyansh is applying it this week (no made-up results). " +
+        "End with a line that asks others to add to it. Do not include their link, it is added after.\n" + POST_RULES });
+  }
+  if (!jobs.length) return { added: 0, note: "Already on the calendar for " + date };
+  const texts = await llm(jobs.map((j) => j.prompt));
+  const wk = "W" + (Math.floor((Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) - Date.UTC(2026, 10, 2)) / (7 * 864e5)) + 1);
+  let next = Math.max(3, ...(op ?? []).map((r) => r.row)) + 1, added = 0;
+  for (const [i, jb] of jobs.entries()) {
+    let t = texts[i]; if (!t || /^skip/i.test(t)) continue;
+    if (jb.slot === "Shoutout" && jb.link) t = t + "\n\n" + jb.link;
+    const cells = [wk, date, jb.time, ACCOUNT, "X", jb.type, jb.slot === "Shoutout" ? "@" + (jb.link?.match(/x\.com\/(\w+)/)?.[1] ?? "") : "News", jb.link || "", jb.their || "", t, jb.why,
+      "None", "", "", "To post", "", "", "", "", "", "", "", "", "", "Founders", "Yes", "", jb.slot, "Reach"];
+    const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells }); if (!error) added++;
+  }
+  return { added, slots: jobs.map((j) => j.slot) };
 }
 
 // 3. Warm DMs on autopilot (15 Nov): everyone the CRM judged worth a DM (replied, quoted, commented a keyword, tagged, followed)

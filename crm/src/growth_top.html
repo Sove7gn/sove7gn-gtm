@@ -1,0 +1,15 @@
+<!-- Growth page top (15 Nov): the 10K followers line, at the top of Home. Values from growthVals() (gr). -->
+<sc-if value="{{ is.home }}">
+<section style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4) var(--s-5); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-md), var(--hi); opacity:{{ E.op }}; transform:{{ E.t }}; transition:opacity 500ms var(--ease), transform 500ms var(--ease);">
+<div style="display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 24px;">
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Followers now</span><span style="font-size:40px; font-weight:700; letter-spacing:-0.03em; line-height:1;">{{ gr.now }} <span style="font-size:var(--fs-md); font-weight:500; color:var(--ink-3);">of {{ gr.goal }}</span></span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Where the line is today</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.onTrack }}</span></div>
+<div style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:var(--fs-xs); color:var(--ink-3);">Days left</span><span style="font-size:var(--fs-xl); font-weight:600;">{{ gr.daysLeft }}</span></div>
+<span style="height:24px; display:inline-flex; align-items:center; padding:0 10px; border-radius:var(--r-pill); background:{{ gr.status.bg }}; color:{{ gr.status.fg }}; box-shadow:{{ gr.status.bd }}; font-size:var(--fs-2xs); font-weight:600;">{{ gr.status.label }}</span>
+</div>
+<div style="height:8px; border-radius:var(--r-pill); background:var(--n-soft-2); overflow:hidden;"><div style="height:100%; width:{{ gr.pct }}; background:var(--in); border-radius:var(--r-pill);"></div></div>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ gr.need }} {{ gr.perDay }}</span>
+<div style="display:flex; align-items:flex-end; gap:4px; height:68px;" title="Followers, last 14 days"><sc-for list="{{ gr.bars }}" as="b"><div title="{{ b.t }}" style="flex:1; height:{{ b.h }}; background:{{ b.bg }}; border-radius:3px;"></div></sc-for></div>
+<div style="display:flex; flex-wrap:wrap; gap:8px;"><sc-for list="{{ gr.miles }}" as="m"><div style="display:flex; flex-direction:column; gap:3px; padding:8px 12px; border-radius:var(--r-md); background:rgba(255,255,255,.6); box-shadow:inset 0 0 0 1px var(--hairline);"><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ m.label }}</span><span style="font-size:var(--fs-md); font-weight:600;">{{ m.tgt }}</span><span style="align-self:flex-start; height:18px; display:inline-flex; align-items:center; padding:0 7px; border-radius:var(--r-pill); background:{{ m.st.bg }}; color:{{ m.st.fg }}; font-size:var(--fs-3xs); font-weight:600;">{{ m.st.label }}</span></div></sc-for></div>
+</section>
+</sc-if>

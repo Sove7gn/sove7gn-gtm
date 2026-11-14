@@ -158,8 +158,9 @@ async function judge(author: any, said: string, ourPost: string, how: string) {
     fit: { type: "string", enum: ["Core buyer", "Good fit", "Related", "Investor", "Other", "Not a buyer"] },
     why: { type: "string", description: "One plain sentence: who they are and why this verdict" },
     company: { type: "string" },
-    reply: { type: "string", description: "Our public reply under their post, as Reyansh (20, building in GTM): max 220 characters. Thank them or answer them in one specific line, then say we'd love their advice on something related and ask if we can DM them (e.g. 'Would love your advice on how you got your first customers, mind if I DM you?'). Friendly, human, no pitch, no links, no hashtags, no em dashes, no 'Great point'." },
-    dm: { type: "string", description: "A DM from Reyansh, max 320 characters, sent after the public reply: mention what they said or the post, say he's building in GTM and would really value their advice on one specific thing (e.g. how they got their first customers, or how they run sales this early), and ask for a quick 15-minute call or a few lines here. Humble, plain words, no pitch of our service, no links, no em dashes. Write it for everyone except bots and spam." } } };
+    reply: { type: "string", description: "Our public reply to what they wrote, as Reyansh (20, runs a small GTM agency for funded startups, casual, types fast): max 180 characters, 1 or 2 short lines, plain words, lowercase is fine. Answer or react to what they actually said in one line, then open the door to a DM in a natural way ('sending you a dm', 'mind if i dm you?', 'dm'ing you, have a question on how you do X'). If what they said is a joke or off-topic, play along and keep it light. No links, no hashtags, no em dashes, no 'great point'." },
+    dm: { type: "string", description: "A DM from Reyansh, max 300 characters, sent after the public reply, starting with what they said (so it is clearly a follow-up). Two styles: if fit is Core buyer (a founder or CEO at a funded B2B startup that could buy now), a DIRECT PITCH: one line on what we do (we run founder content, replies and DMs on X and LinkedIn for funded B2B founders, done for them), one line on why it fits them, then ask for a quick call: cal.com/sove7gn-gtm/30min. For everyone else, ADVICE-LED: ask for their take on one specific thing they know (how they got their first customers, how they sell this early), as a few lines here or a 15 minute call, no pitch. Plain, casual words, no em dashes, no hashtags. Write it for everyone except bots and spam." },
+    dm_style: { type: "string", enum: ["Pitch", "Advice"], description: "Which DM style you wrote" } } };
   const res = await exaFetch("https://api.exa.ai/search", {
     method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " company", numResults: 3, outputSchema: schema,
@@ -264,12 +265,16 @@ async function syncX() {
   // 2. Who replied, quoted or mentioned us.
   const { data: pe } = await db.from("crm_sheet").select("row,cells").eq("tab", "Post Engagers").gte("row", 4);
   const have = new Set((pe ?? []).map((r) => String(r.cells?.[11] || "").toLowerCase().replace(/^.*\/status\//, "")).filter(Boolean));
-  const fresh = mentions.filter((t) => String(t.author.userName).toLowerCase() !== HANDLE.toLowerCase() && !have.has(String(t.id)))
-    .map((t) => {
-      const parent = byId.get(String(t.inReplyToId || "")) ?? byId.get(String(t.quoted_tweet?.id || t.quoted_tweet_results?.result?.rest_id || ""));
-      const how = t.quoted_tweet || t.quoted_tweet_results ? "Quoted" : t.inReplyToId && parent ? "Replied" : "Mentioned";
+  const fresh = (await Promise.all(mentions.filter((t) => String(t.author.userName).toLowerCase() !== HANDLE.toLowerCase() && !have.has(String(t.id)))
+    .map(async (t) => {
+      let parent: any = byId.get(String(t.inReplyToId || "")) ?? byId.get(String(t.quoted_tweet?.id || t.quoted_tweet_results?.result?.rest_id || ""));
+      // (15 Nov) They answered one of our replies under someone else's post: read our reply (public embed, free) so the reply and DM fit.
+      const toUs = !parent && t.inReplyToId && String(t.inReplyToUsername || "").toLowerCase() === HANDLE.toLowerCase();
+      if (toUs) { const o = await onePost(String(t.inReplyToId)).catch(() => null); if (o) parent = { id: String(t.inReplyToId), text: String(o.text || ""), isOurReply: true, onWhose: String(o.in_reply_to_screen_name || "") }; }
+      if (parent && (parent.isReply || parent.inReplyToId) && String(parent.inReplyToUsername || "").toLowerCase() !== HANDLE.toLowerCase()) { parent.isOurReply = true; parent.onWhose = String(parent.inReplyToUsername || ""); }
+      const how = t.quoted_tweet || t.quoted_tweet_results ? "Quoted" : t.inReplyToId && parent ? (parent.isOurReply ? "Replied to our reply" : "Replied") : "Mentioned";
       return { t, parent, how };
-    })
+    })))
     .filter((x) => x.how !== "Mentioned" || /@r3yanshjuneja/i.test(x.t.text || ""))
     .slice(0, 60);
   const engagers: any[] = [], people: any[] = [];
@@ -278,8 +283,8 @@ async function syncX() {
     const batch = fresh.slice(i, i + 6);
     const out = await Promise.all(batch.map((x) => {
       if (judged >= MAX_JUDGED) return Promise.resolve(null);
-      const list = /founders?/i.test(String(x.parent?.text || ""));
-      const ctx = list ? "(This is our 'founders to watch' list post. They are one of the founders we featured, or know them. Reply: thank them, one specific line about their company or what they said, then ask for their advice and if we can DM them. DM: mention the list, congratulate them, and ask for their advice on one specific GTM thing over a quick 15-minute call.) " : "";
+      const list = /\bfounders?\b/i.test(String(x.parent?.text || ""));
+      const ctx = x.parent?.isOurReply ? "(This was Reyansh's reply under @" + (x.parent.onWhose || "someone") + "'s post, and they answered it. Keep the conversation going, then move it to DMs.) " : list ? "(This is our 'founders to watch' list post. They are one of the founders we featured, or know them. Reply: thank them, one specific line about their company or what they said, then ask for their advice and if we can DM them. DM: mention the list, congratulate them, and ask for their advice on one specific GTM thing over a quick 15-minute call.) " : "";
       return judge(x.t.author, x.t.text || "", ctx + (x.parent?.text || ""), x.how).catch((e) => ({ error: String(e) }));
     }));
     for (let j = 0; j < batch.length; j++) {
@@ -289,7 +294,7 @@ async function syncX() {
       const bio = String(a.profile_bio?.description || a.description || "");
       engagers.push([istStamp(new Date(t.createdAt || now)), ACCOUNT, parent ? link(parent) : (t.url || ""), clip(parent?.text || "(a mention)", 200), how,
         a.userName, a.name || "", clip(bio, 200), String(a.followers ?? ""), a.canDm ? "Yes" : "", t.text || "", t.url || t.twitterUrl || "",
-        o.fit || "", ACCOUNT, noDash(o.dm || ""), o.verdict === "Skip" ? "Dismissed" : "To message", "", noDash(o.reply || ""), o.verdict || "Skip", noDash(o.why || ""), String(a.id || "")]);
+        o.fit || "", ACCOUNT, noDash(o.dm || ""), o.verdict === "Skip" ? "Dismissed" : "To message", "", noDash(o.reply || ""), o.verdict || "Skip", (o.dm_style ? "[" + (o.dm_style === "Pitch" ? "Pitch DM" : "Advice DM") + "] " : "") + noDash(o.why || ""), String(a.id || "")]);
       people.push({ handle: String(a.userName).toLowerCase(), name: a.name || "", bio: clip(bio, 300), followers: a.followers ?? null,
         fit: o.verdict === "DM + reply" ? "hot" : o.verdict === "Reply only" ? "warm" : "not a fit", why: noDash(o.why || ""), company: o.company || "",
         found_by: "engage", added: true, judged_at: new Date().toISOString() });

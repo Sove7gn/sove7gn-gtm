@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
       const vanity = (url.match(/linkedin\.com\/posts\/([^_/]+)_/i) || [])[1];
       const authorUrl = vanity ? "https://www.linkedin.com/in/" + vanity : "";
       if (authorUrl && seenAuthors.has(authorUrl)) continue;
-      const text = String(x.text || "").replace(/^#\s*/, "").split(/\s*\|\s*\d[\d,]*\s+comments?|\s#\s|\s\|\s*[A-Z][^|]{0,60}\s·\sLinkedIn/)[0].trim();
+      const text = String(x.text || "").replace(/^#\s*/, "").split(/\s*\|\s*\d[\d,]*\s+comments?\b|\s#\s|\s\|\s*[A-Z][^|]{0,60}\s·\sLinkedIn\b/)[0].trim();
       if (text.length < 200) continue;
       seen.add(url); if (authorUrl) seenAuthors.add(authorUrl);
       cands.push({ id: String(cands.length), url, authorUrl, author: x.author || "", text, at: x.publishedDate || null });

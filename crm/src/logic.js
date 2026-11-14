@@ -24,7 +24,7 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
 // Funnel: Reach = top (gets new people in), Trust = middle (proof, stories, numbers), Convert = bottom (comment a word, offers).
 const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11,31,23,59),
   miles:[['2026-11-22','22 Nov'],['2026-11-29','29 Nov'],['2026-12-06','6 Dec'],['2026-12-13','13 Dec'],['2026-12-20','20 Dec'],['2026-12-27','27 Dec'],['2026-12-31','31 Dec']],
-  mix:[['Reach',10,'New people find you: founders-to-watch lists, save-worthy tactics, news takes'],['Trust',6,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
+  mix:[['Reach',20,'New people find you: founders lists, save-worthy tactics, the daily news post, 3 shoutouts'],['Trust',6,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
   week:[['Mon','Founders list (Reach) · Trust · Reach'],['Tue','Founders list (Reach) · Reach · Trust'],['Wed','Founders list (Reach) · Trust (proof) · Convert'],['Thu','Founders list (Reach) · Trust · Convert'],
     ['Fri','Founders list (Reach) · Reach · Convert (the offer)'],['Sat','Founders list (Reach) · Personal (Trust) · Convert'],['Sun','Founders list (Reach) · Weekly numbers (Trust) · Convert']],
   kit:[['bio','Bio','I get funded B2B founders customers from X and LinkedIn: your posts, the replies, the DMs, booked calls. Seed to Series C.'],
@@ -41,11 +41,11 @@ const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11
     ['GTM','DMed GTM (the service)','Thanks for reaching out! Here’s what the first 30 days look like when we run it for you:\n\nWeek 1: your profile, your voice, a list of the founders and buyers to reach.\nWeek 2 to 4: 3 posts a day on X and LinkedIn written for you to approve, replies under your buyers’ posts, and a DM to everyone who engages.\nEvery week: the calls booked and what we change next.\n\nWant to see if it fits? Pick a time here: https://cal.com/sove7gn-gtm/30min']]};
 // Funnel stage on each post (15 Nov): stored as Reach / Trust / Convert, shown as TOFU / MOFU / BOFU.
 const FUNNEL_PILL={Reach:{label:'TOFU · Reach',bg:'oklch(0.95 0.04 155)',fg:'oklch(0.42 0.12 155)'},Trust:{label:'MOFU · Trust',bg:'oklch(0.95 0.04 300)',fg:'oklch(0.45 0.14 300)'},Convert:{label:'BOFU · Convert',bg:'oklch(0.95 0.05 60)',fg:'oklch(0.5 0.14 55)'},'':{label:'No funnel tag',bg:'var(--n-soft)',fg:'var(--ink-3)'}};
-const PAGES={home:{sec:'home',label:'Home'},growth:{sec:'home',label:'10K plan: replies + DMs'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
+const PAGES={home:{sec:'home',label:'Growth'},replies:{sec:'out',label:'Replies'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
   leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},leadSignals:{sec:'leads',label:'Signals'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
-const SECS=[{id:'home',label:'Home',pages:['home','growth']},{id:'out',label:'Outbound',hint:'30 DMs a day',pages:['send','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
+const SECS=[{id:'home',label:'Growth',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs and 30 replies a day',pages:['send','replies','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
-const MOVED={scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
+const MOVED={growth:['home',{}],scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
 const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','leadSignals','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
 // A call booked for the GTM service (a LinkedIn or X lead, not clipping): these get a call dossier.
@@ -63,7 +63,7 @@ const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
 // What each page shows, on the (i) next to it in the sidebar (9 Nov). Calendar and Post tracker differ per platform.
-const PAGE_INFO={growth:'The plan to reach 10,000 followers on X by 31 December, and to turn them into clients: where you are against the line, the daily routine (3 posts, 30 replies, answer and DM everyone who engages or follows), this week’s Reach / Trust / Convert mix, fresh posts to reply to (found every hour in US hours), your best and worst posts, and the profile kit.',leadSignals:'Buying signals we watch for you: founders who just announced a raise (every morning), people who visit gtm.sove7gn.org (RB2B), and people who ask for one of our lead magnets. Each becomes a lead and enters the LinkedIn sequence.',leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
+const PAGE_INFO={home:'Growth: where you are against 10,000 followers by 31 December, what to do today (replies, DMs, posts), the pipeline, this week\u2019s TOFU / MOFU / BOFU mix, your best and worst posts, what to DM people who comment a word, and the profile kit.',replies:'Fresh posts from GTM creators your buyers follow and from founders in your pipeline, found every hour in US daytime, each with a short reply draft. Reply opens X with it typed in and ticks it off.',leadSignals:'Buying signals we watch for you: founders who just announced a raise (every morning), people who visit gtm.sove7gn.org (RB2B), and people who ask for one of our lead magnets. Each becomes a lead and enters the LinkedIn sequence.',leadBrief:'Every morning at 8:00 IST: what happened yesterday on LinkedIn, X and Instagram, who to follow up with today (and on which channel, WhatsApp included), and the calls coming up with their Google Meet links.',leadDossier:'Every call booked for the GTM service (LinkedIn and X leads): research on them and their company, the 1 or 2 line intro, how our inbound, midbound and outbound would work for them, questions for their opinion and problems, results we can share, and whether there is a pilot. Written on its own within 15 minutes of a booking.',xShared:'LinkedIn leads who score 6 or more out of 10. Reach them on X too, so they see you in both places. Mark each one when you message them on X.',home:'Today at a glance: who to answer first, DMs to send, posts planned, and today\u2019s goals.',
   send:'The people to DM on X today, best fit first, with the message already written. Copy it, send it on X, press Mark sent.',
   pipeline:'Everyone we\u2019ve DMed on X and where they are. Board and People show the stages; Scripts is where you edit the 3 DM versions and see which gets replies.',
   calendar:'Your X posts for each day: write them, move them, add an image, mark them scheduled or posted.',
@@ -108,9 +108,11 @@ function markRepeats(list){const live=list.filter(p=>p.link||p.status==='Posted'
     const hit=live.find(x=>x.p.account===p.account&&dupSim(w,x.w)>=0.7)||kept.find(x=>x.p.account===p.account&&x.p.status===p.status&&dupSim(w,x.w)>=0.85);
     p.dup=hit?hit.p:null;if(!hit)kept.push({p,w});}
   return list;}
-const slotOf=o=>{const v=String(o['Daily slot']||'').trim();if(SLOTS3.includes(v))return v;const t=String(o['Post type']||'');
+// (15 Nov) News and Shoutout: the daily news post and the Mon/Wed/Fri creator shoutout, written by the x-grow job.
+const SLOTS_EXTRA=['News','Shoutout'];
+const slotOf=o=>{const v=String(o['Daily slot']||'').trim();if(SLOTS3.includes(v)||SLOTS_EXTRA.includes(v))return v;const t=String(o['Post type']||'');
   return /tag/i.test(t)?'Account tag':/founder|behind the scenes/i.test(t)?'Founder':/data|lead magnet|how it works|operator floor|company news/i.test(t)?'Data & product':'';};
-const POST_KINDS=[...SLOTS3,'Other'];
+const POST_KINDS=[...SLOTS3,...SLOTS_EXTRA,'Other'];
 const kindOf=t=>/lead magnet/i.test(t)?'Lead magnet':/founder story/i.test(t)?'Founder story':/data/i.test(t)?'Data post':/tag/i.test(t)?'Tagging post':'Other';
 // Calendar (31 Oct): one board per account, a column per day. Posts the team puts there (Our Posts column Z "Calendar" =
 // Yes) plus everything posted or scheduled; drafts never land there on their own. The sheet keeps times in IST; the board shows them in IST or Pacific time.
@@ -123,7 +125,7 @@ const CAL_TYPES=['Lead magnet','Founder story','Data post','Tagging post','How i
 const CAL_AIMED=CFG.aimed||['Everyone'];
 const CAL_ST=['Draft','Ready to post','Scheduled','Posted'];
 const CAL_PILL={Draft:['var(--n-soft)','var(--ink-2)'],Scheduled:['var(--in-soft)','var(--in-ink)'],Posted:['var(--ok-soft)','var(--ok-ink)']};
-const KIND_DOT={'Account tag':'var(--mid)','Founder':'oklch(0.68 0.16 45)','Data & product':'var(--out)',Other:'var(--ink-4)'};
+const KIND_DOT={'Account tag':'var(--mid)','Founder':'oklch(0.68 0.16 45)','Data & product':'var(--out)',News:'oklch(0.6 0.16 25)',Shoutout:'oklch(0.62 0.14 200)',Other:'var(--ink-4)'};
 const ZONES={ist:{tz:'Asia/Kolkata',label:'IST'},pst:{tz:'America/Los_Angeles',label:'PST'}};
 const zparts=(ms,tz)=>{const o={};new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(x=>{o[x.type]=+x.value||0;});return{y:o.year,m:o.month-1,d:o.day,H:o.hour%24,M:o.minute};};
 const wallToMs=(y,m,d,H,M,tz)=>{let g=Date.UTC(y,m,d,H,M);for(let i=0;i<2;i++){const p=zparts(g,tz);g+=Date.UTC(y,m,d,H,M)-Date.UTC(p.y,p.m,p.d,p.H,p.M);}return g;};
@@ -444,13 +446,13 @@ class Component extends DCLogic {
     const L=this.lists(P);const rep=L.rep,calls=L.calls,fu=L.fu,ts=L.ts;
     let h={eyebrow:(s.plat==='LinkedIn'?'LinkedIn':SECLBL[sec])+' · '+PAGES[page].label,title:PAGES[page].label,next:'',cta:'',go:null};
     const g=AK.gate();
-    if(page==='home'){h.eyebrow='Home · today';h.title=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+    if(page==='home'){h.eyebrow='Growth · today';h.title=new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
       if(rep[0])h={...h,next:'Reply to '+rep[0].name+' at '+rep[0].company+' first.'+(rep.length>1?' '+(rep.length-1)+' other '+(rep.length-1===1?'reply is':'replies are')+' waiting.':''),cta:'Open reply',go:()=>this.openC(rep[0].id)};
       else if(fu[0])h={...h,next:'No replies waiting. '+fu.length+' follow-up'+(fu.length===1?' is':'s are')+' due, starting with '+fu[0].name+'.',cta:'Go to Send today',go:()=>this.go('send')};
       else{const today=this.ownPosts().filter(p=>p.status!=='Later'&&p.o._date&&AK.sameDay(p.o._date,new Date()));
         h=ts.length&&!AK.dmsPaused()?{...h,next:'No replies waiting. '+ts.length+' DMs are ready to send, and '+today.length+(today.length===1?' post is':' posts are')+' planned for today (goal: 3).',cta:'Go to Send today',go:()=>this.go('send')}
           :{...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' of 3 planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
-    if(page==='growth'){h.eyebrow='Home · 10K plan';h.title='10,000 followers by 31 December';h.next='Do the daily routine below: 3 posts, 30 replies on other people’s posts, and a DM for everyone who comments or follows. Track the line, not single posts.';}
+    if(page==='replies'){h.title='Replies';const n=AK.XG.rows.filter(r=>r.status==='new').length;h.next=n?n+' fresh posts from creators and founders in your pipeline. Press Reply: X opens with the reply typed in. Tweak a word, post. Leads first: a reply before the DM makes it warm.':'All caught up. New posts come in every hour in US daytime.';}
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
     if(page==='pipeline'&&s.pipeTab==='Scripts'){h.next='Each new lead gets the next script in turn. Edit one here and every unsent message uses the new text.';}
@@ -491,7 +493,7 @@ class Component extends DCLogic {
     const today=new Date();const planned=this.postList().filter(p=>onCal(p)&&p.o._date&&AK.sameDay(p.o._date,today)).length;
     const fresh=AK.newPosts();const toDM=this.engagers().filter(e=>e.Status!=='Messaged').length;
     const toReply=AK.XG.rows.filter(r=>r.status==='new').length;const xq=(AK.XT.rows||[]).filter(t=>t.status==='ready'||t.status==='sending');const warmQ=xq.filter(t=>/^auto: warm/.test(t.decided_by||'')).length;
-    const cards=[{label:'10K plan',hint:'Replies and DMs',dot:'var(--ok)',a:String(toReply),aL:'posts to reply to, drafts ready',b:String(xq.length),bL:'DMs the bot is sending'+(warmQ?' ('+warmQ+' warm first)':''),go:()=>this.go('growth')},{label:'Outbound',hint:'DMs on X',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new competitor posts',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who engaged',dot:'var(--mid)',a:String(L.rep.length),aL:'DM replies waiting',b:String(toDM),bL:'people who engaged',go:()=>this.go('engaged')}];
+    const cards=[{label:'Replies',hint:'30 a day',dot:'var(--ok)',a:String(toReply),aL:'posts to reply to, drafts ready',b:String(xq.length),bL:'DMs the bot is sending'+(warmQ?' ('+warmQ+' warm first)':''),go:()=>this.go('replies')},{label:'Outbound',hint:'DMs on X',dot:'var(--out)',a:String(L.ts.length),aL:'to send today',b:String(L.fu.length),bL:'follow-ups due',go:()=>this.go('send')},{label:'Inbound',hint:'Our posts',dot:'var(--in)',a:String(planned),aL:'posts planned today',b:String(fresh.length),bL:'new competitor posts',go:()=>this.go('calendar')},{label:'Midbound',hint:'People who engaged',dot:'var(--mid)',a:String(L.rep.length),aL:'DM replies waiting',b:String(toDM),bL:'people who engaged',go:()=>this.go('engaged')}];
     const raw=[...L.rep.map(p=>({p,k:'r',kind:pill('Reply','mid'),title:'Reply to '+p.name,meta:p.company+(p.result?' · '+clip(p.result,80):''),cta:'Reply'})),...L.fu.map(p=>({p,k:'f',kind:pill('Follow-up','out'),title:this.nextOf(p)+' to '+p.name,meta:(p.role?p.role+' · ':'')+p.company,cta:'Open'})),...L.calls.map(p=>({p,k:'c',kind:pill('Call','mid'),title:'Prep the call with '+p.name,meta:(p.call?p.call+' · ':'')+p.company,cta:'Prep'}))];
     const shown=s.more.todo?raw:raw.slice(0,10);
     const todo=shown.map((t,i)=>{const key=t.p.id+t.k;const d=!!s.done[key];return{kind:t.kind,title:t.title,meta:t.meta,cta:t.cta,open:()=>this.openC(t.p.id),toggle:stop(()=>{this.setState(st=>({done:{...st.done,[key]:!d}}));if(!d)this.toast('Nice. '+(raw.length-raw.filter(x=>({...s.done,[key]:true})[x.p.id+x.k]).length)+' left');}),fill:d?'var(--ink)':'transparent',ring:d?'inset 0 0 0 1.5px var(--ink)':'inset 0 0 0 1.5px var(--hairline-strong)',sc:d?'scale(1.08)':'scale(1)',dash:d?'0':'22',op:d?'.45':'1',strike:d?'line-through':'none',bt:i===0?'none':'1px solid var(--hairline)'};});
@@ -513,7 +515,7 @@ class Component extends DCLogic {
     const sent=P.filter(p=>[p.d[0],p.d[1],p.d[2]].some(x=>sameDay(AK.cellDate(x)))).length;
     const eng=this.engagers().filter(e=>sameDay(AK.parseDate(e['Found on']))&&verdictOf(e)!=='Skip');const done=eng.filter(e=>/Messaged|Replied|Dismissed/.test(e.Status||'')).length;
     const replied=AK.XG.rows.filter(r=>r.status==='done'&&r.done_at&&sameDay(new Date(r.done_at))).length;
-    return[{name:'Posts on X today',v:posted,tgt:3},{name:'Replies under other people’s posts (10K plan)',v:replied,tgt:30},{name:'DMs sent today (first messages and follow-ups)',v:sent,tgt:30},{name:'People who engaged, answered',v:done,tgt:eng.length}];}
+    return[{name:'Posts on X today (3 + the news post)',v:posted,tgt:4},{name:'Replies under other people’s posts',v:replied,tgt:30},{name:'DMs sent today (first messages and follow-ups)',v:sent,tgt:30},{name:'People who engaged, answered',v:done,tgt:eng.length}];}
   // Replies to our DMs plus people who engaged with our posts, per week, for the last 6 weeks.
   weekReplies(E){const now=AK.weekStart(0).getTime();const wk=d=>now-Math.ceil((now-d.getTime())/(7*864e5))*7*864e5;const by={};
     for(const c of AK.M.contacts){const d=AK.cellDate(c['Replied on']);if(d)by[wk(d)]=(by[wk(d)]||0)+1;}
@@ -754,6 +756,27 @@ class Component extends DCLogic {
       hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,grow:lim+12}})),
       runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'Last check '+this.since(lr.started_at)+(lr.ok===false?' (failed: '+clip(lr.error||'',90)+')':''):'',
       pipe,pipeTip,kit,kw,week:G.week.map(([d,t])=>({d,t}))};}
+  // Replies (15 Nov): one slim row per fresh post to reply to. Reply copies the draft, opens X with it typed in and marks the row
+  // replied, so it drops to "Replied today". Values for replies.html (rp).
+  repliesVals(){const s=this.state;const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
+    const all=AK.XG.rows;const open=all.filter(r=>r.status==='new').sort((a,b)=>{const fa=Date.now()-new Date(a.posted_at||a.created_at)<45*6e4,fb=Date.now()-new Date(b.posted_at||b.created_at)<45*6e4;
+      return (fb-fa)||((b.kind==='lead')-(a.kind==='lead'))||(new Date(b.posted_at||b.created_at)-new Date(a.posted_at||a.created_at));});
+    const doneToday=all.filter(r=>r.status!=='new'&&r.done_at&&sameDay(new Date(r.done_at))).sort((a,b)=>new Date(b.done_at)-new Date(a.done_at));
+    const repliedN=doneToday.filter(r=>r.status==='done').length;const lim=s.more.rp||15;
+    const go=(r,draft)=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];if(draft){try{navigator.clipboard.writeText(draft);}catch(e){}}
+      window.open(id&&draft?'https://x.com/intent/post?in_reply_to='+id+'&text='+encodeURIComponent(draft):r.url,'_blank','noopener');AK.xgSet(r.url,'done');
+      this.toast((repliedN+1)+' of 30 today. Make it sound like you before you post.');};
+    const rows=open.slice(0,lim).map(r=>{const t=r.posted_at?new Date(r.posted_at).getTime():0;const fresh=t&&Date.now()-t<45*6e4;const d=String(r.draft||'').trim();
+      return{who:r.name||r.author,sub:'@'+r.author+(r.followers!=null?' · '+fmtK(r.followers):''),kind:r.kind==='lead'?pill('Lead','out'):pill('Creator','in'),
+        age:fresh?pill('Fresh','ok'):pill(t?AK.ago(t):'Earlier','neutral'),text:clip(r.post_text,260),full:String(r.post_text||'').slice(0,600),
+        draft:d||'No draft (nothing natural to say, or still writing). Open it and react in your own words.',dBg:d?'var(--mid-soft)':'var(--n-soft)',dFg:d?'var(--ink)':'var(--ink-3)',
+        cta:d?'Reply ↗':'Open ↗',reply:()=>go(r,d),skip:()=>AK.xgSet(r.url,'skipped')};});
+    const lr=AK.XG.runs[0];
+    return{rows,hasRows:rows.length>0,noRows:!rows.length,noRowsText:AK.XG.loaded?'All caught up. New posts come in every hour from 5:40 PM to 7:40 AM IST (US daytime).':'Loading…',
+      doneN:String(repliedN),pct:Math.min(100,repliedN/30*100)+'%',openN:String(open.length),hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,rp:lim+15}})),
+      runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'checked '+this.since(lr.started_at):'',
+      hasDone:doneToday.length>0,showDone:!!s.rpDone,toggleDone:()=>this.setState({rpDone:!s.rpDone}),doneLabel:(s.rpDone?'Hide':'Show')+' replied today ('+doneToday.length+')',
+      done:doneToday.map(r=>({who:r.name||r.author,text:clip(String(r.post_text||'').replace(/\s+/g,' '),120),st:r.status==='done'?'replied':'skipped',open:()=>window.open(r.url,'_blank','noopener'),undo:()=>AK.xgSet(r.url,'new')}))};}
   engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
     const VO={'DM + reply':0,'Reply only':1};
     const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));
@@ -816,7 +839,7 @@ class Component extends DCLogic {
       adding:!!nf,notAdding:!nf,startAdd:()=>this.setState({tplNew:{id:nextId,intent:'',use:'',opener:'Hey [first name], [hook] ',fu1:'',fu2:''}}),cancelAdd:()=>this.setState({tplNew:null}),
       n:nf||{},onN:{id:setN('id'),intent:setN('intent'),use:setN('use'),opener:setN('opener'),fu1:setN('fu1'),fu2:setN('fu2')},addLabel:AK.S.busy.has('tpl:new')?'Adding…':'Add this version',
       add:async()=>{if(!AK.canEdit()||!nf)return;if(!String(nf.opener||'').trim()){this.toast('Write the first message first.',null,true);return;}const ok=await AK.addTpl({...nf,account:Object.keys(AK.HANDLES)[0]||''});if(ok)this.setState({tplNew:null});}};}
-  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(pg==='growth')o.gr=this.growthVals(P);if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='xShared')o.xs=this.xSharedVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
+  moreVals(P){const pg=this.state.page;const o={};if(pg==='pipeline'&&this.state.pipeTab==='Scripts')o.scr=this.scriptsVals(P);if(pg==='engaged')o.eng=this.engagedVals(P);if(pg==='home')o.gr=this.growthVals(P);if(pg==='replies')o.rp=this.repliesVals();if(PAGES[pg].sec==='leads'||pg==='gtmEngage'||pg==='liPipe'||LI_LISTS[pg])o.ld=this.leadVals(pg);o.lch=this.chanVals();if(pg==='xShared')o.xs=this.xSharedVals();if(pg==='liPeople')o.lip=this.liPeopleVals();
     if(pg==='send')o.send=this.sendVals(P);if(pg==='inbox')o.inbox=this.inboxVals(P);if(pg==='pipeline')o.pipe=this.pipeVals(P);
     Object.assign(o,this.midVals(pg));
     return o;}
@@ -829,7 +852,7 @@ class Component extends DCLogic {
     const keys=new Set(days.map(d=>d.key));const accs=this.accs();
     const plat=s.plat;const isLi=plat==='LinkedIn';
     const placed=this.postList().filter(p=>!p.dup&&onCal(p)&&platOf(p.o)===plat).map(p=>({p,w:calWhere(p.o,zone)})).filter(x=>x.w&&keys.has(x.w.key)&&accs.some(a=>a.acc===x.p.account));
-    const kind=isLi?'All':s.calKind;const FUN={Reach:10,Trust:6,Convert:5};const shown=kind==='All'?placed:FUN[kind]?placed.filter(x=>x.p.funnel===kind):placed.filter(x=>x.p.kind===kind);
+    const kind=isLi?'All':s.calKind;const FUN={Reach:20,Trust:6,Convert:5};const shown=kind==='All'?placed:FUN[kind]?placed.filter(x=>x.p.funnel===kind):placed.filter(x=>x.p.kind===kind);
     const kinds=(isLi?[]:['All',...POST_KINDS]).map(k=>{const on=kind===k;const n=k==='All'?placed.length:placed.filter(x=>x.p.kind===k).length;
       return{label:k,count:String(n)+(!isLi&&SLOTS3.includes(k)?'/'+(accs.length*7):''),go:()=>this.setState({calKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink)',bd:on?'var(--ink)':'var(--hairline-strong)',dot:KIND_DOT[k]||'transparent',hasDot:k!=='All'};})
       // funnel chips (15 Nov): TOFU / MOFU / BOFU this week against the plan's 10 / 6 / 5
