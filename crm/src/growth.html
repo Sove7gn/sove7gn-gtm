@@ -47,7 +47,7 @@
 <button onClick="{{ gr.run }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ gr.runLabel }}</button>
 <span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ gr.lastRun }}</span>
 </div>
-<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.5;">Fresh posts from GTM creators your buyers follow, and from founders in your pipeline. Reply in the first 30 to 60 minutes with your own take: a number, a short story, or a question. Write it yourself (AI-sounding replies get ignored). Replying to a lead before you DM them makes the DM warm. Then press Replied.</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3); line-height:1.5;">Fresh posts from GTM creators your buyers follow, and from founders in your pipeline. Each post worth it has a draft reply. Press Copy &amp; open: X opens with the reply filled in. Change a few words so it sounds like you (replies that read like AI get ignored and can get the account limited), post, then press Replied. Reply in the first 30 to 60 minutes. Replying to a lead before the bot DMs them makes the DM warm.</span>
 <sc-if value="{{ gr.hasReplies }}">
 <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
 <sc-for list="{{ gr.replies }}" as="r">
@@ -57,6 +57,10 @@
 <span style="align-self:flex-start; height:20px; display:inline-flex; align-items:center; padding:0 8px; border-radius:var(--r-pill); background:{{ r.kind.bg }}; color:{{ r.kind.fg }}; box-shadow:{{ r.kind.bd }}; font-size:var(--fs-3xs); font-weight:600;">{{ r.kind.label }}</span>
 <span style="font-size:var(--fs-sm); line-height:1.5; white-space:pre-wrap;">{{ r.text }}</span>
 <span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ r.nums }}</span>
+<sc-if value="{{ r.hasDraft }}"><div style="display:flex; flex-direction:column; gap:6px; padding:10px 12px; border-radius:var(--r-md); background:var(--mid-soft); box-shadow:inset 0 0 0 1px var(--mid-line);">
+<span style="font-size:var(--fs-3xs); color:var(--mid-ink); text-transform:uppercase; letter-spacing:.04em;">Draft reply (make it yours)</span><span style="font-size:var(--fs-sm); line-height:1.5;">{{ r.draft }}</span>
+<button onClick="{{ r.copyOpen }}" style="align-self:flex-start; height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--mid); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Copy &amp; open reply ↗</button>
+</div></sc-if>
 <div style="display:flex; gap:6px;">
 <button onClick="{{ r.open }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:transparent; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;">Open on X ↗</button>
 <button onClick="{{ r.done }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">Replied</button>

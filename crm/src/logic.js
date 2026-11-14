@@ -719,6 +719,10 @@ class Component extends DCLogic {
     const replies=open.slice(0,lim).map(r=>{const age=r.posted_at?AK.ago(new Date(r.posted_at).getTime()):'';const fresh=r.posted_at&&Date.now()-new Date(r.posted_at)<45*6e4;
       return{who:(r.name||r.author),sub:'@'+r.author+(r.followers!=null?' · '+fmtK(r.followers)+' followers':''),kind:r.kind==='lead'?pill('Lead: reply before you DM','out'):pill('Creator','in'),
         hot:fresh?pill('Fresh: reply now','ok'):pill(age||'Earlier','neutral'),text:clip(r.post_text,320),nums:[r.views!=null?fmtK(r.views)+' views':'',r.replies!=null?r.replies+' replies':''].filter(Boolean).join(' · '),
+        draft:r.draft||'',hasDraft:!!r.draft,
+        // Copy & open (15 Nov): copies the draft and opens X's reply box for that post; paste, change a word, post.
+        copyOpen:()=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];try{navigator.clipboard.writeText(r.draft||'');}catch(e){}
+          window.open(id?'https://x.com/intent/post?in_reply_to='+id+'&text='+encodeURIComponent(r.draft||''):r.url,'_blank','noopener');this.toast('Reply is filled in (and copied). Make it yours, post, then press Replied.');},
         open:()=>window.open(r.url,'_blank','noopener'),done:()=>{AK.xgSet(r.url,'done');this.toast('Nice. '+(repliedToday+1)+' of 30 today.');},skip:()=>AK.xgSet(r.url,'skipped')};});
     const lr=AK.XG.runs[0];
     // profile kit and what to DM people who comment a keyword

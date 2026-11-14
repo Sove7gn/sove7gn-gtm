@@ -13,6 +13,7 @@ const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const TWAPI = Deno.env.get("TWITTERAPI_KEY") ?? "";
 const EXA = Deno.env.get("EXA_API_KEY") ?? "";
 const CRON = Deno.env.get("CRON_SECRET") ?? "";
+const COMPOSIO = Deno.env.get("COMPOSIO_API_KEY") ?? "";
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
 const ACCOUNT = "Reyansh", HANDLE = "r3yanshJuneja";
 const MAX_FOLLOWERS_JUDGED = 20;
@@ -42,6 +43,7 @@ Deno.serve(async (req) => {
   try {
     if (both || body.replies) out.replies = await replyTargets();
     if (both || body.followers) out.followers = await newFollowers();
+    if (both || body.followers || body.warm) out.warm = await warmDMs();
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary: out }).eq("id", run.id);
     return json(out);
   } catch (e) {
@@ -108,11 +110,100 @@ async function replyTargets() {
     const { data: have } = await db.from("crm_x_reply").select("url").in("url", rows.map((r) => r.url));
     const known = new Set((have ?? []).map((r) => r.url));
     const fresh = rows.filter((r) => !known.has(r.url));
-    if (fresh.length) { const { error } = await db.from("crm_x_reply").insert(fresh); if (error) throw error; added = fresh.length; }
+    if (fresh.length) {
+      // A reply draft for the posts worth it (leads, and creators with 1,000+ followers), at most 12 a run. Reyansh edits and posts it.
+      const worth = fresh.filter((r) => r.kind === "lead" || (r.followers ?? 0) >= 1000).slice(0, 12);
+      if (COMPOSIO && worth.length) { const d = await draftReplies(worth).catch(() => ({} as Record<string, string>)); worth.forEach((r, i) => { r.draft = noDash(d[String(i)] || ""); }); }
+      const { error } = await db.from("crm_x_reply").insert(fresh); if (error) throw error; added = fresh.length;
+    }
     for (const r of rows.filter((r) => known.has(r.url))) await db.from("crm_x_reply").update({ views: r.views, likes: r.likes, replies: r.replies }).eq("url", r.url);
   }
   await db.from("crm_x_reply").delete().lt("day", new Date(Date.now() - 4 * 864e5).toISOString().slice(0, 10));
-  return { searched: groups.length, found: rows.length, added };
+  // Catch-up: open posts from the last 6 hours that still have no draft (the model was busy, or they came in before drafts existed).
+  let drafted = 0;
+  if (COMPOSIO) {
+    const { data: miss } = await db.from("crm_x_reply").select("url,author,name,followers,kind,post_text").eq("status", "new").eq("draft", "")
+      .gte("created_at", new Date(Date.now() - 6 * 3600e3).toISOString()).order("created_at", { ascending: false }).limit(30);
+    const todo = (miss ?? []).filter((r) => r.kind === "lead" || (r.followers ?? 0) >= 1000).slice(0, 12);
+    if (todo.length) {
+      const d = await draftReplies(todo).catch(() => ({} as Record<string, string>));
+      for (const [i, r] of todo.entries()) { const t = noDash(d[String(i)] || ""); if (t) { await db.from("crm_x_reply").update({ draft: t }).eq("url", r.url); drafted++; } }
+    }
+  }
+  return { searched: groups.length, found: rows.length, added, drafted };
+}
+
+// Reply drafts through Composio's model (one batch per run, like li-engage's LinkedIn comments).
+async function mcp(name: string, args: Record<string, unknown>) {
+  const res = await fetch("https://connect.composio.dev/mcp", { method: "POST",
+    headers: { "x-consumer-api-key": COMPOSIO, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+  const txt = await res.text();
+  if (!res.ok) throw new Error("Composio answered " + res.status + ": " + txt.slice(0, 200));
+  const line = txt.match(/^data: (.*)$/m);
+  const j = JSON.parse(line ? line[1] : txt);
+  if (j.error) throw new Error("Composio: " + String(j.error.message ?? j.error).slice(0, 200));
+  return JSON.parse(j.result?.content?.[0]?.text ?? "{}");
+}
+const REPLY_PROMPT = (r: any) =>
+  "Write Reyansh's reply under this X post. Reyansh is 20, runs SOVE7GN (founder content and DMs on X and LinkedIn for funded B2B founders) and built his own outbound CRM.\n" +
+  "Post by " + r.name + " (@" + r.author + ", " + (r.followers ?? 0) + " followers" + (r.kind === "lead" ? ", a funded founder he may sell to later: be useful and curious about their company" : ", a GTM creator whose audience is founders") + "):\n\"\"\"\n" +
+  String(r.post_text).slice(0, 1200) + "\n\"\"\"\n" +
+  "Rules: max 200 characters, react to what the post actually says. Add something of his own: a specific take, an example, or one sharp question. Talk like a peer. " +
+  "Mention his outbound, CRM or content work only when the post is about sales, GTM, content or getting customers, and never more than half a sentence. " +
+  "Never pitch, no links, no hashtags, no em dashes, never start with praise (great, love, so true, congrats), no 'it's not X, it's Y'. Plain casual words, lowercase is fine. " +
+  "If the post is only a link or there is nothing worth saying, answer SKIP. Answer with the reply text only.";
+async function draftReplies(rows: any[]): Promise<Record<string, string>> {
+  const items = rows.map((r, i) => ({ id: String(i), prompt: REPLY_PROMPT(r) }));
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
+  const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
+    "items = json.loads(base64.b64decode('" + payload + "').decode())",
+    "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
+    "with ThreadPoolExecutor(8) as ex: res = dict(ex.map(one, items))",
+    "print('@@' + json.dumps(res))"].join("\n");
+  const out = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write X reply drafts for the CRM" });
+  const res = JSON.parse(String(out?.data?.stdout ?? "").split("@@").pop() || "{}");
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(res)) { const t = String(v || "").trim().replace(/^"|"$/g, ""); if (t && !/^skip\b/i.test(t) && !/^(great|love|so true|congrats|amazing)\b/i.test(t)) clean[k] = t.slice(0, 280); }
+  return clean;
+}
+
+// 3. Warm DMs on autopilot (15 Nov): everyone the CRM judged worth a DM (replied, quoted, commented a keyword, tagged, followed)
+//    gets a DM Pipeline row (script W1, Warm) and a task for the X bot, which sends it from Reyansh's X tab within its daily cap
+//    (warm people go before cold ones). Follow-ups 1 and 2 come from W1. At most 10 a run.
+async function warmDMs() {
+  const { data: pe } = await db.from("crm_sheet").select("row,cells").eq("tab", "Post Engagers").gte("row", 4);
+  const week = Date.now() - 7 * 864e5;
+  const MONS: Record<string, number> = Object.fromEntries(MON.map((m, i) => [m, i]));
+  const when = (s: string) => { const m = String(s || "").match(/^(\d{1,2}) (\w{3}) (\d{4})/); return m ? Date.UTC(+m[3], MONS[m[2]] ?? 0, +m[1]) : 0; };
+  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return (c[15] || "To message") === "To message" && c[18] === "DM + reply" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });
+  if (!todo.length) return { queued: 0 };
+  const { data: pl } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").gte("row", 4);
+  const inPipe = new Set((pl ?? []).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase()).filter(Boolean));
+  const { data: tk } = await db.from("crm_x_tasks").select("handle");
+  const queuedH = new Set((tk ?? []).map((t) => String(t.handle || "").toLowerCase()));
+  let next = Math.max(3, ...(pl ?? []).map((r) => r.row)) + 1;
+  const writes: any[] = [], tasks: any[] = [], fills: any[] = [];
+  const seen = new Set<string>();
+  for (const r of todo) {
+    const c = r.cells, h = String(c[5]).replace(/^@/, ""), hl = h.toLowerCase();
+    if (seen.has(hl) || inPipe.has(hl) || queuedH.has(hl)) continue;
+    seen.add(hl);
+    const row = next++, name = c[6] || h, how = c[4] || "Engaged", dm = String(c[14]).trim();
+    const sig = how === "Followed" ? "Followed us on X" : how + " on our post: “" + clip(c[10] || c[3] || "", 150) + "”";
+    writes.push({ row, col: 3, values: [[name, "Unknown", "", ACCOUNT, "X DM", "Warm", how === "Followed" ? "Followed us" : "Engaged with our post", "9", h, "", "", sig, c[11] || c[2] || "", c[0] || "", "W1", dm, "To send", ""]] });
+    writes.push({ row, col: 28, values: [["Warm: added by x-grow on " + istStamp(new Date()) + ". " + (c[19] || "") + " Bio: " + clip(c[7] || "", 160)]] });
+    if (c[20]) writes.push({ row, col: 38, values: [[String(c[20])]] });
+    tasks.push({ row, name, company: "", handle: h, user_id: c[20] ? String(c[20]) : null, kind: "dm", text: dm, status: "ready", decided_by: "auto: warm" });
+    fills.push({ row: r.row, handle: h });
+    if (tasks.length >= 10) break;
+  }
+  if (!tasks.length) return { queued: 0 };
+  const { data: res, error } = await db.rpc("crm_call", { body: { action: "rows", writes } });
+  if (error || !String(res).startsWith("ok")) throw new Error("Saving warm leads failed: " + (error?.message ?? res));
+  const { error: e2 } = await db.from("crm_x_tasks").insert(tasks); if (e2) throw e2;
+  for (const f of fills) await db.rpc("crm_call", { body: { action: "engagerFill", row: f.row, handle: f.handle, cells: { 16: "Messaged" } } });
+  return { queued: tasks.length };
 }
 
 // 2. New followers -> judged once -> Post Engagers ("Followed") with a DM.
