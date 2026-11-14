@@ -2094,9 +2094,9 @@ class Component extends DCLogic {
   liPipeVals(){const s=this.state;const set=AK.LD.settings.li_bot||{};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const LI=l=>(l.fields||{}).li||{};const ICP=l=>(l.fields||{}).li_icp||{};const I=l=>((l.fields||{}).gtm||{}).intel||{};
     const open=new Map(),skipped=new Set();for(const t of T){if(['review','ready','sending','failed'].includes(t.status))open.set(t.lead_id,t);else if(t.status==='skipped'&&(t.kind==='invite'||t.kind==='dm')&&!/already done by hand|they replied|stopped before|not a fit|same person|booked|moved to/i.test(t.error||''))skipped.add(t.lead_id);}
-    const COLS=[['found','Leads found','People who engaged with our posts and fit our ICP. Approve to send the connection request.','var(--ink-4)'],
+    const COLS=[['found','Leads found','People who fit our ICP. Approve to send the connection request: the only step that needs you. Everything after runs on its own.','var(--ink-4)'],
       ['req','Request sent','Waiting for them to accept.','var(--out)'],
-      ['dm','First message sent','They accepted and got our first message.','oklch(0.6 0.13 250)'],
+      ['dm','First message sent','They accepted and the bot sent their 3 ideas, written for them. No reply in 24 hours: follow-ups start (booking link, then the VSL).','oklch(0.6 0.13 250)'],
       ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,'No reply yet.','oklch(0.72 0.15 65)']),
       ['talks','In talks','Talking on LinkedIn, no call yet. The bot has stopped.','var(--mid)'],
       ['booked','Call booked','A call is on the calendar.','var(--in)'],

@@ -43,10 +43,11 @@ const PROMISE_RE = /\b(3|three)\s+(quick\s+|small\s+|simple\s+|inbound\s+|easy\s
 const promised = (l: Lead) => !!(l.fields?.li?.promised || l.fields?.li?.src === "list");
 const tipsGot = (l: Lead) => !!l.fields?.tips?.sent_at;
 // The tips as a LinkedIn message: right after they accept, or (if a pitch went out first by mistake) as the next message.
-function tipsDM(l: Lead, late = false): string {
+function tipsDM(l: Lead, late = false, kept = true): string {
   const body = String(l.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").replace(/^Thanks for connecting[^\n]*\n+/i, "").trim();
   if (!body) return "";
-  return (late ? "Hey " + firstName(l.name) + ", as promised when we connected, here are the 3 ideas:" : "Thanks for connecting, " + firstName(l.name) + "! As promised, here they are:") + "\n\n" + body;
+  return (late ? "Hey " + firstName(l.name) + ", as promised when we connected, here are the 3 ideas:" : kept ? "Thanks for connecting, " + firstName(l.name) + "! As promised, here they are:"
+    : "Thanks for connecting, " + firstName(l.name) + "! Wanted to share 3 quick ideas for " + (l.company && !/^unknown$/i.test(l.company) ? l.company + "'s" : "your") + " inbound:") + "\n\n" + body;
 }     // stages the bot may still message in
 
 async function allowed(req: Request): Promise<boolean> {
@@ -725,7 +726,7 @@ async function state(b: any) {
     const l = find(t); if (!l || !t.them_at) continue;
     const li = { ...(l.fields?.li ?? {}) };
     const since = Math.max(Date.parse(li.req || li.dm || li.inmail || "") || 0, (Date.parse(li.prev_replied ?? "") || 0) + 1000);
-    if (!li.replied && !li.stop && since && t.me_at && promised(l) && li.acc && !tipsGot(l) && Date.parse(t.me_at) > (Date.parse(li.acc) || 0)) {
+    if (!li.replied && !li.stop && since && t.me_at && li.acc && !tipsGot(l) && (promised(l) || !li.dm) && Date.parse(t.me_at) > (Date.parse(li.acc) || 0)) {
       const at = new Date(t.me_at).toISOString();
       l.fields = { ...(l.fields ?? {}), tips: { ...(l.fields?.tips ?? {}), sent_at: at, by_hand: true } };
       await saveLi(l, { ...li, dm: at, last: at, fu: 0, tips_dm: at });
@@ -820,7 +821,9 @@ async function plan(_b: any) {
       if (!t) needHook.push(l);
       continue;
     }
-    if (promised(l) && li.acc && !tipsGot(l) && !twin(l, "dm")) {
+    // (14 Nov) End to end: Reyansh approves the connection request only. Whoever accepts gets their 3 ideas as the next message,
+    // sent on its own (no approval); people promised them who got something else first get them next.
+    if (li.acc && !tipsGot(l) && !twin(l, "dm") && (promised(l) || (!li.dm && (isOurs(l) || li.req)))) {
       const t = had("dm", li.dm ? 1 : 0);
       if (t?.status === "skipped" && /here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) {
         // Reyansh skipped the bot's copy because he sent the ideas himself: count them as sent, follow-ups 24 hours on.
@@ -832,7 +835,7 @@ async function plan(_b: any) {
       }
       if (t && t.status !== "failed") continue;
       if (!l.fields?.tips?.text) { tipsWanted.push(l.id); continue; }       // written by the tips run (every 15 minutes), then sent
-      newRows.push({ lead_id: l.id, kind: "dm", step: li.dm ? 1 : 0, text: tipsDM(l, !!li.dm), status: "ready" });
+      newRows.push({ lead_id: l.id, kind: "dm", step: li.dm ? 1 : 0, text: tipsDM(l, !!li.dm, promised(l)), status: "ready" });
       continue;
     }
     if (li.acc && !li.dm) {
@@ -1656,8 +1659,8 @@ async function tips(b: any) {
     }
     // (14 Nov) Everyone whose connection note promised 3 ideas gets them written ahead: accepted first, then requests still out.
     const { data: prom } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").eq("archived", false).eq("source", "LinkedIn")
-      .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list").limit(300);
-    const pr = (prom ?? []).filter((l: any) => l.fields?.li?.req || l.fields?.li?.acc).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
+      .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list,fields->li->>acc.not.is.null").limit(300);
+    const pr = (prom ?? []).filter((l: any) => (l.fields?.li?.req || l.fields?.li?.acc) && !(l.fields?.li?.acc && l.fields?.li?.dm && !l.fields?.li?.promised && l.fields?.li?.src !== "list") && !l.fields?.li?.replied).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
     leads = [...pr.filter((l: any) => l.fields?.li?.acc), ...leads, ...pr.filter((l: any) => !l.fields?.li?.acc)].slice(0, +(b.limit ?? 4));
   }
   let made = 0;
