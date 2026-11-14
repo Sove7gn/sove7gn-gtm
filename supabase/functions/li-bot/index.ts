@@ -35,7 +35,19 @@ const cleanName = (n: unknown) => String(n ?? "").replace(/\b(Verified|Premium)(
 const sameName = (a: unknown, b: unknown) => { const k = (x: unknown) => cleanName(x).toLowerCase().replace(/[^a-z]/g, ""); return !!k(a) && k(a) === k(b); };
 const ACTIVE = /^(new|contacted|follow up)$/i;
 // Follow-up order after the 3 tips: 1 booking link, 3 the VSL, 5 how they get customers, 2 bump, 6 next week?, 7 last nudge.
-const TIPS_FU = [1, 3, 5, 2, 6, 7];     // stages the bot may still message in
+// (14 Nov) Each person gets each of these at most once (li.fu_sent keeps which ones went out), so nobody hears the same thing twice.
+const TIPS_FU = [1, 3, 5, 2, 6, 7];
+// (14 Nov) A connection note that promised them 3 ideas / tips / tricks. Once they accept, the very next message is those ideas,
+// written for them, whatever else happens (no pitch first). Then: they reply, Reyansh takes it; no reply in 24 hours, TIPS_FU.
+const PROMISE_RE = /\b(3|three)\s+(quick\s+|small\s+|simple\s+|inbound\s+|easy\s+)*(tips|ideas|tricks)\b/i;
+const promised = (l: Lead) => !!(l.fields?.li?.promised || l.fields?.li?.src === "list");
+const tipsGot = (l: Lead) => !!l.fields?.tips?.sent_at;
+// The tips as a LinkedIn message: right after they accept, or (if a pitch went out first by mistake) as the next message.
+function tipsDM(l: Lead, late = false): string {
+  const body = String(l.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").replace(/^Thanks for connecting[^\n]*\n+/i, "").trim();
+  if (!body) return "";
+  return (late ? "Hey " + firstName(l.name) + ", as promised when we connected, here are the 3 ideas:" : "Thanks for connecting, " + firstName(l.name) + "! As promised, here they are:") + "\n\n" + body;
+}     // stages the bot may still message in
 
 async function allowed(req: Request): Promise<boolean> {
   if (TOKEN && req.headers.get("x-bot-token") === TOKEN) return true;
@@ -713,6 +725,14 @@ async function state(b: any) {
     const l = find(t); if (!l || !t.them_at) continue;
     const li = { ...(l.fields?.li ?? {}) };
     const since = Math.max(Date.parse(li.req || li.dm || li.inmail || "") || 0, (Date.parse(li.prev_replied ?? "") || 0) + 1000);
+    if (!li.replied && !li.stop && since && t.me_at && promised(l) && li.acc && !tipsGot(l) && Date.parse(t.me_at) > (Date.parse(li.acc) || 0)) {
+      const at = new Date(t.me_at).toISOString();
+      l.fields = { ...(l.fields ?? {}), tips: { ...(l.fields?.tips ?? {}), sent_at: at, by_hand: true } };
+      await saveLi(l, { ...li, dm: at, last: at, fu: 0, tips_dm: at });
+      await stopTasks(l.id, "You sent them the 3 ideas yourself");
+      await log(l.id, "You sent them the 3 ideas yourself on LinkedIn. If they don't reply in 24 hours, the follow-ups start (booking link, then the VSL).", "note");
+      continue;
+    }
     if (!li.replied && !li.stop && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 10 * 60e3) {
       await saveLi(l, { ...li, stop: "you messaged them" });
       await stopTasks(l.id, "You messaged them yourself");
@@ -746,7 +766,10 @@ const fill = (tpl: string, l: Lead, hook = "") => tpl.replaceAll("{hook}", hook)
 async function plan(_b: any) {
   const set = await settings();
   const leads = await pool(set);
-  const { data: open } = await db.from("crm_li_tasks").select("lead_id,kind,step,status").in("lead_id", leads.map((l) => l.id).slice(0, 2000));
+  const { data: open } = await db.from("crm_li_tasks").select("lead_id,kind,step,status,subject,updated_at").in("lead_id", leads.map((l) => l.id).slice(0, 2000));
+  const { data: dmTexts } = await db.from("crm_li_tasks").select("lead_id,kind,step,text").eq("kind", "dm").eq("status", "skipped").in("lead_id", leads.filter((l) => l.fields?.li?.acc && !l.fields?.tips?.sent_at && (l.fields?.li?.promised || l.fields?.li?.src === "list")).map((l) => l.id).slice(0, 500));
+  for (const d of dmTexts ?? []) { const o = (open ?? []).find((x: any) => x.lead_id === d.lead_id && x.kind === "dm" && x.step === d.step && x.status === "skipped"); if (o) (o as any).text = d.text; }
+  const tipsWanted: string[] = [];
   const tasksOf = new Map<string, any[]>();
   for (const t of open ?? []) tasksOf.set(t.lead_id, [...(tasksOf.get(t.lead_id) ?? []), t]);
   const status = set.mode === "auto" ? "ready" : "review";
@@ -797,6 +820,21 @@ async function plan(_b: any) {
       if (!t) needHook.push(l);
       continue;
     }
+    if (promised(l) && li.acc && !tipsGot(l) && !twin(l, "dm")) {
+      const t = had("dm", li.dm ? 1 : 0);
+      if (t?.status === "skipped" && /here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) {
+        // Reyansh skipped the bot's copy because he sent the ideas himself: count them as sent, follow-ups 24 hours on.
+        const at = String(t.updated_at ?? now());
+        l.fields = { ...(l.fields ?? {}), tips: { ...(l.fields?.tips ?? {}), sent_at: at, by_hand: true } };
+        await saveLi(l, { ...li, dm: li.dm || at, last: at, fu: 0, tips_dm: at });
+        await log(l.id, "The 3 ideas went out by hand. If they don't reply in 24 hours, the follow-ups start (booking link, then the VSL).", "note");
+        continue;
+      }
+      if (t && t.status !== "failed") continue;
+      if (!l.fields?.tips?.text) { tipsWanted.push(l.id); continue; }       // written by the tips run (every 15 minutes), then sent
+      newRows.push({ lead_id: l.id, kind: "dm", step: li.dm ? 1 : 0, text: tipsDM(l, !!li.dm), status: "ready" });
+      continue;
+    }
     if (li.acc && !li.dm) {
       if ((!isOurs(l) && !li.req) || twin(l, "dm")) continue;              // anyone who accepted our request (or engaged with us); opens with how we met
       const t = had("dm");
@@ -810,19 +848,20 @@ async function plan(_b: any) {
       if (Date.now() < due) continue;
       // (14 Nov) After the 3 tips (they end on the call ask) the follow-ups go: booking link, then the VSL, then the rest, a day apart.
       // Skips "want the 3 ideas?" since they have them. Order in TIPS_FU (numbers of the follow-ups in li_bot.fu).
-      const tipsSeq = !!(l.fields?.tips?.sent_at || /here they are/i.test(String(li.dm1 ?? "")));
-      const order = tipsSeq ? TIPS_FU.filter((k) => k <= set.fu.length) : null;
-      const maxFu = order ? order.length : set.followups;
+      const tipsSeq = tipsGot(l);
+      const sentT: number[] = li.fu_sent ?? [];
+      const nextT = tipsSeq ? TIPS_FU.filter((k) => k <= set.fu.length && !sentT.includes(k))[0] : n;
+      const maxFu = tipsSeq ? (nextT ? n : n - 1) : set.followups;
       if (n > maxFu) {
         await saveLi(l, { ...li, stop: "no reply" }, { stage: "Cold lead" });
         await log(l.id, "No reply after DM 1 and " + maxFu + " follow-ups on LinkedIn. Moved to Cold lead.", "note");
         finished++; continue;
       }
-      const stepNo = li.restarted ? 100 + n : n;        // a restarted sequence numbers its tasks 101, 102... so old ones never block it
+      const stepNo = li.restarted || tipsSeq ? 100 + n : n;   // after the tips (or a restart) tasks are 101, 102... so old ones never block them
       const t = had("followup", stepNo);
-      if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now() }); continue; }
+      if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now(), ...(tipsSeq && nextT ? { fu_sent: [...sentT, nextT] } : {}) }); continue; }
       // (12 Nov) Follow-ups never wait for approval: Reyansh approves the first touch only. One a day (gap_days 1) up to 7.
-      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: stepNo, text: fill(set.fu[(order ? order[n - 1] : n) - 1] ?? "", l), status: "ready" });
+      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: stepNo, subject: "fu" + nextT, text: fill(set.fu[nextT - 1] ?? "", l), status: "ready" });
     }
   }
   // Connection notes: one short opener per person, written from what we know about them.
@@ -950,7 +989,7 @@ async function done(b: any) {
   await db.from("crm_li_tasks").update({ status: "sent", sent_at: at, error: "" }).eq("id", t.id);
   const stage: Record<string, unknown> = {};
   if (t.kind === "invite") {
-    li.req = at; li.note = !!t.text; li.last = at;
+    li.req = at; li.note = !!t.text; li.last = at; if (PROMISE_RE.test(String(t.text ?? ""))) li.promised = true;
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, t.text ? "LinkedIn connection request sent, with this note:\n" + t.text : "LinkedIn connection request sent (no note left this month)");
   } else if (t.kind === "accept") {
@@ -959,10 +998,12 @@ async function done(b: any) {
     await log(lead.id, "Accepted their LinkedIn request and sent the first message (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "dm") {
     li.dm = at; li.last = at; li.fu = 0;
+    if (/here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) { li.tips_dm = at; lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } }; }
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, "LinkedIn first message sent (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "followup") {
     li.fu = t.step % 100; li.last = at;
+    const k = +(String(t.subject ?? "").match(/^fu(\d+)$/)?.[1] ?? (t.step < 100 ? t.step : 0)); if (k) li.fu_sent = [...new Set([...(li.fu_sent ?? []), k])];
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
     await log(lead.id, "LinkedIn follow-up " + (t.step % 100) + " sent:\n" + t.text);
   } else if (t.kind === "magnet") {
@@ -1050,7 +1091,7 @@ async function writeHooks(leads: Lead[]): Promise<Map<string, string>> {
     for (const l of leads) {
       let s = String(res[l.id] ?? "").replace(/^["'\s]+|["'\s]+$/g, "").replace(/\s*[—–-]\s+/g, ", ").replace(/#\w+/g, "").trim();
       if (!s || s.length > 140 || /\?/.test(s)) continue;
-      if (!/^I/.test(s)) s = s[0].toLowerCase() + s.slice(1);   // keep "I" capital
+      if (!/^I\b/.test(s)) s = s[0].toLowerCase() + s.slice(1);   // keep "I" capital
       if (!/[.!]$/.test(s)) s += ".";
       out.set(l.id, s);
     }
@@ -1613,7 +1654,11 @@ async function tips(b: any) {
       const { data } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").in("id", ids.slice(i, i + 200)).eq("archived", false);
       leads.push(...(data ?? []).filter((l: any) => l.fields?.li?.replied && !l.fields?.tips?.at && l.fields?.li?.reply_label !== "not_interested"));
     }
-    leads = leads.slice(0, +(b.limit ?? 4));
+    // (14 Nov) Everyone whose connection note promised 3 ideas gets them written ahead: accepted first, then requests still out.
+    const { data: prom } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").eq("archived", false).eq("source", "LinkedIn")
+      .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list").limit(300);
+    const pr = (prom ?? []).filter((l: any) => l.fields?.li?.req || l.fields?.li?.acc).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
+    leads = [...pr.filter((l: any) => l.fields?.li?.acc), ...leads, ...pr.filter((l: any) => !l.fields?.li?.acc)].slice(0, +(b.limit ?? 4));
   }
   let made = 0;
   for (const l of leads) {
@@ -1749,8 +1794,22 @@ async function xAutoFollowups(): Promise<number> {
     const first = String(name).trim().split(/\s+/)[0];
     const company = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "your company";
     const n = X_FU_KINDS.indexOf(kind);
-    const t = tpl.get(c["Template"]); if (!t && n < 0) continue;
-    const raw = n >= 0 ? more[n] : pick(t!, kind === "fu1" ? "Follow-up 1" : "Follow-up 2");
+    const t = tpl.get(c["Template"]);
+    // (14 Nov) Openers that offered 3 ideas: follow-up 1 sends them (written for this person), follow-up 2 the booking link.
+    const offered = /\b(3|three)\s+(quick\s+|small\s+|inbound\s+)*(tips|ideas|tricks)\b/i.test(String(c["Opener (30-40 words)"] ?? ""));
+    let raw = "";
+    if (offered && (kind === "fu1" || kind === "fu2")) {
+      if (kind === "fu1") {
+        const { data: ld } = await db.from("crm_leads").select("fields").or("x_handle.ilike.@" + handle + ",x_handle.ilike." + handle).limit(1);
+        const body = String((ld?.[0] as any)?.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").trim();
+        raw = body ? "Hey {first}, sending them over anyway, 3 ideas for {company}:\n\n" + body : "";
+      } else raw = "Hey {first}, if it's easier, here's my calendar to talk it through: https://cal.com/sove7gn-gtm/30min";
+      if (!raw) continue;
+    } else {
+      if (!t && n < 0) continue;
+      raw = n >= 0 ? more[n] : pick(t!, kind === "fu1" ? "Follow-up 1" : "Follow-up 2");
+      if (n === 2 && offered) raw = "Just bumping this up in case it got buried, {first}.";
+    }
     const text = raw.replace(/\[first name\]|\{first\}/gi, first).replace(/\[company\]|\{company\}/gi, company).replace(/[ \t]*\[hook\][ \t]*/gi, " ").replace(/ {2,}/g, " ").trim();
     if (!text) continue;
     add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind, text, status: "ready", decided_by: "auto: follow-up" });
