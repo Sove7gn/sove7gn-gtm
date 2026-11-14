@@ -244,7 +244,7 @@ async function dailyPosts(force = false) {
   const usedTags = new Set((op ?? []).flatMap((r) => [...String(r.cells?.[9] ?? "").matchAll(/@(\w+)/g)].map((m) => m[1].toLowerCase())));
   const jobs: { slot: string; time: string; type: string; prompt: string; their?: string; link?: string; why: string }[] = [];
   // News: Exa picks the story (via exaFetch), the model writes the post.
-  if (force || !have("News")) {
+  if (!have("News")) {
     const since = new Date(now.getTime() - 30 * 3600e3).toISOString();
     const schema = { type: "object", required: ["headline", "what", "who", "url"], properties: {
       headline: { type: "string", description: "The single biggest story of the last day that startup founders and people who sell to them are talking about: a big AI model or product launch, a big raise or acquisition, a big move by a well-known founder or company. Prefer AI and startups." },
@@ -260,7 +260,7 @@ async function dailyPosts(force = false) {
         "News: " + s.headline + ". Facts: " + s.what + "\n" + POST_RULES });
   }
   // Shoutout: Mon, Wed, Fri. The creator's best post of the last 2 days from the reply list, someone not tagged before if possible.
-  if ((force || [1, 3, 5].includes(dow)) && (force || !have("Shoutout"))) {
+  if ((force || [1, 3, 5].includes(dow)) && !have("Shoutout")) {
     const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
       .gte("created_at", new Date(now.getTime() - 2 * 864e5).toISOString()).order("likes", { ascending: false, nullsFirst: false }).limit(30);
     const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
