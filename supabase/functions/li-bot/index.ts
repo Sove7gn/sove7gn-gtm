@@ -661,6 +661,7 @@ async function pool(set?: Bot): Promise<Lead[]> {
 const isEngager = (l: Lead) => String(l.origin_key ?? "").startsWith("li-person:");
 // Who we never message, from what we know (same rule as the CRM's Pipeline): unknown never rules anyone out.
 function notFit(l: Lead): string {
+  if (l.fields?.li?.src === "list") return "";   // (14 Nov) people from a founder list Reyansh built are his ICP call, never second-guessed
   const role = String(l.role ?? "").trim(), I = l.fields?.gtm?.intel ?? {}, v = (k: string) => I[k]?.v;
   if (role && !/^unknown$/i.test(role) && !/founder|\bceo\b|chief|\bcto\b|\bcoo\b|\bcmo\b|\bcpo\b|\bcfo\b|\bcro\b|president|owner|managing director|head of (growth|marketing|sales|gtm|revenue|business)|\bvp\b|vice president/i.test(role)) return "Not a decision maker";
   if (v("model") === "B2C") return "Sells to consumers (B2C)";
@@ -736,7 +737,8 @@ const firstName = (n: string) => {
   const f = parts[0] ?? "";
   return f ? f[0].toUpperCase() + (f === f.toUpperCase() ? f.slice(1).toLowerCase() : f.slice(1)) : "there";
 };
-const fill = (tpl: string, l: Lead, hook = "") => tpl.replaceAll("{first}", firstName(l.name)).replaceAll("{company}", l.company || "your company")
+// (14 Nov) {hook} goes in first: openers can carry {company} / {first} of their own.
+const fill = (tpl: string, l: Lead, hook = "") => tpl.replaceAll("{hook}", hook).replaceAll("{first}", firstName(l.name)).replaceAll("{company}", l.company || "your company")
   .replaceAll("{where}", l.x_handle ? "X and LinkedIn" : "LinkedIn").replaceAll("{hook}", hook).replace(/[ \t]{2,}/g, " ").replace(/\s*[—–]\s*/g, ", ").trim();
 
 async function plan(_b: any) {
