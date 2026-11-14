@@ -319,8 +319,7 @@ rep('Robotics leaders come first, then robotics, investors and everyone else.', 
 rep('>Drive folder ↗<', '>Media folder ↗<')
 rep('title="Fetch the latest from the Google Sheet"', 'title="Fetch the latest data"')
 rep('title="Reload the sheet now and pull new numbers and replies from X"', 'title="Pull new numbers, replies and leads from X, LinkedIn and Instagram"')
-rep('<option value="Data buyers">Data buyers</option><option value="Robot builders">Robot builders</option><option value="Robot deployers">Robot deployers</option><option value="Everyone in robotics">Everyone in robotics</option>',
-    "".join('<option value="%s">%s</option>' % (a, a) for a in CFG.get("aimed") or ["Everyone"]))
+# (15 Nov) The calendar card's "Aimed at" menu became the funnel menu (TOFU / MOFU / BOFU), so its options are no longer swapped here.
 # ---------- X / LinkedIn switch (3 Nov): a second switch beside the account one, built from its markup so it looks the same ----------
 i0 = src.index('<div role="tablist" aria-label="Whose work to show"')
 i1 = src.index('</sc-for>\n</div>', i0) + len('</sc-for>\n</div>')

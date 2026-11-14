@@ -752,7 +752,7 @@ async function addPost(f){
    A post is on the calendar only when its Our Posts column Z (Calendar) says "Yes": nothing lands there on its own.
    Every card edit saves straight to its row; edits wait in a queue so a new card gets its row before anything else is written. */
 const CAL_COLS={date:["Date","B"],time:["Time (IST)","C"],type:["Post type","F"],text:["Our version","J"],media:["Media file","N"],
-  status:["Status","O"],link:["Posted link","Q"],aimed:["Aimed at","Y"],cal:["Calendar","Z"],slot:["Daily slot","AB"]};
+  status:["Status","O"],link:["Posted link","Q"],aimed:["Aimed at","Y"],cal:["Calendar","Z"],slot:["Daily slot","AB"],funnel:["Funnel","AC"]};
 // Saved card fields show at once and stay until the sheet reads them back (or 10 minutes pass).
 function calOverlay(r,key){
   const loc=S.calLocal[key];if(!loc)return;
