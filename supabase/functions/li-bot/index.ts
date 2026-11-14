@@ -864,7 +864,13 @@ async function plan(_b: any) {
       const t = had("followup", stepNo);
       if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now(), ...(tipsSeq && nextT ? { fu_sent: [...sentT, nextT] } : {}) }); continue; }
       // (12 Nov) Follow-ups never wait for approval: Reyansh approves the first touch only. One a day (gap_days 1) up to 7.
-      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: stepNo, subject: "fu" + nextT, text: fill(set.fu[nextT - 1] ?? "", l), status: "ready" });
+      // (14 Nov) A follow-up that offers the 3 ideas sends them instead (written for them), so nobody gets asked for what we can just give.
+      let fuText = fill(set.fu[nextT - 1] ?? "", l);
+      if (/\b(3|three)\s+(quick\s+)?ideas\b/i.test(fuText) && !tipsSeq) {
+        if (!l.fields?.tips?.text) { tipsWanted.push(l.id); continue; }
+        fuText = String(l.fields.tips.text).replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "Hey " + firstName(l.name) + ", sending over 3 quick ideas for " + (l.company && !/^unknown$/i.test(l.company) ? l.company + "'s" : "your") + " inbound:\n\n");
+      }
+      if (!t) newRows.push({ lead_id: l.id, kind: "followup", step: stepNo, subject: "fu" + nextT, text: fuText, status: "ready" });
     }
   }
   // Connection notes: one short opener per person, written from what we know about them.
@@ -888,7 +894,10 @@ async function plan(_b: any) {
   const unfit = leads.filter((l) => !l.fields?.li?.req && notFit(l)).map((l) => l.id);
   if (unfit.length) await db.from("crm_li_tasks").update({ status: "skipped", error: "Not a fit for our ICP" }).eq("kind", "invite").in("status", ["review", "ready"]).in("lead_id", unfit);
   if (newRows.length) {
-    const { error } = await db.from("crm_li_tasks").upsert(newRows, { onConflict: "lead_id,kind,step", ignoreDuplicates: true });
+    // (14 Nov) Every row gets the same columns: a batch where only some rows carry subject sends null for the rest, which the
+    // table refuses (subject is NOT NULL), and then nothing at all gets queued.
+    const rows = newRows.map((r) => ({ subject: "", ...r }));
+    const { error } = await db.from("crm_li_tasks").upsert(rows, { onConflict: "lead_id,kind,step", ignoreDuplicates: true });
     if (error) throw error;
   }
 
@@ -1007,6 +1016,7 @@ async function done(b: any) {
   } else if (t.kind === "followup") {
     li.fu = t.step % 100; li.last = at;
     const k = +(String(t.subject ?? "").match(/^fu(\d+)$/)?.[1] ?? (t.step < 100 ? t.step : 0)); if (k) li.fu_sent = [...new Set([...(li.fu_sent ?? []), k])];
+    if (/sending over 3 quick ideas|here they are/i.test(String(t.text ?? ""))) lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } };
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
     await log(lead.id, "LinkedIn follow-up " + (t.step % 100) + " sent:\n" + t.text);
   } else if (t.kind === "magnet") {
@@ -1659,7 +1669,7 @@ async function tips(b: any) {
     }
     // (14 Nov) Everyone whose connection note promised 3 ideas gets them written ahead: accepted first, then requests still out.
     const { data: prom } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").eq("archived", false).eq("source", "LinkedIn")
-      .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list,fields->li->>acc.not.is.null").limit(300);
+      .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list,fields->li->>acc.not.is.null,fields->li->>fu.eq.3").limit(300);
     const pr = (prom ?? []).filter((l: any) => (l.fields?.li?.req || l.fields?.li?.acc) && !(l.fields?.li?.acc && l.fields?.li?.dm && !l.fields?.li?.promised && l.fields?.li?.src !== "list") && !l.fields?.li?.replied).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
     leads = [...pr.filter((l: any) => l.fields?.li?.acc), ...leads, ...pr.filter((l: any) => !l.fields?.li?.acc)].slice(0, +(b.limit ?? 4));
   }
