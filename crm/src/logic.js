@@ -1633,16 +1633,18 @@ class Component extends DCLogic {
     const NAMES={midbound:'Midbound tracking',crm:'One CRM for every channel',posts:'Three kinds of posts',abtest:'A/B tested DMs',warm:'Warm up before outbound'};
     return{id:l.id,...avatar(l.name),name:l.name,sub:[l.role,l.company].filter(Boolean).join(' · '),why:t.why||'',hasWhy:!!t.why,
       picked:(t.picked||[]).map(p=>({label:NAMES[p]||p})),text,rows:String(Math.min(26,Math.max(10,Math.ceil(text.length/72)+text.split('\n').length))),
-      meta:'Written '+this.since(t.at)+(t.edited_at?' · edited '+this.since(t.edited_at):'')+(t.sent_at?' · sent '+this.since(t.sent_at):''),
+      meta:(li.dm?'':li.acc?'✅ Accepted '+this.since(li.acc)+' · ':li.req?'Request sent, not accepted yet · ':'')+'Written '+this.since(t.at)+(t.edited_at?' · edited '+this.since(t.edited_at):'')+(t.sent_at?' · sent '+this.since(t.sent_at):''),
       sent:!!t.sent_at,notSent:!t.sent_at,dirty:dr!=null&&dr!==(t.text||''),
       setText:e=>{const v=e.target.value;this.setState(x=>({tipDraft:{...(x.tipDraft||{}),[l.id]:v}}));},
       save:()=>{const v=((this.state.tipDraft||{})[l.id]);if(v==null)return;AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text:v,edited_at:new Date().toISOString()}}}).then(()=>this.setState(x=>{const n={...(x.tipDraft||{})};delete n[l.id];return{tipDraft:n};}));},
       copy:()=>this.copy(text,'tip'+l.id,'Tips copied. Paste them in the LinkedIn chat.'),copyLabel:this.copyBtn('tip'+l.id,'Copy').label,
       hasChat:!!chat,openChat:()=>window.open(chat,'_blank','noopener'),
-      markSent:()=>{AK.leadSave(l.id,{fields:{...(l.fields||{}),tips:{...t,text,sent_at:new Date().toISOString()}}});AK.leadNote(l.id,'message','Sent the 3 tips on LinkedIn:\n'+text);},
+      markSent:()=>{const at=new Date().toISOString();const li2=li.dm?li:{...li,dm:at,last:at};AK.leadSave(l.id,{fields:{...(l.fields||{}),li:li2,tips:{...t,text,sent_at:at}},last_touch:at});AK.leadNote(l.id,'message','Sent the 3 tips on LinkedIn:\n'+text);
+        // (14 Nov) the 3 tips are their first DM: an unsent first DM the bot wrote is set aside so they don't get two
+        const open=(AK.LBT.rows||[]).filter(x=>x.lead_id===l.id&&(x.kind==='dm'||x.kind==='accept')&&['review','ready'].includes(x.status));if(open.length)AK.lbtSet(open.map(x=>x.id),{status:'skipped'});},
       rewrite:()=>AK.liTips(l.id),openLead:()=>this.openLead(l.id),canEdit:AK.canEdit()};}
   tipsVals(){const s=this.state;const L=(AK.LD.rows||[]).filter(l=>!l.archived&&((l.fields||{}).tips||{}).at);
-    const todo=L.filter(l=>!l.fields.tips.sent_at).sort((a,b)=>Date.parse(b.fields.tips.at)-Date.parse(a.fields.tips.at));
+    const acc=l=>{const x=(l.fields||{}).li||{};return x.acc&&!x.dm?Date.parse(x.acc):0;};const todo=L.filter(l=>!l.fields.tips.sent_at).sort((a,b)=>(acc(b)-acc(a))||Date.parse(b.fields.tips.at)-Date.parse(a.fields.tips.at));
     const done=L.filter(l=>l.fields.tips.sent_at);const showSent=!!s.tipsSent;
     const items=(showSent?[...todo,...done]:todo).map(l=>this.tipItem(l));
     return{has:L.length>0,items,hasItems:items.length>0,n:String(todo.length),sentN:String(done.length),hasSent:done.length>0,
@@ -1731,6 +1733,8 @@ class Component extends DCLogic {
         inmail:e=>{e&&e.stopPropagation&&e.stopPropagation();const set2=AK.LD.settings.li_bot||{};const t0=set2.inmail||'Hey {first}, sent you a connection request a little while back and wanted to reach out properly.\n\nI\u2019m Reyansh, building SOVE7GN, a growth studio for funded B2B founders. Would love 15 minutes to hear how you\u2019re thinking about GTM at {company}. Open to a quick call?';
           const first=String(l.name||'').split(/\s+/)[0]||'there';this.copy(t0.replace(/\{first\}/g,first).replace(/\{company\}/g,l.company||'your company'),'im'+l.id,'InMail copied. On their profile press Message, paste it, send, then press "InMail sent".');if(l.linkedin)window.open(l.linkedin,'_blank','noopener');},
         inmailSent:e=>{e&&e.stopPropagation&&e.stopPropagation();AK.liStep(l.id,'inmail').then(ok=>ok&&this.toast('InMail saved for '+(l.name||'them')+'.'));},
+        hasTips:!!((l.fields||{}).tips||{}).text&&!((l.fields||{}).tips||{}).sent_at&&(!!x.acc||col==='dm'),
+        copyTips:e=>{e&&e.stopPropagation&&e.stopPropagation();this.copy(((l.fields||{}).tips||{}).text,'tp'+l.id,'3 tips copied. Paste them in the LinkedIn chat, then press Mark sent on Leads > All leads.');const u=x.urn?'https://www.linkedin.com/messaging/compose/?recipient='+encodeURIComponent(x.urn):l.linkedin;if(u)window.open(u,'_blank','noopener');},
         hasBrief:col==='booked'&&!!((l.fields||{}).brief||{}).at,hasDossier:isGtmCall(l),openDossier:e=>{e&&e.stopPropagation&&e.stopPropagation();this.openDossier(l.id);},
         details,status,stC:out||(t&&t.status==='failed')?'var(--bad)':waiting?'#0a66c2':'var(--ink-3)',
         hasMsg:!!waiting,msg:tx,msgKind:t?kindLabel(t):'',chars:t&&t.kind==='invite'?tx.length+'/300':'',editing,preview:!editing,
