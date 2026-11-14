@@ -1580,6 +1580,7 @@ const TIPS = [
   { id: "abtest", title: "A/B test your DMs", text: "Run 2 or 3 DM scripts side by side for midbound and outbound (for example a direct pitch, asking for advice, and giving value first), track reply rate per script, and keep the winner once each has about 15 sends." },
   { id: "warm", title: "Warm up before outbound", text: "Before a cold request or DM, visit their profile and like a recent post a few hours earlier, send in their local morning, and follow up a few times until they reply. Acceptance and reply rates go up a lot compared with sending cold." },
 ];
+const TIPS_CTA = "Would love to jump on a quick call and see how I can set this up for {company}. We guarantee at least 25 calls in your first month, completely organic, or I refund you everything.";
 const TIPS_CASE = "BTW, we set up an entire GTM funnel for a YC company got them 30+ sales calls booked within 2 weeks (100K+ Views on X) - purely doing organic inbound/midbound/outbound automations.";
 async function tips(b: any) {
   const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
@@ -1632,7 +1633,8 @@ async function tips(b: any) {
     const r = await llmMany([{ id: "t", prompt }]).catch(() => ({} as Record<string, string>));
     const j = parseJson(r.t ?? "") ?? {};
     // Every message ends with our case study, word for word (Reyansh's line, 12 Nov; li_bot.tips_case overrides it).
-    const caseLine = String((bs?.value as any)?.tips_case || TIPS_CASE);
+    // (14 Nov) The note already gave our results, so the tips end on the call ask with the guarantee instead (Reyansh). {company} is filled in.
+    const caseLine = String((bs?.value as any)?.tips_cta || TIPS_CTA).replaceAll("{company}", l.company && !/^unknown$/i.test(l.company) ? l.company : "you");
     const body = String(j.message ?? "").replace(/\s*[—–]\s*/g, ", ").replace(/\n+(happy to|let me know|if useful|would love)[^\n]*$/i, "").replace(/\n+(?=\d\.\s)/g, "\n\n").replace(/\n{3,}/g, "\n\n").trim();
     const text = body ? body + "\n\n" + caseLine : "";
     if (!text) continue;
