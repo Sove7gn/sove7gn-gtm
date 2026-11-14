@@ -276,6 +276,107 @@
 </sc-if>
 </sc-if>
 
+<!-- X Pipeline (14 Nov): the same board as LinkedIn > Pipeline, for X DMs. Values from xPipeVals() in logic.js (pipe.xp).
+     First DMs wait in To approve with raise, accelerator, warm link and score; Approve queues them for the X bot. -->
+<sc-if value="{{ is.pipeline }}">
+<sc-if value="{{ pipe.isXBoard }}">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px;">
+<input value="{{ pipe.xp.q }}" onChange="{{ pipe.xp.onQ }}" placeholder="Search name, company, raise, YC…" aria-label="Search" style="flex:0 1 260px; min-width:150px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<select value="{{ pipe.xp.min }}" onChange="{{ pipe.xp.onMin }}" aria-label="Minimum score" style="height:32px; padding:0 8px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ pipe.xp.mins }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<span title="{{ pipe.xp.scoreHelp }}" style="display:inline-flex; align-items:center; gap:5px; height:32px; padding:0 8px; font-size:var(--fs-xs); color:var(--ink-3); cursor:help;"><b style="padding:1px 6px; border-radius:6px; background:#e3f6ea; color:#16723b;">8+</b><b style="padding:1px 6px; border-radius:6px; background:#fff1dc; color:#9a5b00;">5–7</b><b style="padding:1px 6px; border-radius:6px; background:var(--n-soft-2); color:var(--ink-3);">1–4</b> score ⓘ</span>
+<span style="margin-left:auto; display:inline-flex; align-items:center; gap:8px; flex-wrap:nowrap; min-width:0;"><span style="font-size:var(--fs-xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:520px;" title="{{ pipe.xp.bot }}">{{ pipe.xp.total }} people · {{ pipe.xp.bot }}</span>
+<sc-if value="{{ pipe.xp.board }}"><button onClick="{{ pipe.xp.left }}" aria-label="Scroll left" style="height:32px; width:32px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; color:var(--ink-2); cursor:pointer;">‹</button><button onClick="{{ pipe.xp.right }}" aria-label="Scroll right" style="height:32px; width:32px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; color:var(--ink-2); cursor:pointer;">›</button></sc-if></span>
+</div>
+
+<sc-if value="{{ pipe.xp.board }}">
+<div id="x-board" class="ak-board" onMouseDown="{{ pipe.xp.pan }}" style="overflow-x:auto; overflow-y:hidden; height:max(480px, calc(100vh - 215px)); margin:0 calc(-1 * var(--pad-page)) calc(-1 * var(--s-6)); padding:2px var(--pad-page) 6px; cursor:grab;">
+<div style="display:flex; gap:10px; align-items:flex-start; width:max-content; height:100%;">
+<sc-for list="{{ pipe.xp.cols }}" as="col">
+<div style="width:268px; flex:0 0 268px; max-height:100%; display:flex; flex-direction:column; gap:6px; padding:7px; border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div title="{{ col.hint }}" style="display:flex; align-items:center; gap:7px; padding:4px 4px 0;">
+<span style="width:8px; height:8px; border-radius:50%; background:{{ col.dot }};"></span>
+<span style="font-size:var(--fs-sm); font-weight:600;">{{ col.name }}</span>
+<span style="display:inline-flex; align-items:center; height:19px; padding:0 6px; border-radius:6px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-3xs); font-weight:600; color:var(--ink-2);">{{ col.n }}</span>
+<button onClick="{{ col.expand }}" title="Expand: see this whole column at once" style="margin-left:auto; height:22px; padding:0 8px; border:0; border-radius:6px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-3xs); font-weight:600; color:var(--ink-2); cursor:pointer;">Expand ⤢</button>
+</div>
+<sc-if value="{{ col.hasBulk }}"><button onClick="{{ col.bulk }}" style="height:26px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">{{ col.bulkLabel }}</button></sc-if>
+<div style="flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin:0 -3px; padding:2px 3px 3px;">
+<sc-if value="{{ col.empty }}"><span style="padding:10px 6px; font-size:var(--fs-2xs); color:var(--ink-4); text-align:center;">Nobody here yet</span></sc-if>
+<sc-for list="{{ col.cards }}" as="k">
+<div onClick="{{ k.open }}" style="display:flex; flex-direction:column; gap:5px; padding:9px 10px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline); cursor:pointer;" style-hover="box-shadow:var(--shadow-md), inset 0 0 0 1px var(--hairline-strong);">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ k.avBg }}; color:{{ k.avFg }};">{{ k.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-xs); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.name }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.sub }}</span></div>
+<span title="{{ k.details }}" style="flex:none; width:18px; height:18px; display:grid; place-items:center; border-radius:50%; font-size:10px; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i</span>
+<span title="{{ k.details }}" style="flex:none; min-width:24px; height:22px; padding:0 6px; display:grid; place-items:center; border-radius:7px; background:{{ k.sBg }}; color:{{ k.sFg }}; font-size:var(--fs-xs); font-weight:700;">{{ k.score }}</span>
+</div>
+<sc-if value="{{ k.hasOne }}"><span style="font-size:var(--fs-2xs); color:{{ k.oneC }}; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ k.one }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:5px; min-width:0; flex-wrap:wrap;"><span style="max-width:100%; font-size:var(--fs-3xs); font-weight:600; color:{{ k.fundC }}; background:{{ k.fundBg }}; padding:1px 7px; border-radius:999px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.fund }}</span><sc-if value="{{ k.hasAcc }}"><span style="flex:none; font-size:var(--fs-3xs); font-weight:700; color:#b54708; background:#fff1e6; padding:1px 7px; border-radius:999px; white-space:nowrap;">{{ k.acc }}</span></sc-if><sc-if value="{{ k.hasWarm }}"><span style="max-width:100%; font-size:var(--fs-3xs); font-weight:600; color:#6941c6; background:#f1ecfb; padding:1px 7px; border-radius:999px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.warm }}</span></sc-if></div>
+<sc-if value="{{ k.hasLoc }}"><span style="font-size:var(--fs-3xs); color:{{ k.locC }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.loc }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;"><span style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#475467; background:#eef2f7; padding:1px 6px; border-radius:5px;">Outbound</span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ k.src }}</span></div>
+<span style="font-size:var(--fs-3xs); color:{{ k.stC }}; font-weight:500;">{{ k.status }}</span>
+<sc-if value="{{ k.noHandle }}"><button onClick="{{ k.findX }}" style="align-self:flex-start; height:24px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Search on X</button></sc-if>
+<sc-if value="{{ k.isQueued }}"><button onClick="{{ k.cancel }}" style="align-self:flex-start; height:22px; padding:0 9px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); cursor:pointer; background:transparent; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline);">Cancel</button></sc-if>
+<sc-if value="{{ k.hasMsg }}">
+<sc-if value="{{ k.preview }}"><span onClick="{{ k.edit }}" title="Click to edit" style="font-size:var(--fs-3xs); color:var(--ink-2); line-height:1.4; background:var(--n-soft); padding:6px 8px; border-radius:7px; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; cursor:text;">{{ k.msg }}</span></sc-if>
+<sc-if value="{{ k.editing }}"><textarea value="{{ k.msg }}" onChange="{{ k.onMsg }}" onBlur="{{ k.saveMsg }}" onClick="{{ k.stop }}" rows="6" aria-label="First DM" style="padding:7px 9px; border:0; border-radius:7px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-2xs); line-height:1.45; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></sc-if>
+<div style="display:flex; align-items:center; gap:5px;">
+<button onClick="{{ k.approve }}" style="height:26px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">Approve</button>
+<button onClick="{{ k.skip }}" style="height:26px; padding:0 8px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip</button>
+<span style="margin-left:auto; font-size:9.5px; color:var(--ink-4);">{{ k.chars }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ k.isFailed }}"><button onClick="{{ k.retry }}" style="align-self:flex-start; height:24px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Try again</button></sc-if>
+<div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;"><sc-if value="{{ k.hasMoves }}"><span style="font-size:9.5px; color:var(--ink-4);">Move to</span><sc-for list="{{ k.moves }}" as="m"><button onClick="{{ m.go }}" style="height:20px; padding:0 7px; border:0; border-radius:6px; font-size:9.5px; font-weight:600; cursor:pointer; background:var(--n-soft-2); color:var(--ink-2);" style-hover="background:var(--ink); color:#fff;">{{ m.label }}</button></sc-for></sc-if><span style="margin-left:auto; display:inline-flex; gap:8px;"><sc-if value="{{ k.hasLi }}"><a href="#" onClick="{{ k.liGo }}" style="font-size:9.5px; color:#0a66c2; text-decoration:none;">LinkedIn ↗</a></sc-if><sc-if value="{{ k.hasProfile }}"><a href="#" onClick="{{ k.profile }}" style="font-size:9.5px; color:var(--ink); text-decoration:none;">X ↗</a></sc-if></span></div>
+</div>
+</sc-for>
+<sc-if value="{{ col.more }}"><button onClick="{{ col.showMore }}" style="height:26px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:rgba(255,255,255,.85); color:var(--ink-2);">Show {{ col.moreN }} more</button></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ pipe.xp.expanded }}">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+<button onClick="{{ pipe.xp.back }}" style="height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">← Back to board</button>
+<span style="font-size:var(--fs-md); font-weight:600;">{{ pipe.xp.ex.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ pipe.xp.ex.n }} people · {{ pipe.xp.ex.hint }}</span>
+<sc-if value="{{ pipe.xp.ex.hasBulk }}"><button onClick="{{ pipe.xp.ex.bulk }}" style="margin-left:auto; height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">{{ pipe.xp.ex.bulkLabel }}</button></sc-if>
+<sc-if value="{{ pipe.xp.ex.hasAll }}"><button onClick="{{ pipe.xp.ex.all }}" style="height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:#111; box-shadow:inset 0 0 0 1px #111;">{{ pipe.xp.ex.allLabel }}</button></sc-if>
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap:10px;">
+<sc-for list="{{ pipe.xp.ex.cards }}" as="k">
+<div onClick="{{ k.open }}" style="display:flex; flex-direction:column; gap:6px; padding:11px 12px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline); cursor:pointer;">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ k.avBg }}; color:{{ k.avFg }};">{{ k.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.sub }}</span></div>
+<span title="{{ k.details }}" style="flex:none; width:18px; height:18px; display:grid; place-items:center; border-radius:50%; font-size:10px; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i</span>
+<span title="{{ k.details }}" style="flex:none; min-width:26px; height:24px; padding:0 6px; display:grid; place-items:center; border-radius:7px; background:{{ k.sBg }}; color:{{ k.sFg }}; font-size:var(--fs-sm); font-weight:700;">{{ k.score }}</span>
+</div>
+<sc-if value="{{ k.hasOne }}"><span style="font-size:var(--fs-xs); color:{{ k.oneC }}; line-height:1.4;">{{ k.one }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><span style="font-size:var(--fs-2xs); font-weight:600; color:{{ k.fundC }}; background:{{ k.fundBg }}; padding:1px 8px; border-radius:999px;">{{ k.fund }}</span><sc-if value="{{ k.hasAcc }}"><span style="font-size:var(--fs-2xs); font-weight:700; color:#b54708; background:#fff1e6; padding:1px 7px; border-radius:999px;">{{ k.acc }}</span></sc-if><sc-if value="{{ k.hasWarm }}"><span style="font-size:var(--fs-2xs); font-weight:600; color:#6941c6; background:#f1ecfb; padding:1px 7px; border-radius:999px;">{{ k.warm }}</span></sc-if><sc-if value="{{ k.hasLoc }}"><span style="font-size:var(--fs-2xs); color:{{ k.locC }};">{{ k.loc }}</span></sc-if></div>
+<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><span style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#475467; background:#eef2f7; padding:1px 6px; border-radius:5px;">Outbound</span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ k.src }}</span><span style="font-size:var(--fs-2xs); color:{{ k.stC }};">· {{ k.status }}</span></div>
+<sc-if value="{{ k.noHandle }}"><button onClick="{{ k.findX }}" style="align-self:flex-start; height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Search on X</button></sc-if>
+<sc-if value="{{ k.hasMsg }}">
+<textarea value="{{ k.msg }}" onChange="{{ k.onMsg }}" onBlur="{{ k.saveMsg }}" onClick="{{ k.stop }}" rows="5" aria-label="First DM" style="padding:8px 10px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); line-height:1.45; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea>
+<div style="display:flex; align-items:center; gap:6px;">
+<button onClick="{{ k.approve }}" style="height:28px; padding:0 14px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">Approve</button>
+<button onClick="{{ k.skip }}" style="height:28px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip</button>
+<span style="margin-left:auto; font-size:var(--fs-3xs); color:var(--ink-4);">{{ k.chars }}</span>
+</div>
+</sc-if>
+<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;"><sc-if value="{{ k.hasMoves }}"><span style="font-size:var(--fs-3xs); color:var(--ink-4);">Move to</span><sc-for list="{{ k.moves }}" as="m"><button onClick="{{ m.go }}" style="height:22px; padding:0 8px; border:0; border-radius:6px; font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:var(--n-soft-2); color:var(--ink-2);">{{ m.label }}</button></sc-for></sc-if><span style="margin-left:auto; display:inline-flex; gap:10px;"><sc-if value="{{ k.hasLi }}"><a href="#" onClick="{{ k.liGo }}" style="font-size:var(--fs-3xs); color:#0a66c2; text-decoration:none;">LinkedIn ↗</a></sc-if><sc-if value="{{ k.hasProfile }}"><a href="#" onClick="{{ k.profile }}" style="font-size:var(--fs-3xs); color:var(--ink); text-decoration:none;">X ↗</a></sc-if></span></div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ pipe.xp.ex.empty }}"><span style="font-size:var(--fs-sm); color:var(--ink-4);">Nobody here yet.</span></sc-if>
+</div>
+</sc-if>
+</sc-if>
+</sc-if>
+
 <!-- X tab, Shared leads (11 Nov): LinkedIn leads scoring 6+ to reach on X too. Values from xSharedVals() in logic.js (xs). -->
 <sc-if value="{{ is.xShared }}">
 <div style="display:flex; flex-direction:column; gap:10px;">

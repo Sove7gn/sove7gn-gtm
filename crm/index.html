@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=14ca4266d5"></script>
+<script src="./data.js?v=458368c42f"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -1025,8 +1025,8 @@ class Component extends DCLogic {
     const nT=this.tplFamilies().reduce((n,f)=>n+f.v.length,0);
     const nS=AK.M.templates.filter(t=>/^[A-Z]\d+[A-Z]?$/.test(t.ID)).length;
     const tabs=this.tabs([['Board',''],['People',String(P.length)],['Scripts',String(nS)]],s.pipeTab,t=>this.setState({pipeTab:t}));
-    const o={tabs,isBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
-    if(o.isBoard)o.board=this.boardVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
+    const o={tabs,isBoard:false,isXBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
+    if(o.isXBoard)o.xp=this.xPipeVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
     return o;}
   boardVals(P){const s=this.state;const drag=!!s.dragId;
     const cols=STAGES.map(st=>({st,list:P.filter(p=>p.stage===st).sort(byPri)}));
@@ -2181,6 +2181,81 @@ class Component extends DCLogic {
       outLabel:showOut?'Hide filtered out ('+outN+')':'Show filtered out ('+outN+')',toggleOut:()=>this.setState({lpOut:!showOut}),hasOut:outN>0,
       total:String(pool.length-(showOut?0:outN)),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
       scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero. Filtered out = not a decision maker, founder or company outside the US, Canada, UK or another tier-1 country, not a tech company, sells to consumers, an agency, over 100 people, or later than Series C.'};}
+  /* X Pipeline (14 Nov): the same board as LinkedIn > Pipeline. Every first DM waits in "To approve" with what we know about them
+     (raised, accelerator, who they follow, score) so Reyansh approves or skips each one; approving queues it for the X bot.
+     Follow-ups 1 to 7 then go out on their own a day apart, and each card moves along by itself. */
+  xPipeVals(P){const s=this.state;const T=AK.XT.rows||[];
+    const LD=(AK.LD.rows||[]).filter(l=>!l.archived);const byH=new Map(),byN=new Map();
+    for(const l of LD){const h=String(l.x_handle||((l.fields||{}).li_icp||{}).x||'').replace(/^@/,'').toLowerCase();if(h&&!byH.has(h))byH.set(h,l);const n=GTM.normName(l.name);if(n&&!byN.has(n))byN.set(n,l);}
+    const leadOf=p=>byH.get(String(p.handle||'').replace(/^@/,'').toLowerCase())||byN.get(GTM.normName(p.name))||null;
+    const FUK=['fu3','fu4','fu5','fu6','fu7'];
+    const COLS=[['review','To approve','First DMs written for them. Check what they raised and who they are, then approve or skip.','var(--ink-4)'],
+      ['dm','First DM sent','Approved: the X bot sends it from your X tab, one every few minutes.','var(--out)'],
+      ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,n===3?'The VSL. Goes out on its own a day after follow-up 2.':'No reply yet. Goes out on its own, a day apart.','oklch(0.72 0.15 65)']),
+      ['talks','Replied','They wrote back. Answer them on X.','var(--mid)'],['booked','Call booked','A call is on the calendar.','var(--in)'],
+      ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Skipped, not interested, DMs closed, or no reply after follow-up 7.','var(--bad)']];
+    const sentOf=(row,k)=>T.find(t=>t.row===row&&t.kind===k&&t.status==='sent');
+    const colOf=p=>{const r=p.row;if(p.stage==='Customer')return 'won';if(p.stage==='Closed')return 'lost';if(p.stage==='Call booked')return 'booked';if(p.stage==='Replied')return 'talks';
+      if(p.stage==='To send')return AK.xtActive(r,'dm')?'dm':'review';if(p.stage==='Contacted')return 'dm';if(p.stage==='Follow-up 1 sent')return 'fu1';
+      for(let i=FUK.length-1;i>=0;i--)if(sentOf(r,FUK[i]))return 'fu'+(i+3);return 'fu2';};
+    const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
+    const ACC=[[/\bYC\b[^·,;]*?\b(S|W|F|X|Summer|Winter|Fall|Spring)\s*'?(20)?(\d{2})\b/i,m=>'YC '+({summer:'S',winter:'W',fall:'F',spring:'X'}[m[1].toLowerCase()]||m[1].toUpperCase())+m[3]],[/\bYC\b|Y ?Combinator/i,()=>'YC'],[/Techstars/i,()=>'Techstars'],[/a16z speedrun|speedrun/i,()=>'a16z speedrun'],[/Antler/i,()=>'Antler'],[/Entrepreneur First/i,()=>'Entrepreneur First'],[/\bHF0\b/i,()=>'HF0'],[/South Park Commons/i,()=>'South Park Commons'],[/\bPioneer\b/i,()=>'Pioneer']];
+    const accOf=(blob,iv)=>{const raw=iv.accelerator&&iv.accelerator.v;if(raw&&!/^(none|no|n\/a|unknown|empty.*|-)$/i.test(String(raw).trim()))return String(raw);for(const[re,f]of ACC){const m=String(blob).match(re);if(m)return f(m);}return '';};
+    const q=String(s.xpQ||'').trim().toLowerCase(),min=+s.xpMin||0;
+    const stopE=e=>{e&&e.stopPropagation&&e.stopPropagation();};const btn=(label,fn)=>({label,go:e=>{stopE(e);fn();}});
+    const card=(p,col)=>{const c=p.c||{},l=leadOf(p),F=(l&&l.fields)||{},ic=F.li_icp||{},iv=(F.gtm||{}).intel||{},li=F.li||{};
+      const S=l?this.liPipeScore(l):null;const n=S?S.n:(p.fitN!=null?Math.max(1,Math.min(10,p.fitN)):0);const tn=tone(n);
+      const fund=ic.funding||[iv.round&&iv.round.v,iv.amount&&iv.amount.v?GTM.fmtMoney(iv.amount.v):'',iv.date&&iv.date.v?String(iv.date.v).slice(0,7):''].filter(Boolean).join(' · ')||(p.fund!=='none'&&p.fundingFull?p.fundingFull:'');
+      const blob=[p.why,p.fundingFull,c.Segment,c.Notes,fund,l&&l.source_detail,ic.one_liner].join(' · ');const acc=accOf(blob,iv);
+      const one=ic.one_liner||(iv.description&&iv.description.v)||'';const why=String(p.why||'').replace(/^YC founder list \([^)]*\):\s*/,'');
+      const SHORT={'united states':'USA','united states of america':'USA','united kingdom':'UK','united arab emirates':'UAE'};const hq=(iv.hq&&iv.hq.v)||ic.hq_country||'';
+      const loc=[ic.hq_city,SHORT[String(hq).toLowerCase()]||hq].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
+      const warm=li.warm?'Follows '+li.warm+' (our client)':'';const seg=c.Segment||'Lead finder';
+      const h=String(p.handle||'').replace(/^@/,'');const t=AK.xtActive(p.row,'dm');const last=AK.xtLast(p.row,'dm');const failed=col==='review'&&last&&last.status==='failed';
+      const fuT=[...FUK,'fu1','fu2'].map(k=>AK.xtActive(p.row,k)).find(Boolean);
+      const lastAt=(()=>{const ts=T.filter(x=>x.row===p.row&&x.status==='sent').map(x=>Date.parse(x.sent_at)).filter(Boolean);const w=(p.d.filter(Boolean).slice(-1)[0]||'');const d=w?AK.cellDate(w):null;if(d&&!isNaN(d))ts.push(d.getTime());return ts.length?new Date(Math.max(...ts)).toISOString():'';})();
+      const ed=(s.xpEd||{})[p.id];const msg=ed!=null?ed:(p.opener||'');const waiting=col==='review'&&!!h&&!!msg;
+      const status=col==='review'?(!h?'Find their X handle first':failed?'Didn’t go through: '+(last.error||'unknown problem'):!msg?'No first DM written yet':'First DM waiting for your OK')
+        :col==='dm'?(t?(t.status==='sending'?'Sending now…':'Approved, the bot sends it soon'):'First DM sent '+this.since(lastAt)+(fuT?' · follow-up queued':''))
+        :col.startsWith('fu')?'Follow-up '+col.slice(2)+' sent '+this.since(lastAt)+(fuT?' · next one queued':col==='fu7'?' · that was the last one':'')
+        :col==='talks'?'Replied '+this.since(lastAt):col==='booked'?(p.call?'Call '+p.call:'Call booked'):col==='lost'?(p.result||p.status||'Closed'):'Customer';
+      const details=[p.name+(p.role?' — '+p.role:''),p.company?'Company: '+p.company:'',loc?'Based in '+loc:'',one?'Builds: '+one:'','Raised: '+(fund||'not found yet'),acc?'Accelerator: '+acc:'',warm,
+        why?'Why now: '+why:'','Segment: '+seg,S?'Score '+n+'/10 ('+S.sc.score+' of 100'+(S.bonus.length?', '+S.bonus.join(', '):'')+'). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'):p.fitN!=null?'Fit '+p.fitN+'/10 (from the lead finder)':'',
+        l&&l.linkedin?'LinkedIn: '+l.linkedin:p.linkedin?'LinkedIn: '+p.linkedin:''].filter(Boolean).join('\n');
+      const moves=col==='talks'?[['Call booked','Call booked'],['Closed','Closed']]:col==='booked'?[['Customer','Customer'],['Closed','Closed']]:col==='won'?[]:col==='lost'?[['Back to approve','To send']]:col==='review'?[]:[['Replied','Replied'],['Closed','Closed']];
+      const editing=!!(s.xpEdit||{})[p.id]||!!s.xpExp;
+      const queue=text=>AK.xtQueue([{row:p.row,name:c.Name||p.name,company:c.Company||p.company,handle:h,user_id:p.xid,kind:'dm',text}]);
+      return{id:p.id,...avatar(p.name||'?'),name:p.name||'(no name)',sub:[p.role,h?'@'+h:'',p.company].filter(Boolean).join(' · '),score:n?String(n):'–',sBg:tn.bg,sFg:tn.fg,
+        one:one||why,hasOne:!!(one||why),oneC:'var(--ink-2)',fund:fund?'Raised '+String(fund).replace(/^raised\s*/i,''):'Raise not found',hasFund:true,fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
+        acc,hasAcc:!!acc,warm,hasWarm:!!warm,loc:loc?'📍 '+loc:'',hasLoc:!!loc,locC:'var(--ink-2)',src:seg,details,status,
+        stC:failed?'var(--bad)':waiting?'var(--ink)':'var(--ink-3)',hasMsg:waiting,msg,chars:msg.length+' chars',editing,preview:!editing,
+        edit:e=>{stopE(e);this.setState(z=>({xpEdit:{...(z.xpEdit||{}),[p.id]:true}}));},onMsg:e=>{const v=e.target.value;this.setState(z=>({xpEd:{...(z.xpEd||{}),[p.id]:v}}));},
+        saveMsg:()=>{const v=(this.state.xpEd||{})[p.id];if(v==null||v===p.opener||!AK.canEdit())return;AK.write(c,{'Opener (30-40 words)':v,Template:''},'First DM saved for '+p.first,{quiet:true});},
+        approve:e=>{stopE(e);if(!AK.canEdit()||!h)return;const v=(this.state.xpEd||{})[p.id];const text=v!=null?v:p.opener;if(!text)return;
+          if(v!=null&&v!==p.opener)AK.write(c,{'Opener (30-40 words)':v,Template:''},'First DM saved',{quiet:true});queue(text);},
+        skip:e=>{stopE(e);if(AK.canEdit())this.setStage(p.id,'Closed','Skipped '+p.first+'. The bot won’t message them.');},
+        noHandle:col==='review'&&!h,findX:e=>{stopE(e);window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');},
+        isFailed:!!failed,retry:e=>{stopE(e);queue(msg);},isQueued:!!t,cancel:e=>{stopE(e);if(t)AK.xtCancel(t.id);},
+        moves:moves.map(([label,stage])=>btn(label,()=>this.setStage(p.id,stage,p.first+' moved to '+label))),hasMoves:moves.length>0&&AK.canEdit(),stop:stopE,
+        open:()=>this.openC(p.id),hasProfile:!!h,profile:e=>{stopE(e);window.open('https://x.com/'+h,'_blank','noopener');},hasLi:!!((l&&l.linkedin)||p.linkedin),
+        liGo:e=>{stopE(e);window.open((l&&l.linkedin)||p.linkedin,'_blank','noopener');},_n:n,_t:Date.parse(lastAt)||0,_w:waiting};};
+    const by=new Map(COLS.map(c=>[c[0],[]]));
+    for(const p of P){if(!p.name)continue;const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
+      if(q&&![p.name,p.company,p.role,p.handle,k.one,k.fund,k.acc,k.src].join(' ').toLowerCase().includes(q))continue;by.get(col).push(k);}
+    const exp=s.xpExp||'';
+    const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>(b._w-a._w)||b._n-a._n||b._t-a._t);const n=(s.xpLim||{})[id]||(exp?400:25);
+      const good=list.filter(k=>k._w&&k._n>=7),allW=list.filter(k=>k._w);
+      const bulkGo=L=>()=>{if(!AK.canEdit())return;AK.xtQueue(L.map(k=>{const p=P.find(x=>x.id===k.id);const c=p.c||{};return{row:p.row,name:c.Name||p.name,company:c.Company||p.company,handle:String(p.handle||'').replace(/^@/,''),user_id:p.xid,kind:'dm',text:k.msg};}));};
+      return{id,name,hint,dot,n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({xpLim:{...(z.xpLim||{}),[id]:n+50}})),
+        hasBulk:good.length>0,bulkLabel:'Approve all 7+ ('+good.length+')',bulk:bulkGo(good),hasAll:allW.length>0,allLabel:'Approve all '+allW.length,all:bulkGo(allW),
+        expand:()=>this.setState({xpExp:id}),empty:!list.length};});
+    const ex=cols.find(c=>c.id===exp);const st=(AK.XT.status||{}).x_bot||{};const cool=Date.parse(st.cooldown_until||'')>Date.now();
+    const step=d=>{const b=document.getElementById('x-board');if(b)b.scrollBy({left:d*300*2,behavior:'smooth'});};
+    return{cols,board:!ex,expanded:!!ex,ex:ex||{cards:[]},back:()=>this.setState({xpExp:''}),q:s.xpQ||'',onQ:e=>this.setState({xpQ:e.target.value}),
+      min:String(s.xpMin||0),onMin:e=>this.setState({xpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5+'},{v:'7',l:'Score 7+'},{v:'8',l:'Score 8+'}],
+      total:String(P.length),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),
+      bot:(cool?'X asked us to slow down: sending resumes at '+new Date(st.cooldown_until).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' · ':'')+this.xBotVals(this.lists(P)).text.replace(/ · sends .*$/,''),
+      scoreHelp:'Score out of 10. For people we also have in Leads it is the same score as LinkedIn (role, B2B, size, funding, accelerator, hiring); otherwise the lead finder’s fit score.'};}
   /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
   liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};
@@ -4381,6 +4456,107 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 </div>
 <sc-if value="{{ ld.lp.ex.empty }}"><span style="font-size:var(--fs-sm); color:var(--ink-4);">Nobody here yet.</span></sc-if>
 </div>
+</sc-if>
+</sc-if>
+
+<!-- X Pipeline (14 Nov): the same board as LinkedIn > Pipeline, for X DMs. Values from xPipeVals() in logic.js (pipe.xp).
+     First DMs wait in To approve with raise, accelerator, warm link and score; Approve queues them for the X bot. -->
+<sc-if value="{{ is.pipeline }}">
+<sc-if value="{{ pipe.isXBoard }}">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px;">
+<input value="{{ pipe.xp.q }}" onChange="{{ pipe.xp.onQ }}" placeholder="Search name, company, raise, YC…" aria-label="Search" style="flex:0 1 260px; min-width:150px; height:32px; padding:0 12px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); outline:none;">
+<select value="{{ pipe.xp.min }}" onChange="{{ pipe.xp.onMin }}" aria-label="Minimum score" style="height:32px; padding:0 8px; border:0; border-radius:var(--r-btn); background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-sm); color:var(--ink);"><sc-for list="{{ pipe.xp.mins }}" as="o"><option value="{{ o.v }}">{{ o.l }}</option></sc-for></select>
+<span title="{{ pipe.xp.scoreHelp }}" style="display:inline-flex; align-items:center; gap:5px; height:32px; padding:0 8px; font-size:var(--fs-xs); color:var(--ink-3); cursor:help;"><b style="padding:1px 6px; border-radius:6px; background:#e3f6ea; color:#16723b;">8+</b><b style="padding:1px 6px; border-radius:6px; background:#fff1dc; color:#9a5b00;">5–7</b><b style="padding:1px 6px; border-radius:6px; background:var(--n-soft-2); color:var(--ink-3);">1–4</b> score ⓘ</span>
+<span style="margin-left:auto; display:inline-flex; align-items:center; gap:8px; flex-wrap:nowrap; min-width:0;"><span style="font-size:var(--fs-xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:520px;" title="{{ pipe.xp.bot }}">{{ pipe.xp.total }} people · {{ pipe.xp.bot }}</span>
+<sc-if value="{{ pipe.xp.board }}"><button onClick="{{ pipe.xp.left }}" aria-label="Scroll left" style="height:32px; width:32px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; color:var(--ink-2); cursor:pointer;">‹</button><button onClick="{{ pipe.xp.right }}" aria-label="Scroll right" style="height:32px; width:32px; border:0; border-radius:var(--r-btn); background:var(--glass-strong); box-shadow:var(--shadow-sm), var(--hi); font-size:16px; color:var(--ink-2); cursor:pointer;">›</button></sc-if></span>
+</div>
+
+<sc-if value="{{ pipe.xp.board }}">
+<div id="x-board" class="ak-board" onMouseDown="{{ pipe.xp.pan }}" style="overflow-x:auto; overflow-y:hidden; height:max(480px, calc(100vh - 215px)); margin:0 calc(-1 * var(--pad-page)) calc(-1 * var(--s-6)); padding:2px var(--pad-page) 6px; cursor:grab;">
+<div style="display:flex; gap:10px; align-items:flex-start; width:max-content; height:100%;">
+<sc-for list="{{ pipe.xp.cols }}" as="col">
+<div style="width:268px; flex:0 0 268px; max-height:100%; display:flex; flex-direction:column; gap:6px; padding:7px; border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div title="{{ col.hint }}" style="display:flex; align-items:center; gap:7px; padding:4px 4px 0;">
+<span style="width:8px; height:8px; border-radius:50%; background:{{ col.dot }};"></span>
+<span style="font-size:var(--fs-sm); font-weight:600;">{{ col.name }}</span>
+<span style="display:inline-flex; align-items:center; height:19px; padding:0 6px; border-radius:6px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-3xs); font-weight:600; color:var(--ink-2);">{{ col.n }}</span>
+<button onClick="{{ col.expand }}" title="Expand: see this whole column at once" style="margin-left:auto; height:22px; padding:0 8px; border:0; border-radius:6px; background:rgba(255,255,255,.85); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-3xs); font-weight:600; color:var(--ink-2); cursor:pointer;">Expand ⤢</button>
+</div>
+<sc-if value="{{ col.hasBulk }}"><button onClick="{{ col.bulk }}" style="height:26px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">{{ col.bulkLabel }}</button></sc-if>
+<div style="flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin:0 -3px; padding:2px 3px 3px;">
+<sc-if value="{{ col.empty }}"><span style="padding:10px 6px; font-size:var(--fs-2xs); color:var(--ink-4); text-align:center;">Nobody here yet</span></sc-if>
+<sc-for list="{{ col.cards }}" as="k">
+<div onClick="{{ k.open }}" style="display:flex; flex-direction:column; gap:5px; padding:9px 10px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline); cursor:pointer;" style-hover="box-shadow:var(--shadow-md), inset 0 0 0 1px var(--hairline-strong);">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="width:26px; height:26px; flex:0 0 26px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ k.avBg }}; color:{{ k.avFg }};">{{ k.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-xs); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.name }}</span><span style="font-size:var(--fs-3xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.sub }}</span></div>
+<span title="{{ k.details }}" style="flex:none; width:18px; height:18px; display:grid; place-items:center; border-radius:50%; font-size:10px; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i</span>
+<span title="{{ k.details }}" style="flex:none; min-width:24px; height:22px; padding:0 6px; display:grid; place-items:center; border-radius:7px; background:{{ k.sBg }}; color:{{ k.sFg }}; font-size:var(--fs-xs); font-weight:700;">{{ k.score }}</span>
+</div>
+<sc-if value="{{ k.hasOne }}"><span style="font-size:var(--fs-2xs); color:{{ k.oneC }}; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ k.one }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:5px; min-width:0; flex-wrap:wrap;"><span style="max-width:100%; font-size:var(--fs-3xs); font-weight:600; color:{{ k.fundC }}; background:{{ k.fundBg }}; padding:1px 7px; border-radius:999px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.fund }}</span><sc-if value="{{ k.hasAcc }}"><span style="flex:none; font-size:var(--fs-3xs); font-weight:700; color:#b54708; background:#fff1e6; padding:1px 7px; border-radius:999px; white-space:nowrap;">{{ k.acc }}</span></sc-if><sc-if value="{{ k.hasWarm }}"><span style="max-width:100%; font-size:var(--fs-3xs); font-weight:600; color:#6941c6; background:#f1ecfb; padding:1px 7px; border-radius:999px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.warm }}</span></sc-if></div>
+<sc-if value="{{ k.hasLoc }}"><span style="font-size:var(--fs-3xs); color:{{ k.locC }}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.loc }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;"><span style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#475467; background:#eef2f7; padding:1px 6px; border-radius:5px;">Outbound</span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ k.src }}</span></div>
+<span style="font-size:var(--fs-3xs); color:{{ k.stC }}; font-weight:500;">{{ k.status }}</span>
+<sc-if value="{{ k.noHandle }}"><button onClick="{{ k.findX }}" style="align-self:flex-start; height:24px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Search on X</button></sc-if>
+<sc-if value="{{ k.isQueued }}"><button onClick="{{ k.cancel }}" style="align-self:flex-start; height:22px; padding:0 9px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); cursor:pointer; background:transparent; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline);">Cancel</button></sc-if>
+<sc-if value="{{ k.hasMsg }}">
+<sc-if value="{{ k.preview }}"><span onClick="{{ k.edit }}" title="Click to edit" style="font-size:var(--fs-3xs); color:var(--ink-2); line-height:1.4; background:var(--n-soft); padding:6px 8px; border-radius:7px; display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden; cursor:text;">{{ k.msg }}</span></sc-if>
+<sc-if value="{{ k.editing }}"><textarea value="{{ k.msg }}" onChange="{{ k.onMsg }}" onBlur="{{ k.saveMsg }}" onClick="{{ k.stop }}" rows="6" aria-label="First DM" style="padding:7px 9px; border:0; border-radius:7px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-2xs); line-height:1.45; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea></sc-if>
+<div style="display:flex; align-items:center; gap:5px;">
+<button onClick="{{ k.approve }}" style="height:26px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">Approve</button>
+<button onClick="{{ k.skip }}" style="height:26px; padding:0 8px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip</button>
+<span style="margin-left:auto; font-size:9.5px; color:var(--ink-4);">{{ k.chars }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ k.isFailed }}"><button onClick="{{ k.retry }}" style="align-self:flex-start; height:24px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Try again</button></sc-if>
+<div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;"><sc-if value="{{ k.hasMoves }}"><span style="font-size:9.5px; color:var(--ink-4);">Move to</span><sc-for list="{{ k.moves }}" as="m"><button onClick="{{ m.go }}" style="height:20px; padding:0 7px; border:0; border-radius:6px; font-size:9.5px; font-weight:600; cursor:pointer; background:var(--n-soft-2); color:var(--ink-2);" style-hover="background:var(--ink); color:#fff;">{{ m.label }}</button></sc-for></sc-if><span style="margin-left:auto; display:inline-flex; gap:8px;"><sc-if value="{{ k.hasLi }}"><a href="#" onClick="{{ k.liGo }}" style="font-size:9.5px; color:#0a66c2; text-decoration:none;">LinkedIn ↗</a></sc-if><sc-if value="{{ k.hasProfile }}"><a href="#" onClick="{{ k.profile }}" style="font-size:9.5px; color:var(--ink); text-decoration:none;">X ↗</a></sc-if></span></div>
+</div>
+</sc-for>
+<sc-if value="{{ col.more }}"><button onClick="{{ col.showMore }}" style="height:26px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:rgba(255,255,255,.85); color:var(--ink-2);">Show {{ col.moreN }} more</button></sc-if>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ pipe.xp.expanded }}">
+<div style="display:flex; flex-direction:column; gap:10px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+<button onClick="{{ pipe.xp.back }}" style="height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); font-weight:600; cursor:pointer;">← Back to board</button>
+<span style="font-size:var(--fs-md); font-weight:600;">{{ pipe.xp.ex.name }}</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ pipe.xp.ex.n }} people · {{ pipe.xp.ex.hint }}</span>
+<sc-if value="{{ pipe.xp.ex.hasBulk }}"><button onClick="{{ pipe.xp.ex.bulk }}" style="margin-left:auto; height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">{{ pipe.xp.ex.bulkLabel }}</button></sc-if>
+<sc-if value="{{ pipe.xp.ex.hasAll }}"><button onClick="{{ pipe.xp.ex.all }}" style="height:30px; padding:0 12px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#fff; color:#111; box-shadow:inset 0 0 0 1px #111;">{{ pipe.xp.ex.allLabel }}</button></sc-if>
+</div>
+<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap:10px;">
+<sc-for list="{{ pipe.xp.ex.cards }}" as="k">
+<div onClick="{{ k.open }}" style="display:flex; flex-direction:column; gap:6px; padding:11px 12px; border-radius:var(--r-md); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline); cursor:pointer;">
+<div style="display:flex; align-items:center; gap:8px;">
+<span style="width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ k.avBg }}; color:{{ k.avFg }};">{{ k.ini }}</span>
+<div style="flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25;"><span style="font-size:var(--fs-sm); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.name }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ k.sub }}</span></div>
+<span title="{{ k.details }}" style="flex:none; width:18px; height:18px; display:grid; place-items:center; border-radius:50%; font-size:10px; color:var(--ink-3); box-shadow:inset 0 0 0 1px var(--hairline-strong); cursor:help;">i</span>
+<span title="{{ k.details }}" style="flex:none; min-width:26px; height:24px; padding:0 6px; display:grid; place-items:center; border-radius:7px; background:{{ k.sBg }}; color:{{ k.sFg }}; font-size:var(--fs-sm); font-weight:700;">{{ k.score }}</span>
+</div>
+<sc-if value="{{ k.hasOne }}"><span style="font-size:var(--fs-xs); color:{{ k.oneC }}; line-height:1.4;">{{ k.one }}</span></sc-if>
+<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><span style="font-size:var(--fs-2xs); font-weight:600; color:{{ k.fundC }}; background:{{ k.fundBg }}; padding:1px 8px; border-radius:999px;">{{ k.fund }}</span><sc-if value="{{ k.hasAcc }}"><span style="font-size:var(--fs-2xs); font-weight:700; color:#b54708; background:#fff1e6; padding:1px 7px; border-radius:999px;">{{ k.acc }}</span></sc-if><sc-if value="{{ k.hasWarm }}"><span style="font-size:var(--fs-2xs); font-weight:600; color:#6941c6; background:#f1ecfb; padding:1px 7px; border-radius:999px;">{{ k.warm }}</span></sc-if><sc-if value="{{ k.hasLoc }}"><span style="font-size:var(--fs-2xs); color:{{ k.locC }};">{{ k.loc }}</span></sc-if></div>
+<div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;"><span style="font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:#475467; background:#eef2f7; padding:1px 6px; border-radius:5px;">Outbound</span><span style="font-size:var(--fs-3xs); color:var(--ink-3);">{{ k.src }}</span><span style="font-size:var(--fs-2xs); color:{{ k.stC }};">· {{ k.status }}</span></div>
+<sc-if value="{{ k.noHandle }}"><button onClick="{{ k.findX }}" style="align-self:flex-start; height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--hairline);">Search on X</button></sc-if>
+<sc-if value="{{ k.hasMsg }}">
+<textarea value="{{ k.msg }}" onChange="{{ k.onMsg }}" onBlur="{{ k.saveMsg }}" onClick="{{ k.stop }}" rows="5" aria-label="First DM" style="padding:8px 10px; border:0; border-radius:8px; background:var(--n-soft); box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); line-height:1.45; font-family:inherit; color:var(--ink); resize:vertical; outline:none;"></textarea>
+<div style="display:flex; align-items:center; gap:6px;">
+<button onClick="{{ k.approve }}" style="height:28px; padding:0 14px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); font-weight:600; cursor:pointer; background:#111; color:#fff;">Approve</button>
+<button onClick="{{ k.skip }}" style="height:28px; padding:0 10px; border:0; border-radius:var(--r-btn); font-size:var(--fs-xs); cursor:pointer; background:transparent; color:var(--ink-3);">Skip</button>
+<span style="margin-left:auto; font-size:var(--fs-3xs); color:var(--ink-4);">{{ k.chars }}</span>
+</div>
+</sc-if>
+<div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;"><sc-if value="{{ k.hasMoves }}"><span style="font-size:var(--fs-3xs); color:var(--ink-4);">Move to</span><sc-for list="{{ k.moves }}" as="m"><button onClick="{{ m.go }}" style="height:22px; padding:0 8px; border:0; border-radius:6px; font-size:var(--fs-3xs); font-weight:600; cursor:pointer; background:var(--n-soft-2); color:var(--ink-2);">{{ m.label }}</button></sc-for></sc-if><span style="margin-left:auto; display:inline-flex; gap:10px;"><sc-if value="{{ k.hasLi }}"><a href="#" onClick="{{ k.liGo }}" style="font-size:var(--fs-3xs); color:#0a66c2; text-decoration:none;">LinkedIn ↗</a></sc-if><sc-if value="{{ k.hasProfile }}"><a href="#" onClick="{{ k.profile }}" style="font-size:var(--fs-3xs); color:var(--ink); text-decoration:none;">X ↗</a></sc-if></span></div>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ pipe.xp.ex.empty }}"><span style="font-size:var(--fs-sm); color:var(--ink-4);">Nobody here yet.</span></sc-if>
+</div>
+</sc-if>
 </sc-if>
 </sc-if>
 

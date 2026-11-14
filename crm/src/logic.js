@@ -608,8 +608,8 @@ class Component extends DCLogic {
     const nT=this.tplFamilies().reduce((n,f)=>n+f.v.length,0);
     const nS=AK.M.templates.filter(t=>/^[A-Z]\d+[A-Z]?$/.test(t.ID)).length;
     const tabs=this.tabs([['Board',''],['People',String(P.length)],['Scripts',String(nS)]],s.pipeTab,t=>this.setState({pipeTab:t}));
-    const o={tabs,isBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
-    if(o.isBoard)o.board=this.boardVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
+    const o={tabs,isBoard:false,isXBoard:s.pipeTab==='Board',isPeople:s.pipeTab==='People',isCompanies:s.pipeTab==='Companies',isTpl:s.pipeTab==='DM templates',noDM:false,hasDM:true,showEveryone:()=>this.setOwner('Everyone')};
+    if(o.isXBoard)o.xp=this.xPipeVals(P);if(o.isPeople)o.tbl=this.tblVals(P);if(o.isCompanies){const c=this.coVals(P);o.cos=c.rows;o.cosHasMore=c.hasMore;o.cosMore=c.more;o.cosMoreN=c.moreN;}if(o.isTpl)o.tpl=this.tplVals();
     return o;}
   boardVals(P){const s=this.state;const drag=!!s.dragId;
     const cols=STAGES.map(st=>({st,list:P.filter(p=>p.stage===st).sort(byPri)}));
@@ -1764,6 +1764,81 @@ class Component extends DCLogic {
       outLabel:showOut?'Hide filtered out ('+outN+')':'Show filtered out ('+outN+')',toggleOut:()=>this.setState({lpOut:!showOut}),hasOut:outN>0,
       total:String(pool.length-(showOut?0:outN)),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),goSettings:()=>this.go('liOut'),
       scoreHelp:'Score out of 10, from what we know: founder or C-suite, B2B software, 5 to 50 people, funding stage and how recent, founder still selling, no marketing or SDR team, hiring for growth, how much they post, and enough money raised. Unknown things count as zero. Filtered out = not a decision maker, founder or company outside the US, Canada, UK or another tier-1 country, not a tech company, sells to consumers, an agency, over 100 people, or later than Series C.'};}
+  /* X Pipeline (14 Nov): the same board as LinkedIn > Pipeline. Every first DM waits in "To approve" with what we know about them
+     (raised, accelerator, who they follow, score) so Reyansh approves or skips each one; approving queues it for the X bot.
+     Follow-ups 1 to 7 then go out on their own a day apart, and each card moves along by itself. */
+  xPipeVals(P){const s=this.state;const T=AK.XT.rows||[];
+    const LD=(AK.LD.rows||[]).filter(l=>!l.archived);const byH=new Map(),byN=new Map();
+    for(const l of LD){const h=String(l.x_handle||((l.fields||{}).li_icp||{}).x||'').replace(/^@/,'').toLowerCase();if(h&&!byH.has(h))byH.set(h,l);const n=GTM.normName(l.name);if(n&&!byN.has(n))byN.set(n,l);}
+    const leadOf=p=>byH.get(String(p.handle||'').replace(/^@/,'').toLowerCase())||byN.get(GTM.normName(p.name))||null;
+    const FUK=['fu3','fu4','fu5','fu6','fu7'];
+    const COLS=[['review','To approve','First DMs written for them. Check what they raised and who they are, then approve or skip.','var(--ink-4)'],
+      ['dm','First DM sent','Approved: the X bot sends it from your X tab, one every few minutes.','var(--out)'],
+      ...[1,2,3,4,5,6,7].map(n=>['fu'+n,'Follow-up '+n,n===3?'The VSL. Goes out on its own a day after follow-up 2.':'No reply yet. Goes out on its own, a day apart.','oklch(0.72 0.15 65)']),
+      ['talks','Replied','They wrote back. Answer them on X.','var(--mid)'],['booked','Call booked','A call is on the calendar.','var(--in)'],
+      ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Skipped, not interested, DMs closed, or no reply after follow-up 7.','var(--bad)']];
+    const sentOf=(row,k)=>T.find(t=>t.row===row&&t.kind===k&&t.status==='sent');
+    const colOf=p=>{const r=p.row;if(p.stage==='Customer')return 'won';if(p.stage==='Closed')return 'lost';if(p.stage==='Call booked')return 'booked';if(p.stage==='Replied')return 'talks';
+      if(p.stage==='To send')return AK.xtActive(r,'dm')?'dm':'review';if(p.stage==='Contacted')return 'dm';if(p.stage==='Follow-up 1 sent')return 'fu1';
+      for(let i=FUK.length-1;i>=0;i--)if(sentOf(r,FUK[i]))return 'fu'+(i+3);return 'fu2';};
+    const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
+    const ACC=[[/\bYC\b[^·,;]*?\b(S|W|F|X|Summer|Winter|Fall|Spring)\s*'?(20)?(\d{2})\b/i,m=>'YC '+({summer:'S',winter:'W',fall:'F',spring:'X'}[m[1].toLowerCase()]||m[1].toUpperCase())+m[3]],[/\bYC\b|Y ?Combinator/i,()=>'YC'],[/Techstars/i,()=>'Techstars'],[/a16z speedrun|speedrun/i,()=>'a16z speedrun'],[/Antler/i,()=>'Antler'],[/Entrepreneur First/i,()=>'Entrepreneur First'],[/\bHF0\b/i,()=>'HF0'],[/South Park Commons/i,()=>'South Park Commons'],[/\bPioneer\b/i,()=>'Pioneer']];
+    const accOf=(blob,iv)=>{const raw=iv.accelerator&&iv.accelerator.v;if(raw&&!/^(none|no|n\/a|unknown|empty.*|-)$/i.test(String(raw).trim()))return String(raw);for(const[re,f]of ACC){const m=String(blob).match(re);if(m)return f(m);}return '';};
+    const q=String(s.xpQ||'').trim().toLowerCase(),min=+s.xpMin||0;
+    const stopE=e=>{e&&e.stopPropagation&&e.stopPropagation();};const btn=(label,fn)=>({label,go:e=>{stopE(e);fn();}});
+    const card=(p,col)=>{const c=p.c||{},l=leadOf(p),F=(l&&l.fields)||{},ic=F.li_icp||{},iv=(F.gtm||{}).intel||{},li=F.li||{};
+      const S=l?this.liPipeScore(l):null;const n=S?S.n:(p.fitN!=null?Math.max(1,Math.min(10,p.fitN)):0);const tn=tone(n);
+      const fund=ic.funding||[iv.round&&iv.round.v,iv.amount&&iv.amount.v?GTM.fmtMoney(iv.amount.v):'',iv.date&&iv.date.v?String(iv.date.v).slice(0,7):''].filter(Boolean).join(' · ')||(p.fund!=='none'&&p.fundingFull?p.fundingFull:'');
+      const blob=[p.why,p.fundingFull,c.Segment,c.Notes,fund,l&&l.source_detail,ic.one_liner].join(' · ');const acc=accOf(blob,iv);
+      const one=ic.one_liner||(iv.description&&iv.description.v)||'';const why=String(p.why||'').replace(/^YC founder list \([^)]*\):\s*/,'');
+      const SHORT={'united states':'USA','united states of america':'USA','united kingdom':'UK','united arab emirates':'UAE'};const hq=(iv.hq&&iv.hq.v)||ic.hq_country||'';
+      const loc=[ic.hq_city,SHORT[String(hq).toLowerCase()]||hq].filter(Boolean).filter((x,i,a)=>a.indexOf(x)===i).join(', ');
+      const warm=li.warm?'Follows '+li.warm+' (our client)':'';const seg=c.Segment||'Lead finder';
+      const h=String(p.handle||'').replace(/^@/,'');const t=AK.xtActive(p.row,'dm');const last=AK.xtLast(p.row,'dm');const failed=col==='review'&&last&&last.status==='failed';
+      const fuT=[...FUK,'fu1','fu2'].map(k=>AK.xtActive(p.row,k)).find(Boolean);
+      const lastAt=(()=>{const ts=T.filter(x=>x.row===p.row&&x.status==='sent').map(x=>Date.parse(x.sent_at)).filter(Boolean);const w=(p.d.filter(Boolean).slice(-1)[0]||'');const d=w?AK.cellDate(w):null;if(d&&!isNaN(d))ts.push(d.getTime());return ts.length?new Date(Math.max(...ts)).toISOString():'';})();
+      const ed=(s.xpEd||{})[p.id];const msg=ed!=null?ed:(p.opener||'');const waiting=col==='review'&&!!h&&!!msg;
+      const status=col==='review'?(!h?'Find their X handle first':failed?'Didn’t go through: '+(last.error||'unknown problem'):!msg?'No first DM written yet':'First DM waiting for your OK')
+        :col==='dm'?(t?(t.status==='sending'?'Sending now…':'Approved, the bot sends it soon'):'First DM sent '+this.since(lastAt)+(fuT?' · follow-up queued':''))
+        :col.startsWith('fu')?'Follow-up '+col.slice(2)+' sent '+this.since(lastAt)+(fuT?' · next one queued':col==='fu7'?' · that was the last one':'')
+        :col==='talks'?'Replied '+this.since(lastAt):col==='booked'?(p.call?'Call '+p.call:'Call booked'):col==='lost'?(p.result||p.status||'Closed'):'Customer';
+      const details=[p.name+(p.role?' — '+p.role:''),p.company?'Company: '+p.company:'',loc?'Based in '+loc:'',one?'Builds: '+one:'','Raised: '+(fund||'not found yet'),acc?'Accelerator: '+acc:'',warm,
+        why?'Why now: '+why:'','Segment: '+seg,S?'Score '+n+'/10 ('+S.sc.score+' of 100'+(S.bonus.length?', '+S.bonus.join(', '):'')+'). Why: '+(S.sc.reasons.slice(0,4).join('; ')||'not enough known yet'):p.fitN!=null?'Fit '+p.fitN+'/10 (from the lead finder)':'',
+        l&&l.linkedin?'LinkedIn: '+l.linkedin:p.linkedin?'LinkedIn: '+p.linkedin:''].filter(Boolean).join('\n');
+      const moves=col==='talks'?[['Call booked','Call booked'],['Closed','Closed']]:col==='booked'?[['Customer','Customer'],['Closed','Closed']]:col==='won'?[]:col==='lost'?[['Back to approve','To send']]:col==='review'?[]:[['Replied','Replied'],['Closed','Closed']];
+      const editing=!!(s.xpEdit||{})[p.id]||!!s.xpExp;
+      const queue=text=>AK.xtQueue([{row:p.row,name:c.Name||p.name,company:c.Company||p.company,handle:h,user_id:p.xid,kind:'dm',text}]);
+      return{id:p.id,...avatar(p.name||'?'),name:p.name||'(no name)',sub:[p.role,h?'@'+h:'',p.company].filter(Boolean).join(' · '),score:n?String(n):'–',sBg:tn.bg,sFg:tn.fg,
+        one:one||why,hasOne:!!(one||why),oneC:'var(--ink-2)',fund:fund?'Raised '+String(fund).replace(/^raised\s*/i,''):'Raise not found',hasFund:true,fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
+        acc,hasAcc:!!acc,warm,hasWarm:!!warm,loc:loc?'📍 '+loc:'',hasLoc:!!loc,locC:'var(--ink-2)',src:seg,details,status,
+        stC:failed?'var(--bad)':waiting?'var(--ink)':'var(--ink-3)',hasMsg:waiting,msg,chars:msg.length+' chars',editing,preview:!editing,
+        edit:e=>{stopE(e);this.setState(z=>({xpEdit:{...(z.xpEdit||{}),[p.id]:true}}));},onMsg:e=>{const v=e.target.value;this.setState(z=>({xpEd:{...(z.xpEd||{}),[p.id]:v}}));},
+        saveMsg:()=>{const v=(this.state.xpEd||{})[p.id];if(v==null||v===p.opener||!AK.canEdit())return;AK.write(c,{'Opener (30-40 words)':v,Template:''},'First DM saved for '+p.first,{quiet:true});},
+        approve:e=>{stopE(e);if(!AK.canEdit()||!h)return;const v=(this.state.xpEd||{})[p.id];const text=v!=null?v:p.opener;if(!text)return;
+          if(v!=null&&v!==p.opener)AK.write(c,{'Opener (30-40 words)':v,Template:''},'First DM saved',{quiet:true});queue(text);},
+        skip:e=>{stopE(e);if(AK.canEdit())this.setStage(p.id,'Closed','Skipped '+p.first+'. The bot won’t message them.');},
+        noHandle:col==='review'&&!h,findX:e=>{stopE(e);window.open('https://x.com/search?q='+encodeURIComponent(p.name+' '+p.company)+'&f=user','_blank','noopener');},
+        isFailed:!!failed,retry:e=>{stopE(e);queue(msg);},isQueued:!!t,cancel:e=>{stopE(e);if(t)AK.xtCancel(t.id);},
+        moves:moves.map(([label,stage])=>btn(label,()=>this.setStage(p.id,stage,p.first+' moved to '+label))),hasMoves:moves.length>0&&AK.canEdit(),stop:stopE,
+        open:()=>this.openC(p.id),hasProfile:!!h,profile:e=>{stopE(e);window.open('https://x.com/'+h,'_blank','noopener');},hasLi:!!((l&&l.linkedin)||p.linkedin),
+        liGo:e=>{stopE(e);window.open((l&&l.linkedin)||p.linkedin,'_blank','noopener');},_n:n,_t:Date.parse(lastAt)||0,_w:waiting};};
+    const by=new Map(COLS.map(c=>[c[0],[]]));
+    for(const p of P){if(!p.name)continue;const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
+      if(q&&![p.name,p.company,p.role,p.handle,k.one,k.fund,k.acc,k.src].join(' ').toLowerCase().includes(q))continue;by.get(col).push(k);}
+    const exp=s.xpExp||'';
+    const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>(b._w-a._w)||b._n-a._n||b._t-a._t);const n=(s.xpLim||{})[id]||(exp?400:25);
+      const good=list.filter(k=>k._w&&k._n>=7),allW=list.filter(k=>k._w);
+      const bulkGo=L=>()=>{if(!AK.canEdit())return;AK.xtQueue(L.map(k=>{const p=P.find(x=>x.id===k.id);const c=p.c||{};return{row:p.row,name:c.Name||p.name,company:c.Company||p.company,handle:String(p.handle||'').replace(/^@/,''),user_id:p.xid,kind:'dm',text:k.msg};}));};
+      return{id,name,hint,dot,n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({xpLim:{...(z.xpLim||{}),[id]:n+50}})),
+        hasBulk:good.length>0,bulkLabel:'Approve all 7+ ('+good.length+')',bulk:bulkGo(good),hasAll:allW.length>0,allLabel:'Approve all '+allW.length,all:bulkGo(allW),
+        expand:()=>this.setState({xpExp:id}),empty:!list.length};});
+    const ex=cols.find(c=>c.id===exp);const st=(AK.XT.status||{}).x_bot||{};const cool=Date.parse(st.cooldown_until||'')>Date.now();
+    const step=d=>{const b=document.getElementById('x-board');if(b)b.scrollBy({left:d*300*2,behavior:'smooth'});};
+    return{cols,board:!ex,expanded:!!ex,ex:ex||{cards:[]},back:()=>this.setState({xpExp:''}),q:s.xpQ||'',onQ:e=>this.setState({xpQ:e.target.value}),
+      min:String(s.xpMin||0),onMin:e=>this.setState({xpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5+'},{v:'7',l:'Score 7+'},{v:'8',l:'Score 8+'}],
+      total:String(P.length),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),
+      bot:(cool?'X asked us to slow down: sending resumes at '+new Date(st.cooldown_until).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' · ':'')+this.xBotVals(this.lists(P)).text.replace(/ · sends .*$/,''),
+      scoreHelp:'Score out of 10. For people we also have in Leads it is the same score as LinkedIn (role, B2B, size, funding, accelerator, hiring); otherwise the lead finder’s fit score.'};}
   /* LinkedIn bot (11 Nov): the Chrome extension's status, the approval queue, the funnel and the messages it sends. */
   liBotVals(){const s=this.state;const set={...(AK.LD.settings.li_bot||{})};const st=AK.LD.settings.li_bot_status||{};const T=AK.LBT.rows;
     const all=this.leadsAll();const byId=new Map(all.map(l=>[l.id,l]));const LI=l=>(l.fields||{}).li||{};
