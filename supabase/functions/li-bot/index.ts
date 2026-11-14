@@ -11,6 +11,44 @@
 // Only people who engaged with our posts (origin li-person:) and fit the ICP are ever contacted.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
+// Exa through Composio (15 Nov): our own Exa key ran out of credits, while the Exa account connected in Composio has them.
+// exaFetch takes the same arguments as fetch("https://api.exa.ai/search", ...): it tries the Exa key first (when there is one
+// and it hasn't said "out of credits" in this run), then sends the same search through Composio's EXA_SEARCH tool, and hands
+// back a Response with Exa's usual JSON, so the code around it doesn't change.
+const EXA_KEY_ = Deno.env.get("EXA_API_KEY") ?? "";
+const CMP_KEY_ = Deno.env.get("COMPOSIO_API_KEY") ?? "";
+let exaKeyEmpty_ = false;
+async function exaFetch(url: string, init: RequestInit): Promise<Response> {
+  if (EXA_KEY_ && !exaKeyEmpty_) {
+    const r = await fetch(url, init);
+    if (r.ok) return r;
+    const t = await r.text();
+    if (!(r.status === 402 || /credit|NO_MORE_CREDITS|top up/i.test(t)) || !CMP_KEY_) return new Response(t, { status: r.status });
+    exaKeyEmpty_ = true;
+  }
+  if (!CMP_KEY_) return new Response(JSON.stringify({ error: "No Exa key with credits and no COMPOSIO_API_KEY" }), { status: 500 });
+  const args = JSON.parse(String(init.body ?? "{}"));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch("https://connect.composio.dev/mcp", { method: "POST",
+        headers: { "x-consumer-api-key": CMP_KEY_, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+          arguments: { tools: [{ tool_slug: "EXA_SEARCH", arguments: args }], sync_response_to_workbench: false, thought: "CRM job search" } } }) });
+      const txt = await res.text();
+      if (!res.ok) throw new Error("Composio answered " + res.status + ": " + txt.slice(0, 160));
+      const line = txt.match(/^data: (.*)$/m);
+      const j = JSON.parse(line ? line[1] : txt);
+      if (j.error) throw new Error("Composio: " + String(j.error.message ?? j.error).slice(0, 160));
+      const out = JSON.parse(j.result?.content?.[0]?.text ?? "{}");
+      const one = out?.data?.results?.[0]?.response;
+      if (!one?.successful) throw new Error("Exa via Composio: " + String(one?.error ?? out?.error ?? "no result").slice(0, 160));
+      return new Response(JSON.stringify(one.data ?? {}), { status: 200, headers: { "Content-Type": "application/json" } });
+    } catch (e) { if (attempt === 1) return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), { status: 502 }); }
+  }
+  return new Response("{}", { status: 502 });
+}
+
+
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -138,7 +176,7 @@ async function status(b: any) { await saveStatus({ seen: now(), ...(b.error ? { 
 // waiting for Reyansh's OK (never sent without it). inmail_test: asks the extension to open an InMail to someone and fill it in
 // without sending, so we know it works before a credit is spent; inmail_tested is its answer.
 const INMAIL_MONTH = 30;
-const VSL_LINK = "https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view";
+const VSL_LINK = "https://youtu.be/gTgn6jZaj7w";
 async function inmail_draft(b: any) {
   const ids = (Array.isArray(b.lead_ids) ? b.lead_ids : []).slice(0, 10);
   if (!ids.length) return { made: 0 };
@@ -252,7 +290,7 @@ async function funding(b: any) {
     round: { type: "string", description: "Pre-seed, Seed, Series A, Series B or Series C" }, amount_usd: { type: "number" },
     founder_names: { type: "array", items: { type: "string" }, description: "founders or CEO named in the article" }, investors: { type: "string", description: "lead and other investors named" },
     announced: { type: "string", description: "announcement date YYYY-MM-DD" }, use_of_funds: { type: "string", description: "what they say the money is for, one line" }, source_url: { type: "string" } } } } } };
-  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+  const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: "startup announces seed or Series A or Series B funding round, founders quoted", category: "news", numResults: 25, startPublishedDate: since, outputSchema: schema,
       systemPrompt: "List each startup funding round announced in these results: company, what it does, whether it sells to businesses, the round, the amount in USD, the founders named, and the article URL. Only facts the results state." }) });
   if (!res.ok) throw new Error("Exa answered " + res.status);
@@ -279,7 +317,7 @@ async function funding(b: any) {
 //    (they want distribution that day), and startups hiring a growth, GTM or founding marketing role (they need exactly us).
 //    Same path as funding: find the founder on LinkedIn, skip anyone known, add as a hot lead with the signal and its link.
 async function exaJson(body: any): Promise<{ out: any; cost: number }> {
-  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error("Exa answered " + res.status);
   const j = await res.json(); return { out: j, cost: j.costDollars?.total ?? 0 };
 }
@@ -1259,7 +1297,7 @@ async function lookUp(l: any) {
     accelerator: { type: "string", description: "e.g. YC W25, Techstars, empty if none" },
     source_url: { type: "string", description: "the result URL that best supports the funding facts" } } };
   const q = [l.company && !/^unknown$/i.test(l.company) ? l.company : "", l.name, "startup funding round"].filter(Boolean).join(" ");
-  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+  const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
       systemPrompt: "Research one startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
         "Find what their company builds and its most recent funding round. Only use facts the results state; never guess. If the results are about a different person or company, set about_this_company=false." }) });
@@ -1279,7 +1317,7 @@ async function whereLookUp(l: any) {
     what_kind_of_company: { type: "string", description: "two to four words, e.g. B2B AI software, food delivery, marketing agency" },
     source_url: { type: "string" } } };
   const q = [l.name, l.company && !/^unknown$/i.test(l.company) ? l.company : "", "founder location headquarters"].filter(Boolean).join(" ");
-  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+  const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
       systemPrompt: "One startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
         "Say where this person lives and where the company is based, only from what the results state (a LinkedIn profile location counts). Never guess from a name. Say if the company is a technology company." }) });
@@ -1468,7 +1506,7 @@ async function judgeP(p: { name: string; headline: string }, said: string, icp: 
   const schema = { type: "object", required: ["fit", "why"], properties: {
     fit: { type: "string", enum: ["hot", "warm", "not a fit"] }, why: { type: "string", description: "One plain sentence a founder would understand" },
     role: { type: "string" }, company: { type: "string" }, company_what: { type: "string" }, company_stage: { type: "string" } } };
-  const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+  const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: (p.headline || p.name) + " company", numResults: 5, outputSchema: schema,
       systemPrompt: "You judge one person as a sales lead. Their LinkedIn headline is: \"" + p.headline + "\". Name: " + p.name + "." + (said ? " They wrote: \"" + said.slice(0, 300) + "\"." : "") +
         " Judge mainly from the headline; use the results only to learn about their company. Never say not a fit just because nothing was found. " + (icp || "Hot = a founder or senior decision maker at a startup that could buy from us.") }) });
@@ -1564,7 +1602,7 @@ async function briefs(b: any) {
           how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" },
           x_handle: { type: "string", description: "the founder's personal X (Twitter) handle, without @" }, x_followers: { type: "string" },
           linkedin_followers: { type: "string", description: "followers on the founder's LinkedIn profile" }, recent_news: { type: "string" } } };
-        const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+        const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
           body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " founder", numResults: 8, outputSchema: schema,
             systemPrompt: "Research this startup and its founder for a sales call. Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " +
               (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only state facts from the results; leave a field empty if it isn't there." }) });
@@ -1695,7 +1733,7 @@ async function tips(b: any) {
       try {
         const schema = { type: "object", properties: { product: { type: "string", description: "what they sell" }, customers: { type: "string", description: "who buys it: roles, company types" },
           how_they_sell_today: { type: "string", description: "founder-led sales, outbound, PLG, ads, content; what is known" }, channels: { type: "string", description: "where they post or show up: LinkedIn, X, blog, events" }, stage: { type: "string", description: "funding stage and team size" } } };
-        const res = await fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+        const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
           body: JSON.stringify({ query: (l.company || "") + " " + (l.name || "") + " startup", numResults: 6, outputSchema: schema,
             systemPrompt: "What does this startup sell and who buys it? Company: " + (l.company || "unknown") + ". Founder: " + l.name + " (" + (l.role || "") + "). " + (ic.one_liner ? "They build: " + ic.one_liner + ". " : "") + "Only facts from the results." }) });
         if (res.ok) co = (await res.json()).output?.content ?? {};
@@ -1758,7 +1796,7 @@ async function xSettings() {
 }
 // X follow-ups 3 to 7 (13 Nov; 1 and 2 come from each DM Templates version). One a day after follow-up 2, until they reply.
 // Follow-up 3 is the VSL. Edited on X > Pipeline > Scripts (saved in x_bot.fu). {first} and {company} are filled in.
-const VSL = "https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view";
+const VSL = "https://youtu.be/gTgn6jZaj7w";
 const X_FU_MORE = [
   "Hey {first}, sharing a short VSL we made: " + VSL + "\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
   "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?",

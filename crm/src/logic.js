@@ -27,7 +27,7 @@ const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11
   mix:[['Reach',10,'New people find you: founders-to-watch lists, save-worthy tactics, news takes'],['Trust',6,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
   week:[['Mon','Founders list (Reach) · Trust · Reach'],['Tue','Founders list (Reach) · Reach · Trust'],['Wed','Founders list (Reach) · Trust (proof) · Convert'],['Thu','Founders list (Reach) · Trust · Convert'],
     ['Fri','Founders list (Reach) · Reach · Convert (the offer)'],['Sat','Founders list (Reach) · Personal (Trust) · Convert'],['Sun','Founders list (Reach) · Weekly numbers (Trust) · Convert']],
-  kit:[['bio','Bio','I run founder content + DMs on X and LinkedIn for funded B2B founders. Seed to Series C. Daily lists of founders who just raised.'],
+  kit:[['bio','Bio','I get funded B2B founders customers from X and LinkedIn: your posts, the replies, the DMs, booked calls. Seed to Series C.'],
     ['name','Name','Reyansh | founder-led GTM'],
     ['pin','Pinned post','Pin the best Convert post of the week (the one with the most comments). Change it every Sunday.'],
     ['link','Link','gtm.sove7gn.org'],
@@ -797,7 +797,7 @@ class Component extends DCLogic {
         copy:()=>this.copy(t.Opener||'','tplc'+t.ID,t.ID+' copied')};});
     const nf=s.tplNew;const letters=new Set(T.map(t=>t.ID[0]));const nextId=(()=>{for(const c of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){if(!letters.has(c))return c+'1';}return 'Z9';})();
     const setN=k=>e=>{const v=e.target.value;this.setState(st=>({tplNew:{...st.tplNew,[k]:v}}));};
-    const XFU_DEF=["Hey {first}, sharing a short VSL we made: https://drive.google.com/file/d/1p-iI-r8vDYZ6dxZMtCsxonxTt4aBUTT7/view\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
+    const XFU_DEF=["Hey {first}, sharing a short VSL we made: https://youtu.be/gTgn6jZaj7w\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
       "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?","Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
       "No worries if the timing's off, {first}. Would next week work better for a quick chat? https://cal.com/sove7gn-gtm/30min","Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}."];
     const xb=AK.leadSetting('x_bot')||{};const cur=XFU_DEF.map((d,i)=>(Array.isArray(xb.fu)&&xb.fu[i])||d);const ed=s.xfuEd;

@@ -6,6 +6,44 @@
 // Likes aren't readable without X's own API or a logged-in session, so they're not here yet.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
+// Exa through Composio (15 Nov): our own Exa key ran out of credits, while the Exa account connected in Composio has them.
+// exaFetch takes the same arguments as fetch("https://api.exa.ai/search", ...): it tries the Exa key first (when there is one
+// and it hasn't said "out of credits" in this run), then sends the same search through Composio's EXA_SEARCH tool, and hands
+// back a Response with Exa's usual JSON, so the code around it doesn't change.
+const EXA_KEY_ = Deno.env.get("EXA_API_KEY") ?? "";
+const CMP_KEY_ = Deno.env.get("COMPOSIO_API_KEY") ?? "";
+let exaKeyEmpty_ = false;
+async function exaFetch(url: string, init: RequestInit): Promise<Response> {
+  if (EXA_KEY_ && !exaKeyEmpty_) {
+    const r = await fetch(url, init);
+    if (r.ok) return r;
+    const t = await r.text();
+    if (!(r.status === 402 || /credit|NO_MORE_CREDITS|top up/i.test(t)) || !CMP_KEY_) return new Response(t, { status: r.status });
+    exaKeyEmpty_ = true;
+  }
+  if (!CMP_KEY_) return new Response(JSON.stringify({ error: "No Exa key with credits and no COMPOSIO_API_KEY" }), { status: 500 });
+  const args = JSON.parse(String(init.body ?? "{}"));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch("https://connect.composio.dev/mcp", { method: "POST",
+        headers: { "x-consumer-api-key": CMP_KEY_, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "COMPOSIO_MULTI_EXECUTE_TOOL",
+          arguments: { tools: [{ tool_slug: "EXA_SEARCH", arguments: args }], sync_response_to_workbench: false, thought: "CRM job search" } } }) });
+      const txt = await res.text();
+      if (!res.ok) throw new Error("Composio answered " + res.status + ": " + txt.slice(0, 160));
+      const line = txt.match(/^data: (.*)$/m);
+      const j = JSON.parse(line ? line[1] : txt);
+      if (j.error) throw new Error("Composio: " + String(j.error.message ?? j.error).slice(0, 160));
+      const out = JSON.parse(j.result?.content?.[0]?.text ?? "{}");
+      const one = out?.data?.results?.[0]?.response;
+      if (!one?.successful) throw new Error("Exa via Composio: " + String(one?.error ?? out?.error ?? "no result").slice(0, 160));
+      return new Response(JSON.stringify(one.data ?? {}), { status: 200, headers: { "Content-Type": "application/json" } });
+    } catch (e) { if (attempt === 1) return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), { status: 502 }); }
+  }
+  return new Response("{}", { status: 502 });
+}
+
+
 const SB_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -122,7 +160,7 @@ async function judge(author: any, said: string, ourPost: string, how: string) {
     company: { type: "string" },
     reply: { type: "string", description: "Our public reply under their post, as Reyansh (20, building in GTM): max 220 characters. Thank them or answer them in one specific line, then say we'd love their advice on something related and ask if we can DM them (e.g. 'Would love your advice on how you got your first customers, mind if I DM you?'). Friendly, human, no pitch, no links, no hashtags, no em dashes, no 'Great point'." },
     dm: { type: "string", description: "A DM from Reyansh, max 320 characters, sent after the public reply: mention what they said or the post, say he's building in GTM and would really value their advice on one specific thing (e.g. how they got their first customers, or how they run sales this early), and ask for a quick 15-minute call or a few lines here. Humble, plain words, no pitch of our service, no links, no em dashes. Write it for everyone except bots and spam." } } };
-  const res = await fetch("https://api.exa.ai/search", {
+  const res = await exaFetch("https://api.exa.ai/search", {
     method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " company", numResults: 3, outputSchema: schema,
       systemPrompt: "Someone " + how.toLowerCase() + " our X post. Our post: \"" + clip(ourPost, 400) + "\". What they wrote: \"" + clip(said, 400) + "\". " +
