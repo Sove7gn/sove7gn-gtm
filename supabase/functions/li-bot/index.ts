@@ -41,7 +41,15 @@ const TIPS_FU = [1, 3, 5, 2, 6, 7];
 // written for them, whatever else happens (no pitch first). Then: they reply, Reyansh takes it; no reply in 24 hours, TIPS_FU.
 const PROMISE_RE = /\b(3|three)\s+(quick\s+|small\s+|simple\s+|inbound\s+|easy\s+)*(tips|ideas|tricks)\b/i;
 const promised = (l: Lead) => !!(l.fields?.li?.promised || l.fields?.li?.src === "list");
-const tipsGot = (l: Lead) => !!l.fields?.tips?.sent_at;
+const tipsGot = (l: Lead) => !!(l.fields?.tips?.sent_at || l.fields?.li?.tips_dm);
+const IDEAS_RE = /here they are|here are the 3 ideas|sending over 3 quick ideas|sending them over anyway|\b(3|three)\s+(quick\s+|small\s+|inbound\s+)*(tips|ideas|tricks)\b/i;
+const CAL = "https://cal.com/sove7gn-gtm/30min";
+// (14 Nov) The lead behind an X handle (to know if they already got the 3 ideas on LinkedIn, and to mark it when X sends them).
+async function leadByHandle(h: string): Promise<any> {
+  const x = String(h ?? "").replace(/^@/, ""); if (!x) return null;
+  const { data } = await db.from("crm_leads").select("id,name,company,fields").or("x_handle.ilike.@" + x + ",x_handle.ilike." + x).eq("archived", false).limit(1);
+  return data?.[0] ?? null;
+}
 // The tips as a LinkedIn message: right after they accept, or (if a pitch went out first by mistake) as the next message.
 function tipsDM(l: Lead, late = false, kept = true): string {
   const body = String(l.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").replace(/^Thanks for connecting[^\n]*\n+/i, "").trim();
@@ -838,6 +846,11 @@ async function plan(_b: any) {
       newRows.push({ lead_id: l.id, kind: "dm", step: li.dm ? 1 : 0, text: tipsDM(l, !!li.dm, promised(l)), status: "ready" });
       continue;
     }
+    if (li.acc && !li.dm && tipsGot(l) && !twin(l, "dm")) {
+      if (!had("dm")) newRows.push({ lead_id: l.id, kind: "dm", step: 0, status: "ready", subject: "fu1",
+        text: "Thanks for connecting, " + firstName(l.name) + "! I sent over 3 ideas for " + (l.company && !/^unknown$/i.test(l.company) ? l.company + "'s" : "your") + " inbound on X. Happy to walk you through how we'd set them up, here's my calendar if easier: " + CAL });
+      continue;
+    }
     if (li.acc && !li.dm) {
       if ((!isOurs(l) && !li.req) || twin(l, "dm")) continue;              // anyone who accepted our request (or engaged with us); opens with how we met
       const t = had("dm");
@@ -1010,6 +1023,7 @@ async function done(b: any) {
     await log(lead.id, "Accepted their LinkedIn request and sent the first message (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "dm") {
     li.dm = at; li.last = at; li.fu = 0;
+    if (t.subject === "fu1") li.fu_sent = [...new Set([...(li.fu_sent ?? []), 1])];
     if (/here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) { li.tips_dm = at; lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } }; }
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
     await log(lead.id, "LinkedIn first message sent (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
@@ -1856,7 +1870,18 @@ async function x_plan(b: any) {
       if (uid) await db.from("crm_x_tasks").update({ user_id: uid }).eq("id", t.id);
     }
     if (!uid) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); continue; }
-    tasks.push({ id: t.id, name: t.name, handle: t.handle, user_id: uid, kind: t.kind, text: t.text });
+    let text = String(t.text ?? "");
+    if (IDEAS_RE.test(text)) {
+      const ld = await leadByHandle(t.handle);
+      if (ld && (ld.fields?.tips?.sent_at || ld.fields?.li?.tips_dm)) {
+        const first = firstName(t.name), co = ld.company && !/^unknown$/i.test(ld.company) ? ld.company : "your company";
+        text = t.kind === "dm" ? "Hey " + first + ", we're connected on LinkedIn too, I sent you 3 ideas for " + co + "'s inbound there. Would love to jump on a quick call and show you how we'd set them up: " + CAL
+          : /sending them over anyway/i.test(text) ? "Hey " + first + ", if it's easier to talk through the ideas I sent on LinkedIn, here's my calendar: " + CAL
+          : "Just bumping this up in case it got buried, " + first + ".";
+        await db.from("crm_x_tasks").update({ text }).eq("id", t.id);
+      }
+    }
+    tasks.push({ id: t.id, name: t.name, handle: t.handle, user_id: uid, kind: t.kind, text });
   }
   if (tasks.length) await db.from("crm_x_tasks").update({ status: "sending", claimed_at: new Date().toISOString() }).in("id", tasks.map((t) => t.id));
   return { tasks, paused: false, in_hours: true, left, sent_today: sentToday ?? 0, auto_followups: autoFu };
@@ -1916,5 +1941,12 @@ async function x_done(b: any) {
     : t.kind === "fu2" ? { Status: "FU2 sent", "FU2 sent": sheetSerial(now, false) } : null;      // fu3..fu7: kept in crm_x_tasks only
   const w = cells ? await write(cells) : "ok";
   await db.from("crm_x_tasks").update({ status: "sent", sent_at: now.toISOString(), error: /^ok/.test(w) ? null : "Sent, but the row didn't update: " + w }).eq("id", t.id);
+  if (/sending them over anyway|here they are/i.test(String(t.text ?? ""))) {
+    const ld = await leadByHandle(t.handle);
+    if (ld && !ld.fields?.tips?.sent_at) {
+      await db.from("crm_leads").update({ fields: { ...(ld.fields ?? {}), tips: { ...(ld.fields?.tips ?? {}), sent_at: now.toISOString(), on: "X" } } }).eq("id", ld.id);
+      await db.from("crm_li_tasks").update({ status: "skipped", error: "They got the 3 ideas on X" }).eq("lead_id", ld.id).in("kind", ["dm", "followup"]).in("status", ["review", "ready"]).filter("text", "imatch", "here they are|here are the 3 ideas|sending over 3 quick ideas");
+    }
+  }
   return { ok: true };
 }
