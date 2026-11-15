@@ -12,7 +12,17 @@ const VERSION = chrome.runtime.getManifest().version;
 const store = chrome.storage.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
-let busy = false, xbusy = false, xbusyAt = 0, xbusyName = "";
+let busy = false, busyAt = 0, xbusy = false, xbusyAt = 0, xbusyName = "";
+// (16 Nov) Chrome freezes background tabs to save power; a script sent into a frozen tab waits forever and the bot stalled.
+// Every call into a bot tab now has a time limit, a frozen or sleeping tab is woken (reloaded), and a lock older than
+// 10 minutes is treated as stuck.
+const within = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+const lockFree = () => !busy || Date.now() - busyAt > 10 * 60e3;
+async function wake(t) {
+  try { await chrome.tabs.update(t.id, { autoDiscardable: false }); } catch (_) {}
+  if (t.discarded || t.frozen) { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); return true; }
+  return false;
+}
 // (16 Nov) One X tab, one job at a time. Jobs wait their turn instead of skipping (sending DMs used to lose to the reader for
 // hours), and a lock older than 8 minutes is treated as stuck and taken over.
 async function xAcquire(name, waitMs) {
@@ -71,7 +81,7 @@ async function botTab() {
     try {
       const t = await chrome.tabs.get(tabId);
       if (/linkedin\.com/.test(t.url || t.pendingUrl || "")) {
-        if (t.discarded || t.status !== "complete") { await chrome.tabs.reload(t.id); await loaded(t.id); }
+        if (!(await wake(t)) && t.status !== "complete") { await chrome.tabs.reload(t.id); await loaded(t.id); }
         if (await alive(t.id)) return t.id;
         await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500);
         if (await alive(t.id)) return t.id;
@@ -94,11 +104,12 @@ async function loaded(id) { for (let i = 0; i < 60; i++) { const t = await chrom
 async function go(url) { const id = await botTab(); await chrome.tabs.update(id, { url }); await sleep(800); await loaded(id); await sleep(3000); }
 async function op(name, args = {}) {
   let id = await botTab(), res;
-  try { res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] }); }
+  const run = () => within(chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] }), name === "engagers" || name === "threads" ? 240e3 : 90e3, "LinkedIn tab didn't answer (" + name + ")");
+  try { res = await run(); }
   catch (e) {
-    if (!/error page|Cannot access|No tab|frame/i.test(String(e.message))) throw e;
+    if (!/error page|Cannot access|No tab|frame|didn't answer/i.test(String(e.message))) throw e;
     await chrome.tabs.reload(id); await loaded(id); await sleep(3000);                 // one retry after a reload
-    res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: liOp, args: [name, args] });
+    res = await run();
   }
   const r = res && res[0];
   if (!r) throw new Error("LinkedIn tab didn't answer");
@@ -178,11 +189,12 @@ async function moreSources(me, h) {
 }
 
 async function sync(fromButton) {
-  if (busy) return { busy: true };
-  busy = true; const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
+  if (!lockFree()) return { busy: true };
+  busy = true; busyAt = Date.now(); const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
   try {
     const me = await op("me");
     const h = await api("hello", { me, version: VERSION, signed_in: me.signed_in });
+    api("x_job", { name: "linkedin", ok: !!me.signed_in, note: me.signed_in ? "LinkedIn check started" : "signed out of LinkedIn", version: VERSION }).catch(() => {});
     await store.set({ me, last: { at: new Date().toISOString(), mode: h.mode, paused: h.paused, in_hours: h.in_hours, signed_in: me.signed_in } });
     if (!me.signed_in) { await log("You're signed out of LinkedIn in this Chrome. Sign in and it carries on.", true); return { signed_out: true }; }
     if (h.paused) { await log("Paused on LinkedIn > Outreach in the CRM."); return { paused: true }; }
@@ -244,12 +256,12 @@ async function sync(fromButton) {
 
 // One approved request or message at a time. Skips some ticks at random so the gaps aren't regular.
 async function tick() {
-  if (busy) return;
+  if (!lockFree()) return;
   let { queue = [], me } = await store.get(["queue", "me"]);
   queue = queue.filter((t) => Date.now() - t.handed < 50 * 60e3);
   if (!queue.length || !me || !me.signed_in) { await store.set({ queue }); return; }
   if (Math.random() < 0.3) return;
-  busy = true; const ka = keepAlive();
+  busy = true; busyAt = Date.now(); const ka = keepAlive();
   const t = queue.shift(); await store.set({ queue });
   try {
     const c = await api("claim", { id: t.id });
@@ -296,7 +308,7 @@ async function tick() {
 async function selfTest() {
   if (busy) await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Waiting for the bot's current check to finish, then testing. You can close this window."] } });
   for (let i = 0; busy && i < 90; i++) await sleep(2000);
-  busy = true; const ka = keepAlive();
+  busy = true; busyAt = Date.now(); const ka = keepAlive();
   await store.set({ test: { at: new Date().toISOString(), running: true, lines: ["Testing… about 40 seconds. You can close this window."] } });
   try { const r = await selfTestRun(); await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); return r; }
   catch (e) { const r = { lines: ["Test stopped: " + (e.message || e)] }; await store.set({ test: { at: new Date().toISOString(), running: false, lines: r.lines } }); try { await api("status", { error: "self-test: " + (e.message || e) }); } catch (_) {} return r; }
@@ -337,7 +349,7 @@ async function xTab() {
     try {
       const t = await chrome.tabs.get(xTabId);
       if (/(^|\/\/)(x|twitter)\.com/.test(t.url || t.pendingUrl || "")) {
-        if (t.discarded) { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); }
+        await wake(t);
         if (await xAlive(t.id)) return t.id;
         await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(3000);
         if (await xAlive(t.id)) return t.id;
@@ -356,7 +368,8 @@ async function xAlive(id) {
 }
 async function xop(name, args = {}) {
   const id = await xTab();
-  const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: xOp, args: [name, args] });
+  let res; try { res = await within(chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: xOp, args: [name, args] }), 90e3, "X tab didn't answer (" + name + ")"); }
+  catch (e) { if (/didn't answer/.test(String(e.message))) { await chrome.tabs.reload(id).catch(() => {}); } throw e; }
   const r = res && res[0];
   if (!r) throw new Error("X tab didn't answer");
   if (r.error) throw new Error(r.error.message || String(r.error));
@@ -375,7 +388,7 @@ async function imSend(urn, a) {
 
 // InMail test (14 Nov), asked from the CRM: open an InMail to that person, fill it in, close it without sending (no credit used).
 async function inmailTest(t) {
-  if (busy) return; busy = true; const ka = keepAlive();
+  if (!lockFree()) return; busy = true; busyAt = Date.now(); const ka = keepAlive();
   try {
     await go("https://www.linkedin.com/in/" + (t.pid || t.urn) + "/"); await sleep(rand(4000, 7000));
     const r = await imSend(t.urn, { test: true, subject: "Quick question", text: "Hi, this is a test and will not be sent." });
@@ -535,10 +548,10 @@ async function xg(action, body = {}) {
 // (16 Nov) Catch-up scan: the last week of LinkedIn chats (paging back) and recent connections, compared with the CRM by li-bot.
 // Anyone we messaged, who replied, or who connected without a message, and the CRM doesn't reflect it, lands in Needs you.
 async function reconcileRun(force) {
-  if (busy) return;
+  if (!lockFree()) return;
   const { key } = await store.get("key"); if (!key) return;
   const { recAt = 0 } = await store.get("recAt"); if (!force && Date.now() - recAt < 20 * 3600e3) return;
-  busy = true; const ka = keepAlive();
+  busy = true; busyAt = Date.now(); const ka = keepAlive();
   try {
     const { me, qid } = await store.get(["me", "qid"]); if (!me || !me.urn || !qid) return;
     const all = []; let before = null;
@@ -583,7 +596,7 @@ async function xInboxTick() {
       // (16 Nov) X's new chat runs inside an embedded frame, so read every frame (and the chat app's shadow roots).
       let frames = null;
       for (let attempt = 0; attempt < 4 && !frames; attempt++) {
-        if (attempt) { await sleep(4000); await loaded(id); }
+        if (attempt) { if (attempt === 2) await chrome.tabs.reload(id).catch(() => {}); await sleep(4000); await loaded(id); }
         frames = await chrome.scripting.executeScript({ target: { tabId: id, allFrames: true }, world: "MAIN", func: async () => {
           const wait = (ms) => new Promise((r) => setTimeout(r, ms));
           const deep = (root, sel, acc) => { root.querySelectorAll(sel).forEach((e) => acc.push(e)); root.querySelectorAll("*").forEach((e) => { if (e.shadowRoot) deep(e.shadowRoot, sel, acc); }); return acc; };
@@ -600,6 +613,7 @@ async function xInboxTick() {
           const body = document.body ? String(document.body.innerText || "") : "";
           return { url: location.href, cells: [...out.values()].slice(0, 150), locked: /passcode|enter your pin|recover your|set up encryption/i.test(body) && out.size < 2, sample: out.size ? "" : body.slice(0, 900) };
         } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
+        if (frames && !frames.some((f) => f && f.result && (f.result.cells || []).length)) frames = attempt < 3 ? null : frames;
       }
       await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
       const fr = (frames || []).map((f) => f && f.result).filter(Boolean);

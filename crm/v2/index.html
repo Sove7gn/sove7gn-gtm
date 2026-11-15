@@ -4098,7 +4098,7 @@ function botsHealth(){
       ...(ms(xs.cooldown_until)>Date.now()?['<span style="color:var(--warn)">X asked us to slow down: paused until '+esc(new Date(ms(xs.cooldown_until)).toLocaleString())+'</span>']:[]),
       ...(xst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(xst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(xs.paused?'Resume':'Pause',()=>AK.xtPause(!xs.paused),xs.paused?'pri sm':'sm ghost'):'')+'</div>';
-  const J=(((AK.XT.status||{}).x_bot_status||{}).jobs)||{};const JN={dms:'Sending X DMs',replies:'Replies on posts',inbox:'Reading X replies',chat:'X chat access',reader:'Reading X posts'};
+  const J=(((AK.XT.status||{}).x_bot_status||{}).jobs)||{};const JN={linkedin:'LinkedIn check',dms:'Sending X DMs',replies:'Replies on posts',inbox:'Reading X replies',chat:'X chat access',reader:'Reading X posts'};
   if(Object.keys(J).length)h+='<h2 class="h2">X jobs in your Chrome</h2>'+table('xj',[['Job','minmax(0,1fr)'],['Last run','120px'],['What happened','minmax(0,2.4fr)']],Object.keys(JN).filter(k=>J[k]).map(k=>({open:null,cells:['<div class="pc"><span class="dot '+(J[k].ok?'ok':'warn')+'" style="margin:0"></span><b>'+esc(JN[k])+'</b></div>','<span class="meta">'+esc(since(J[k].at))+'</span>',ell(J[k].note||'','meta')]})),'');
   const failed=LT.filter(t=>t.status==='failed');
   h+='<h2 class="h2">Didn’t go through</h2>'+table('bf',[['Who','minmax(0,1.6fr)'],['What','minmax(0,1fr)'],['Problem','minmax(0,2fr)'],['','auto']],failed.map(t=>{const l=byId.get(t.lead_id)||{};
