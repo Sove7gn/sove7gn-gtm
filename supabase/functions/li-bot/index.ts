@@ -2043,8 +2043,11 @@ async function xr_plan(b: any) {
   if (since < wait) return { ...base, tasks: [], wait_min: Math.ceil((wait - since) / 60e3) };
   // newest post first (a reply in the first hour is worth most), leads before creators when equally fresh
   const { data: ready } = await db.from("crm_x_reply").select("url,author,name,draft,kind,posted_at").eq("status", "approved").neq("draft", "")
-    .gte("posted_at", new Date(now - 20 * 3600e3).toISOString()).order("posted_at", { ascending: false }).limit(5);
-  const t = (ready ?? []).sort((a: any, c: any) => (c.kind === "lead" ? 1 : 0) - (a.kind === "lead" ? 1 : 0))[0];
+    .gte("posted_at", new Date(now - 20 * 3600e3).toISOString()).order("posted_at", { ascending: false }).limit(20);
+  // (16 Nov) never more than one reply per person a day: their other approved posts wait (and drop after 20 hours)
+  const { data: today } = await db.from("crm_x_reply").select("author").in("status", ["posted", "sending"]).gte("done_at", dayStart);
+  const doneBy = new Set((today ?? []).map((r: any) => String(r.author).toLowerCase()));
+  const t = (ready ?? []).filter((r: any) => !doneBy.has(String(r.author).toLowerCase())).sort((a: any, c: any) => (c.kind === "lead" ? 1 : 0) - (a.kind === "lead" ? 1 : 0))[0];
   if (!t) return { ...base, tasks: [] };
   const { data: got } = await db.from("crm_x_reply").update({ status: "sending", claimed_at: new Date().toISOString() }).eq("url", t.url).eq("status", "approved").select("url");
   if (!got?.length) return { ...base, tasks: [] };

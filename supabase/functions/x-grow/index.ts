@@ -62,8 +62,10 @@ const DEFAULT_TARGETS = ["NamanyayG", "codyschneider", "danielfazio", "NickAbrah
 
 const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
+const BOT_KEY = Deno.env.get("LI_BOT_TOKEN") ?? "";
 async function allowed(req: Request) {
   if (CRON && req.headers.get("x-cron-secret") === CRON) return true;
+  if (BOT_KEY && req.headers.get("x-bot-token") === BOT_KEY) return true;   // (16 Nov) the Chrome extension, reading X from his tab
   const auth = req.headers.get("authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return false;
   const user = createClient(SB_URL, ANON, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
@@ -74,8 +76,9 @@ async function allowed(req: Request) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (!(await allowed(req))) return json({ error: "Only the team can run this." }, 401);
-  if (!TWAPI) return json({ error: "TWITTERAPI_KEY is missing." }, 500);
   const body = await req.json().catch(() => ({}));
+  if (body.read_plan) { try { return json(await readPlan(body)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 500); } }
+  if (body.read_done) { try { return json(await readDone(body)); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 500); } }
   if (body.posts) {   // the daily News / Shoutout posts run on their own
     try { return json({ posts: await dailyPosts(!!body.force) }); } catch (e) { return json({ error: String((e as Error).message ?? e) }, 500); }
   }
@@ -86,8 +89,8 @@ Deno.serve(async (req) => {
   const { data: run } = await db.from("crm_sync_runs").insert({ platform: "x-grow" }).select("id").single();
   const out: Record<string, unknown> = {};
   try {
-    if (both || body.replies) out.replies = await replyTargets();
-    if (both || body.followers) out.followers = await newFollowers();
+    if (both || body.replies) out.replies = await replyTargets().catch((e) => ({ error: String((e as Error).message ?? e) }));
+    if (both || body.followers) out.followers = await newFollowers().catch((e) => ({ error: String((e as Error).message ?? e) }));   // twitterapi.io may be out of credits: the extension reads followers too
     if (both || body.followers || body.warm) out.warm = await warmDMs();
     if (body.follow_src) out.follow_src = await followSource(+(body.max ?? 10) || 10);
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary: out }).eq("id", run.id);
@@ -142,7 +145,8 @@ async function replyTargets() {
   const rows: any[] = [];
   for (const [kind, hs] of groups) {
     const q = "(" + hs.map((h) => "from:" + h).join(" OR ") + ") -filter:replies -filter:retweets since_time:" + since;
-    const j = await tw("/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(q));
+    let j: any = {};
+    try { j = TWAPI ? await tw("/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(q)) : {}; } catch (_) { break; }   // (16 Nov) no credits: the extension reads X instead
     for (const t of j.tweets ?? []) {
       if (!t?.id || !t.author?.userName || t.isReply || t.retweeted_tweet) continue;
       rows.push({ url: "https://x.com/" + t.author.userName + "/status/" + t.id, author: t.author.userName, name: t.author.name || "",
@@ -173,7 +177,7 @@ async function replyTargets() {
     const todo = (miss ?? []).filter((r) => r.kind === "lead" || (r.followers ?? 0) >= 1000).slice(0, REDRAFT ? 40 : 12);
     if (todo.length) {
       const d = await draftReplies(todo).catch(() => ({} as Record<string, string>));
-      for (const [i, r] of todo.entries()) { const t = noDash(d[String(i)] || ""); if (t) { await db.from("crm_x_reply").update({ draft: t }).eq("url", r.url); drafted++; } }
+      for (const [i, r] of todo.entries()) { const t = noDash(d[String(i)] || ""); if (t) { await db.from("crm_x_reply").update({ draft: t, ...(r.kind === "lead" ? { status: "approved" } : {}) }).eq("url", r.url).eq("status", "new"); drafted++; } }   // ICP posts go straight to the bot
     }
   }
   return { searched: groups.length, found: rows.length, added, drafted };
@@ -353,15 +357,16 @@ async function dailyPosts(force = false) {
 const FOLLOW_SRC_DEFAULT = { client: "Aktoria", client_note: "Aktoria (YC S26), one of the founders we work with", accounts: { ShreenabhA: { name: "Shreenabh" }, karanwalia_ai: { name: "Karan" } } as Record<string, any> };
 const F_FOUNDER = /(co-?founder|founder|\bceo\b|\bcto\b|\bcoo\b|\bcmo\b|\bcro\b|chief|building @|founding)/i;
 const F_NOT = /(crypto|web3|defi|nft|onchain|blockchain|\bvc\b|venture|investor|investing|angel|\bfund\b|capital|partner at|recruit|talent|hiring manager|student|intern|looking for (a )?(job|role)|open to work|journalist|reporter|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|marketing studio)/i;
-async function followSource(maxAdd = 10) {
+async function followSource(maxAdd = 10, given?: any[]) {
   const t0 = Date.now();   // Supabase stops a run at 150 s: judging stops at 75 s so there is time to write ideas and save
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
   const cfg: any = { ...FOLLOW_SRC_DEFAULT, ...(st?.value ?? {}) };
   for (const h of Object.keys(FOLLOW_SRC_DEFAULT.accounts)) cfg.accounts[h] = { ...FOLLOW_SRC_DEFAULT.accounts[h], ...(cfg.accounts?.[h] ?? {}) };
   // 1. Next pages of followers (3 pages of 200 per account per run), skipping accounts already read to the end.
   const people = new Map<string, any>();
+  for (const f of given ?? []) { const h = String(f.userName || ""); if (h && !people.has(h.toLowerCase())) people.set(h.toLowerCase(), f); }
   for (const [acc, a] of Object.entries<any>(cfg.accounts)) {
-    if (a.done) continue;
+    if (given || a.done) continue;
     for (let p = 0; p < 2; p++) {
       const j = await tw("/twitter/user/followers?userName=" + acc + "&pageSize=200&cursor=" + encodeURIComponent(a.cursor || ""));
       for (const f of j.followers ?? []) { const h = String(f.userName || f.screen_name || ""); if (h && !people.has(h.toLowerCase())) people.set(h.toLowerCase(), { ...f, _via: acc }); }
@@ -378,7 +383,8 @@ async function followSource(maxAdd = 10) {
   for (let i = 0; i < hs.length; i += 300) { const { data } = await db.from("crm_x_people").select("handle").in("handle", hs.slice(i, i + 300)).not("judged_at", "is", null); for (const r of data ?? []) seen.add(r.handle); }
   const cands = [...people.values()].filter((f) => { const h = String(f.userName || f.screen_name).toLowerCase(), bio = String(f.description || "");
     return h !== HANDLE.toLowerCase() && !Object.keys(cfg.accounts).some((a) => a.toLowerCase() === h) && !inPipe.has(h) && !seen.has(h) && f.can_dm !== false &&
-      (f.followers_count ?? 0) >= 40 && (f.followers_count ?? 0) <= 200000 && F_FOUNDER.test(bio) && !F_NOT.test(bio); });
+      (f.followers_count == null || ((f.followers_count ?? 0) >= 40 && (f.followers_count ?? 0) <= 200000)) && !F_NOT.test(bio) &&
+      (F_FOUNDER.test(bio) || (!bio && f._via === "search" && /\b(we|our)\b/i.test(String(f._ctx || "")))); });   // raise/launch posts from a search come without a bio
   // 3. Judge (Exa through exaFetch): only founders / C-suite at funded B2B startups, pre-seed to Series C, count.
   const schema = { type: "object", required: ["fit", "why", "company", "role", "what", "stage"], properties: {
     fit: { type: "string", enum: ["Core buyer", "Good fit", "Not a buyer"], description: "Core buyer = founder, co-founder or C-suite (CEO, CTO, COO, CMO, CRO) at a B2B or B2B2C software or deep tech startup that has raised pre-seed, seed, Series A, B or C (or is in YC or a top accelerator), roughly 2 to 100 people. Good fit = startup founder but not clearly funded or not B2B. Not a buyer = everyone else: investors, agencies, consultants, students, job seekers, big-company employees, consumer apps, crypto." },
@@ -386,7 +392,7 @@ async function followSource(maxAdd = 10) {
     what: { type: "string", description: "What the company builds, in one short sentence" }, stage: { type: "string", description: "Latest known round and when, e.g. 'Seed, $4M, Oct 2026' or 'YC S26', or 'unknown'" } } };
   const judged: any[] = []; let cost = 0;
   // people who passed the bio check last time but weren't judged yet go first; the rest wait for the next run
-  const slim = (f: any) => ({ userName: f.userName || f.screen_name, name: f.name, description: f.description, followers_count: f.followers_count, id: f.id, can_dm: f.can_dm, _via: f._via });
+  const slim = (f: any) => ({ userName: f.userName || f.screen_name, name: f.name, description: f.description, followers_count: f.followers_count, id: f.id, can_dm: f.can_dm, _via: f._via, _ctx: f._ctx, _url: f._url });
   const queue = [...(cfg.queue ?? []).filter((q: any) => !seen.has(String(q.userName).toLowerCase()) && !inPipe.has(String(q.userName).toLowerCase())), ...cands.map(slim)];
   const batchList = queue.slice(0, 24);
   let judgedN = 0;
@@ -395,8 +401,9 @@ async function followSource(maxAdd = 10) {
     const out = await Promise.all(batchList.slice(i, i + 6).map(async (f) => {
       const bio = String(f.description || ""), at = (bio.match(/@([A-Za-z0-9_]{2,15})/) || [])[1] || "";
       const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
-        body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " startup funding", numResults: 4, outputSchema: schema,
-          systemPrompt: "Is this person a founder or C-suite at a funded B2B startup? " + f.name + " (@" + (f.userName || f.screen_name) + "), " + (f.followers_count ?? 0) + " followers on X, bio: \"" + clip(bio, 250) + "\". Use the search results to find their company and its funding. Only facts from the results." }) }).catch(() => null);
+        body: JSON.stringify({ query: (at ? at + " " : "") + (bio ? clip(bio, 120) : f.name + " " + clip(String(f._ctx || ""), 150)) + " startup funding", numResults: 4, outputSchema: schema,
+          systemPrompt: "Is this person a founder or C-suite at a funded B2B startup? " + f.name + " (@" + (f.userName || f.screen_name) + ")" + (f.followers_count != null ? ", " + f.followers_count + " followers on X" : "") +
+            (bio ? ", bio: \"" + clip(bio, 250) + "\"" : "") + (f._ctx ? ". Their recent X post: \"" + clip(String(f._ctx), 300) + "\"" : "") + ". Use the search results to find their company and its funding. Only facts from the results." }) }).catch(() => null);
       const j = r && r.ok ? await r.json() : null; cost += j?.costDollars?.total ?? 0;
       return { f, o: j?.output?.content ?? null };
     }));
@@ -412,18 +419,21 @@ async function followSource(maxAdd = 10) {
   const nowIso = new Date().toISOString();
   const rowsX = judged.map((x, i) => { const fi = fits.indexOf(x); return { handle: String(x.f.userName || x.f.screen_name).toLowerCase(), name: x.f.name || "", bio: clip(String(x.f.description || ""), 300),
     followers: x.f.followers_count ?? null, fit: x.o?.fit === "Core buyer" ? "hot" : x.o?.fit === "Good fit" ? "warm" : "not a fit", why: noDash(x.o?.why || "Could not judge"), role: x.o?.role || "", company: x.o?.company || "",
-    company_what: x.o?.what || "", company_stage: x.o?.stage || "", found_by: "follows:" + x.f._via, added: fi >= 0, judged_at: nowIso, tips: fi >= 0 ? noDash(String(tips[fi] || "")) : "" }; });
+    company_what: x.o?.what || "", company_stage: x.o?.stage || "", found_by: x.f._via === "search" ? "x-search" : "follows:" + x.f._via, added: fi >= 0, judged_at: nowIso, tips: fi >= 0 ? noDash(String(tips[fi] || "")) : "" }; });
   if (rowsX.length) await db.from("crm_x_people").upsert(rowsX, { onConflict: "handle" });
   let next = Math.max(3, ...(pl ?? []).map((r) => r.row)) + 1; const writes: any[] = []; const added: string[] = [];
   for (const [i, x] of fits.entries()) {
     if (!String(tips[i] || "").trim()) continue;   // the ideas must exist before we offer them
     const h = String(x.f.userName || x.f.screen_name), first = String(x.f.name || h).trim().split(/\s+/)[0], co = x.o.company && !/^unknown$/i.test(x.o.company) ? x.o.company : "your company";
-    const via = cfg.accounts[x.f._via]?.name || x.f._via;
-    const opener = "Hey " + first + ", saw you follow " + via + " from " + cfg.client_note + ". Had a look at what you're building at " + co + " and I have 3 quick ideas that could lift your inbound on X, want me to send them over?";
+    const via = cfg.accounts[x.f._via]?.name || x.f._via, fromSearch = x.f._via === "search";
+    const round = String(x.o.stage || "").split(",")[0].trim();
+    // (16 Nov) found through a raise / launch post: the opener is about their post; otherwise about following our client's founder
+    const opener = fromSearch ? "Hey " + first + ", saw your post about " + co + (round && !/unknown/i.test(round) ? ", congrats on the " + round.replace(/^(pre-?seed|seed|series [a-c])$/i, (m) => m.toLowerCase().replace(/^series/, "Series")) : "") + ". I have 3 quick ideas that could lift your inbound on X, want me to send them over?"
+      : "Hey " + first + ", saw you follow " + via + " from " + cfg.client_note + ". Had a look at what you're building at " + co + " and I have 3 quick ideas that could lift your inbound on X, want me to send them over?";
     const row = next++;
-    writes.push({ row, col: 3, values: [[x.f.name || h, co, x.o.role || "Founder", ACCOUNT, "X DM", "Warm", "Follows " + cfg.client, "9", h, "", "",
-      "Follows @" + x.f._via + " (" + cfg.client + ", our client). " + clip(String(x.o.what || ""), 140), "https://x.com/" + h, istStamp(new Date()), "C1", opener, "To send", ""]] });
-    writes.push({ row, col: 28, values: [["Added by x-grow (followers of @" + x.f._via + ") on " + istStamp(new Date()) + ". " + noDash(x.o.why || "") + " Bio: " + clip(String(x.f.description || ""), 160)]] });
+    writes.push({ row, col: 3, values: [[x.f.name || h, co, x.o.role || "Founder", ACCOUNT, "X DM", fromSearch ? "Cold" : "Warm", fromSearch ? "Raised recently" : "Follows " + cfg.client, "9", h, "", "",
+      fromSearch ? "Posted on X: " + clip(String(x.f._ctx || ""), 170) : "Follows @" + x.f._via + " (" + cfg.client + ", our client). " + clip(String(x.o.what || ""), 140), fromSearch ? (x.f._url || "https://x.com/" + h) : "https://x.com/" + h, istStamp(new Date()), "C1", opener, "To send", ""]] });
+    writes.push({ row, col: 28, values: [["Added by x-grow (" + (fromSearch ? "raise / launch post read from your X tab" : "followers of @" + x.f._via) + ") on " + istStamp(new Date()) + ". " + noDash(x.o.why || "") + (x.f.description ? " Bio: " + clip(String(x.f.description || ""), 160) : "")]] });
     writes.push({ row, col: 35, values: [[x.o.stage || ""]] });
     if (x.f.id) writes.push({ row, col: 38, values: [[String(x.f.id)]] });
     added.push(x.f.name + " (@" + h + ")");
@@ -431,6 +441,82 @@ async function followSource(maxAdd = 10) {
   if (writes.length) { const { data: res, error } = await db.rpc("crm_call", { body: { action: "rows", writes } }); if (error || !String(res).startsWith("ok")) throw new Error("Saving follower leads failed: " + (error?.message ?? res)); }
   await db.from("crm_lead_settings").upsert({ key: "x_follow_src", value: { ...cfg, last: nowIso, last_result: { read: people.size, checked: cands.length, judged: judged.length, added: added.length } } }, { onConflict: "key" });
   return { read: people.size, passed_bio_check: cands.length, waiting: (cfg.queue ?? []).length, judged: judged.length, added: added.length, people: added, cost_exa: Math.round(cost * 1000) / 1000 };
+}
+
+// 6. Reading X through Reyansh's own signed-in X tab (16 Nov). twitterapi.io ran out of credits and Exa no longer indexes x.com
+//    (0 results for x.com posts, no tweet category; its "people" search returns LinkedIn profiles, which we use to judge ICP).
+//    So the Chrome extension reads X itself: every few minutes it asks read_plan for one job, opens that X page in its own tab
+//    (a search, a followers list), scrapes what X shows, and posts it back to read_done. Jobs:
+//      replies:      fresh posts by ICP people (DM Pipeline founders + people judged Core buyer), every 20 minutes. They get a
+//                    reply draft and are approved straight away (Reyansh chose full automation); the extension posts them.
+//      leads:        raise / launch / GTM-hiring posts from the last week, every 3 hours -> ICP judge -> X > Pipeline > To approve.
+//      my_followers: our newest followers, every 6 hours -> judged -> Engaged (+ an automatic DM for Core buyers).
+//      follow_src:   followers of our client's founders (@ShreenabhA, @karanwalia_ai), until read to the end.
+const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60 };
+const LEAD_QUERIES = [
+  '("we raised" OR "just raised" OR "excited to announce" OR "thrilled to announce") ("seed round" OR "pre-seed" OR "Series A" OR "Series B") -filter:replies min_faves:5',
+  '("launching today" OR "we\'re live" OR "just launched") ("YC" OR "Y Combinator" OR "(F26)" OR "(W26)" OR "(S26)") -filter:replies min_faves:5',
+  '("hiring" OR "we\'re hiring") ("founding GTM" OR "first GTM" OR "founding AE" OR "first marketer" OR "head of growth") -filter:replies',
+  '("closed our" OR "raised a $" OR "led by") ("seed" OR "Series A") (B2B OR SaaS OR AI OR agents) -filter:replies min_faves:5',
+];
+async function icpHandles(): Promise<string[]> {
+  const { data: pl } = await db.from("crm_sheet").select("cells").eq("tab", "DM Pipeline").gte("row", 4);
+  const a = (pl ?? []).filter((r) => !/do not contact|not now|customer/i.test(String(r.cells?.[18] || ""))).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").trim());
+  const { data: xp } = await db.from("crm_x_people").select("handle").eq("fit", "hot").limit(500);
+  return [...new Set([...a, ...(xp ?? []).map((r) => r.handle)].map((h) => h.toLowerCase()).filter((h) => /^\w{2,15}$/.test(h) && h !== HANDLE.toLowerCase()))];
+}
+const searchUrl = (q: string) => "https://x.com/search?q=" + encodeURIComponent(q) + "&src=typed_query&f=live";
+async function readPlan(b: any) {
+  const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_read").maybeSingle();
+  const s: any = st?.value ?? {}; s.at = s.at ?? {}; const now = Date.now();
+  const due = (k: string) => now - (Date.parse(s.at[k] ?? "") || 0) > READ_EVERY[k] * 60e3;
+  let job: any = null;
+  if (due("replies")) {
+    const hs = await icpHandles(); const per = 14, chunks = Math.max(1, Math.ceil(hs.length / per)); const i = (s.reply_turn ?? 0) % chunks;
+    const part = hs.slice(i * per, i * per + per);
+    if (part.length) { job = { kind: "replies", url: searchUrl("(" + part.map((h) => "from:" + h).join(" OR ") + ") -filter:replies -filter:retweets"), scrolls: 3 }; s.reply_turn = i + 1; }
+  }
+  if (!job && due("my_followers")) job = { kind: "my_followers", url: "https://x.com/" + HANDLE + "/followers", scrolls: 3 };
+  if (!job && due("leads")) { const i = (s.lead_turn ?? 0) % LEAD_QUERIES.length; const since = new Date(now - 7 * 864e5).toISOString().slice(0, 10);
+    job = { kind: "leads", url: searchUrl(LEAD_QUERIES[i] + " since:" + since), scrolls: 4 }; s.lead_turn = i + 1; }
+  if (!job && due("follow_src")) {
+    const { data: fs } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
+    const acc = Object.entries<any>({ ...FOLLOW_SRC_DEFAULT.accounts, ...((fs?.value as any)?.accounts ?? {}) }).find(([, a]) => !a.dom_done);
+    if (acc) job = { kind: "follow_src", url: "https://x.com/" + acc[0] + "/followers", scrolls: 150, via: acc[0] };
+  }
+  if (job) { s.at[job.kind] = new Date().toISOString(); await db.from("crm_lead_settings").upsert({ key: "x_read", value: s }, { onConflict: "key" }); }
+  return { job };
+}
+const num = (v: any) => { const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*([KkMm])?/); if (!m) return null; return Math.round(+m[1] * (m[2] ? (/k/i.test(m[2]) ? 1e3 : 1e6) : 1)); };
+async function readDone(b: any) {
+  const job = b.job ?? {}, items: any[] = Array.isArray(b.items) ? b.items.slice(0, 400) : [];
+  if (job.kind === "replies") {
+    const icp = new Set(await icpHandles()); const now = Date.now();
+    const posts = items.filter((p) => p.url && p.handle && icp.has(String(p.handle).toLowerCase()) && !p.reply && p.time && now - Date.parse(p.time) < 6 * 3600e3 && String(p.text || "").trim().length > 15);
+    if (!posts.length) return { found: items.length, new: 0 };
+    const { data: have } = await db.from("crm_x_reply").select("url").in("url", posts.map((p) => p.url));
+    const known = new Set((have ?? []).map((r) => r.url));
+    const fresh = posts.filter((p) => !known.has(p.url)).map((p) => ({ url: p.url, author: p.handle, name: p.name || "", followers: null, kind: "lead", post_text: String(p.text).slice(0, 2000),
+      posted_at: new Date(p.time).toISOString(), views: num(p.views), likes: num(p.likes), replies: num(p.replies), draft: "", status: "new" as string }));
+    if (!fresh.length) return { found: items.length, new: 0 };
+    const d = COMPOSIO ? await draftReplies(fresh).catch(() => ({} as Record<string, string>)) : {};
+    fresh.forEach((r, i) => { r.draft = noDash(d[String(i)] || ""); if (r.draft) r.status = "approved"; });   // full automation: ICP + a draft = approved
+    const { error } = await db.from("crm_x_reply").insert(fresh); if (error) throw error;
+    return { found: items.length, new: fresh.length, approved: fresh.filter((r) => r.status === "approved").length };
+  }
+  if (job.kind === "my_followers") { const r: any = await newFollowers(items.map((u) => ({ id: "h:" + String(u.handle).toLowerCase(), userName: u.handle, name: u.name, description: u.bio || "", followers_count: null, can_dm: true }))); r.warm = await warmDMs(); return r; }
+  if (job.kind === "follow_src" || job.kind === "leads") {
+    const people = items.filter((u) => u.handle).map((u) => ({ userName: u.handle, name: u.name || u.handle, description: u.bio || "", followers_count: null, id: null, can_dm: true,
+      _via: job.kind === "leads" ? "search" : job.via, _ctx: u.text || "", _url: u.url || "" }));
+    const r = await followSource(10, people);
+    if (job.kind === "follow_src" && b.end) {   // the extension scrolled to the end of their followers list
+      const { data: fs } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
+      const v: any = fs?.value ?? {}; v.accounts = v.accounts ?? {}; v.accounts[job.via] = { ...(v.accounts[job.via] ?? {}), dom_done: new Date().toISOString() };
+      await db.from("crm_lead_settings").upsert({ key: "x_follow_src", value: v }, { onConflict: "key" });
+    }
+    return r;
+  }
+  return { error: "Unknown job" };
 }
 
 // 3. Warm DMs on autopilot (15 Nov): everyone the CRM judged worth a DM (replied, quoted, commented a keyword, tagged, followed)
@@ -493,13 +579,13 @@ async function judge(f: any) {
   const j = await r.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
 }
-async function newFollowers() {
-  const j = await tw("/twitter/user/followers?userName=" + HANDLE + "&pageSize=200");
-  const list: any[] = (j.followers ?? []).filter((f: any) => f?.id);
+async function newFollowers(given?: any[]) {
+  const list: any[] = given ?? ((await tw("/twitter/user/followers?userName=" + HANDLE + "&pageSize=200")).followers ?? []).filter((f: any) => f?.id);
   const { count } = await db.from("crm_x_followers").select("id", { count: "exact", head: true });
   const { data: seen } = await db.from("crm_x_followers").select("id").in("id", list.map((f) => String(f.id)));
-  const known = new Set((seen ?? []).map((r) => r.id));
-  const fresh = list.filter((f) => !known.has(String(f.id)));
+  const { data: seenH } = await db.from("crm_x_followers").select("handle").in("handle", list.map((f) => String(f.userName || f.screen_name || "")));
+  const known = new Set([...(seen ?? []).map((r) => r.id), ...(seenH ?? []).map((r) => "h:" + String(r.handle).toLowerCase())]);
+  const fresh = list.filter((f) => !known.has(String(f.id)) && !known.has("h:" + String(f.userName || f.screen_name || "").toLowerCase()));
   const rowOf = (f: any, judged: boolean) => ({ id: String(f.id), handle: f.userName || f.screen_name || "", name: f.name || "", followers: f.followers_count ?? null, judged });
   if (!count) {   // first run: remember everyone who already follows us, DM nobody
     if (fresh.length) await db.from("crm_x_followers").upsert(fresh.map((f) => rowOf(f, false)), { onConflict: "id" });

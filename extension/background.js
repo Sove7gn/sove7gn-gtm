@@ -3,6 +3,7 @@
 // Every 2 minutes (tick): sends at most one approved LinkedIn request or message, with random gaps, so it looks like a person.
 // Every 2 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
 // Every 5 minutes (xrtick, 16 Nov): posts at most one approved reply (X > Outbound > Replies), 30 a day, 15+ minutes apart.
+// Every 6 minutes (xreadtick, 16 Nov): reads one X page the CRM asks for (ICP posts, raise posts, followers) and sends it back.
 import { liOp } from "./linkedin.js";
 import { xOp } from "./x.js";
 
@@ -20,13 +21,15 @@ function setup() {
   chrome.alarms.create("tick", { periodInMinutes: 2, delayInMinutes: 2 });
   chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 });
   chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 });
+  chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : tick()));
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
 chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
+chrome.alarms.get("xreadtick").then((a) => { if (!a) chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 }); });
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -474,4 +477,77 @@ async function xReplyTick() {
     await log("X replies: " + (e.message || e), true);
     if (task) { try { await api("xr_done", { url: task.url, ok: false, error: String(e.message || e) }); } catch (_) {} }
   } finally { clearInterval(ka); xbusy = false; }
+}
+
+// ═════════ Reading X from your tab (16 Nov) ═════════
+// twitterapi.io ran out of credits and Exa no longer indexes X, so the bot reads X itself, in its own X tab, like you scrolling:
+// every 6 minutes (xreadtick) it asks the CRM's x-grow job for one page to read (fresh posts by ICP founders to reply to, raise and
+// launch posts for new leads, our newest followers, or the followers of our client's founders), scrolls it and sends back what X shows.
+const XG_FN = FN.replace(/\/li-bot$/, "/x-grow");
+async function xg(action, body = {}) {
+  const { key } = await store.get("key");
+  const r = await fetch(XG_FN, { method: "POST", headers: { "Content-Type": "application/json", "x-bot-token": key }, body: JSON.stringify({ [action]: true, ...body }) });
+  const j = await r.json().catch(() => ({ error: "x-grow answered " + r.status }));
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+async function xReadTick() {
+  if (xbusy) return;
+  const { key } = await store.get("key"); if (!key) return;
+  xbusy = true; const ka = keepAlive();
+  try {
+    const me = await xop("me"); if (!me.signed_in) return;
+    const { job } = await xg("read_plan", { version: VERSION });
+    if (!job) return;
+    const id = await xTab();
+    await chrome.tabs.update(id, { url: job.url }); await loaded(id); await sleep(rand(5000, 8000));
+    const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [job.kind, job.scrolls || 3], func: async (kind, scrolls) => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const out = new Map(); let still = 0, end = false;
+      const users = kind === "my_followers" || kind === "follow_src";
+      const grab = () => {
+        let added = 0;
+        if (users) {
+          for (const c of document.querySelectorAll('[data-testid="UserCell"]')) {
+            const link = [...c.querySelectorAll('a[href^="/"]')].map((a) => a.getAttribute("href")).find((h) => /^\/\w{1,15}$/.test(h || ""));
+            if (!link) continue; const handle = link.slice(1); if (out.has(handle.toLowerCase())) continue;
+            const texts = [...c.querySelectorAll('div[dir="auto"], span')].map((e) => e.innerText.trim()).filter(Boolean);
+            const name = (texts[0] || handle).split("\n")[0];
+            const bio = [...c.querySelectorAll('div[dir="auto"]')].map((e) => e.innerText.trim()).filter((t) => t && t !== name && !t.startsWith("@") && t.length > 12).pop() || "";
+            out.set(handle.toLowerCase(), { handle, name, bio }); added++;
+          }
+        } else {
+          for (const a of document.querySelectorAll('article[data-testid="tweet"]')) {
+            const t = a.querySelector("time"); const link = t && t.closest("a"); if (!link) continue;
+            const url = new URL(link.getAttribute("href"), location.origin).href.split("?")[0]; if (out.has(url)) continue;
+            const m = url.match(/x\.com\/(\w{1,15})\/status\/(\d+)/); if (!m) continue;
+            const un = a.querySelector('[data-testid="User-Name"]'); const name = un ? (un.innerText.split("\n")[0] || m[1]) : m[1];
+            const txt = a.querySelector('[data-testid="tweetText"]'); const grp = a.querySelector('[role="group"][aria-label]');
+            const lab = grp ? grp.getAttribute("aria-label") : "";
+            const pick = (w) => { const mm = lab.match(new RegExp("([\\d,.]+[KM]?)\\s+" + w, "i")); return mm ? mm[1] : null; };
+            out.set(url, { url, handle: m[1], name, text: txt ? txt.innerText : "", time: t.getAttribute("datetime"), reply: /Replying to/i.test(a.innerText.slice(0, 300)),
+              replies: pick("repl"), likes: pick("like"), views: pick("view") }); added++;
+          }
+        }
+        return added;
+      };
+      for (let i = 0; i < 40 && !document.querySelector(users ? '[data-testid="UserCell"]' : 'article[data-testid="tweet"]'); i++) {
+        if (/no results for|nothing to see here|hmm\.\.\.this page/i.test(document.body.innerText)) return { items: [], end: true };
+        await wait(500);
+      }
+      for (let i = 0; i < scrolls; i++) {
+        const n = grab(); still = n ? 0 : still + 1;
+        if (still >= 4) { end = true; break; }
+        window.scrollBy(0, window.innerHeight * (1.2 + Math.random() * 0.6)); await wait(1200 + Math.random() * 1300);
+      }
+      grab();
+      return { items: [...out.values()], end };
+    } });
+    const r = (res && res[0] && res[0].result) || { items: [] };
+    const done = await xg("read_done", { job, items: r.items, end: !!r.end });
+    const what = { replies: "fresh posts by ICP founders", leads: "raise / launch posts", my_followers: "your newest followers", follow_src: "followers of @" + job.via }[job.kind] || job.kind;
+    await log("X: read " + r.items.length + " " + what + (done.new != null ? ", " + done.new + " new to reply to" : done.added != null ? ", " + done.added + " added to the pipeline" : "") + ".");
+    await chrome.tabs.update(id, { url: "https://x.com/messages" }).catch(() => {});
+  } catch (e) { await log("X reading: " + (e.message || e), true); }
+  finally { clearInterval(ka); xbusy = false; }
 }
