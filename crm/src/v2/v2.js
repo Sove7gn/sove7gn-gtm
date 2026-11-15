@@ -161,6 +161,18 @@ document.addEventListener('pointerup',()=>{V.hold=false;if(pending)setTimeout(re
 for(const ev of ['pointercancel','dragend','dragstart'])document.addEventListener(ev,()=>{V.hold=false;},true);
 window.addEventListener('blur',()=>{V.hold=false;});
 document.addEventListener('scroll',()=>{V.scrollAt=Date.now();},true);
+// (16 Nov) Drag to scroll anywhere: hold the mouse on empty space (or a card in the pipeline) and drag. Sideways moves the
+// calendar week or the board; up and down moves the column under the pointer, or the page. A drag of 5px or more isn't a click.
+let pan=null,eatClick=false;
+document.addEventListener('pointerdown',e=>{if(e.button!==0||e.pointerType==='touch')return;const main=document.getElementById('main');if(!main||!main.contains(e.target))return;
+  if(e.target.closest('input,textarea,select,button,a,label,[draggable=true],.chip,.seg,.tb-s,.pmsg,.fs-m,.rc-p,.post-t,.side-x,.pc2-x'))return;
+  const h=e.target.closest('.week2,.board2,.kgrid');const v=e.target.closest('.bc-b')||main;
+  pan={h,v,x:e.clientX,y:e.clientY,l:h?h.scrollLeft:0,t:v.scrollTop,moved:false};},true);
+document.addEventListener('pointermove',e=>{if(!pan)return;const dx=e.clientX-pan.x,dy=e.clientY-pan.y;
+  if(!pan.moved&&Math.abs(dx)<5&&Math.abs(dy)<5)return;pan.moved=true;document.body.classList.add('panning');
+  if(pan.h)pan.h.scrollLeft=pan.l-dx;pan.v.scrollTop=pan.t-dy;V.scrollAt=Date.now();e.preventDefault();},true);
+document.addEventListener('pointerup',()=>{if(pan&&pan.moved){eatClick=true;setTimeout(()=>{eatClick=false;},60);}pan=null;document.body.classList.remove('panning');},true);
+document.addEventListener('click',e=>{if(eatClick){e.stopPropagation();e.preventDefault();eatClick=false;}},true);
 function render(){
   if(editing()||V.dragging||V.hold){pending=true;return;}
   const sw=Date.now()-(V.scrollAt||0);if(sw<600){pending=true;setTimeout(()=>{if(pending)render();},620-sw);return;}

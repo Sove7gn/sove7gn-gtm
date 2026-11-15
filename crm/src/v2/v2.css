@@ -531,3 +531,9 @@ body{background:#FCFCFD}
 .fe2:hover{background:var(--hover)}
 .fe2-t{font-size:11.5px}
 @media (max-width:860px){.fe2{grid-template-columns:18px minmax(0,1fr) auto}.fe2-t,.fe2 .meta{display:none}}
+
+/* drag to scroll */
+#main .week2,#main .board2,#main .bc-b,#main .kgrid{cursor:grab}
+.k2,.tb-r[data-a]{cursor:pointer}
+body.panning,body.panning *{cursor:grabbing!important;user-select:none!important}
+.week2,.board2{scroll-behavior:auto;overscroll-behavior-x:contain}
