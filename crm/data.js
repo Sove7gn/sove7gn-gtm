@@ -1222,6 +1222,49 @@ async function lisRun(){
   catch(e){toast("Couldn't find posts: "+(e.message||e),true)}
   finally{LIS.running=false;await lisLoad()}
 }
+/* Notifications (15 Nov): everything the bots do, as it happens. Every 30 seconds (also while the tab is in the background) it
+   asks only for what changed since the last check: LinkedIn messages sent or failed, X DMs and follow-ups sent or failed, and
+   replies posted on X. New ones also pop up as desktop notifications when those are turned on (this browser only). */
+const NT={items:[],loaded:false,since:null,desk:(()=>{try{return localStorage.getItem("ak-crm-notify")==="1"}catch(e){return false}})(),seen:new Set()};
+const NT_LI={invite:"Connection request",dm:"First message",accept:"Accepted their request + first message",followup:"Follow-up",inmail:"InMail",magnet:"Lead magnet sent"};
+async function ntLoad(){
+  if(!sb||!session||!member)return;
+  const first=!NT.since,since=NT.since||new Date(Date.now()-3*864e5).toISOString(),stamp=new Date(Date.now()-60e3).toISOString();
+  try{
+    const [a,b,c]=await Promise.all([
+      sb.from("crm_li_tasks").select("id,lead_id,kind,step,status,text,error,sent_at,updated_at").in("status",["sent","failed"]).gte("updated_at",since).order("updated_at",{ascending:false}).limit(400),
+      sb.from("crm_x_tasks").select("id,row,name,handle,kind,status,text,error,sent_at,claimed_at,created_at").in("status",["sent","failed"]).or("sent_at.gte."+since+",claimed_at.gte."+since).limit(400),
+      sb.from("crm_x_reply").select("url,author,name,kind,post_text,draft,status,done_by,done_at,error").gte("done_at",since).limit(200)]);
+    const fresh=[];
+    const add=e=>{if(NT.seen.has(e.id))return;NT.seen.add(e.id);NT.items.push(e);if(!first)fresh.push(e)};
+    for(const t of a.data||[]){const l=(LD.rows||[]).find(x=>x.id===t.lead_id)||{};
+      add({id:"li"+t.id+t.status,at:t.status==="sent"?(t.sent_at||t.updated_at):t.updated_at,chan:"LinkedIn",ok:t.status==="sent",lead:t.lead_id,
+        what:(NT_LI[t.kind]||t.kind)+(t.kind==="followup"?" "+(t.step%100):"")+(t.status==="sent"?" sent":" didn’t go through"),
+        who:l.name||"Someone",sub:l.company||"",text:t.status==="sent"?String(t.text||""):String(t.error||""),link:l.linkedin||""})}
+    for(const t of b.data||[]){const fu=/^fu(\d)$/.exec(t.kind||"");
+      add({id:"x"+t.id+t.status,at:t.status==="sent"?t.sent_at:(t.claimed_at||t.created_at),chan:"X",ok:t.status==="sent",
+        what:(t.kind==="dm"?"First DM":fu?"Follow-up "+fu[1]:t.kind)+(t.status==="sent"?" sent":" didn’t go through"),
+        who:t.name||("@"+t.handle),sub:t.handle?"@"+String(t.handle).replace(/^@/,""):"",text:t.status==="sent"?String(t.text||""):String(t.error||""),link:t.handle?"https://x.com/"+String(t.handle).replace(/^@/,""):""})}
+    for(const r of c.data||[]){if(!r.done_at||!/^(done|failed)$/.test(r.status||""))continue;const bot=!/@/.test(r.done_by||"");
+      add({id:"xr"+r.url+r.status,at:r.done_at,chan:"X",ok:r.status==="done",what:(r.status==="done"?"Replied to their post":"Reply didn’t go through")+(bot?"":" (by hand)"),
+        who:r.name||("@"+r.author),sub:r.author?"@"+r.author:"",text:r.status==="done"?String(r.draft||""):String(r.error||""),quote:String(r.post_text||""),link:r.url||""})}
+    NT.items.sort((x,y)=>Date.parse(y.at||0)-Date.parse(x.at||0));if(NT.items.length>600)NT.items.length=600;
+    NT.since=stamp;NT.loaded=true;NT.err=null;
+    if(fresh.length)ntDesktop(fresh);
+    emit();
+  }catch(e){NT.loaded=true;NT.err=String(e.message||e);emit()}
+}
+function ntDesktop(list){
+  if(!NT.desk||typeof Notification==="undefined"||Notification.permission!=="granted")return;
+  const show=(title,body)=>{try{new Notification(title,{body:String(body).slice(0,180),tag:"sove7gn-"+title})}catch(e){}};
+  if(list.length>4){show(list.length+" bot actions",list.slice(0,4).map(e=>e.chan+": "+e.what+" → "+e.who).join("\n"));return}
+  for(const e of list)show((e.ok?"":"⚠ ")+e.chan+": "+e.what,e.who+(e.text?" — "+e.text:""));
+}
+async function ntDesk(on){
+  if(on&&typeof Notification!=="undefined"&&Notification.permission!=="granted"){const p=await Notification.requestPermission();if(p!=="granted"){toast("Your browser blocked notifications. Allow them for this site in the address bar, then try again.",true);on=false}}
+  NT.desk=!!on;try{localStorage.setItem("ak-crm-notify",on?"1":"0")}catch(e){}emit();
+  if(on)toast("Desktop notifications on. Keep this tab open (it can be in the background).");
+}
 /* X growth (15 Nov, 10K plan): fresh posts to reply to (crm_x_reply, x-grow job) and the job's last runs. Replies are written by hand. */
 const XG={rows:[],runs:[],loaded:false,running:false,at:0};
 async function xgLoad(){
@@ -1712,7 +1755,7 @@ async function afterAuth(){
   if(member==null){const {data,error}=await sb.from("crm_team").select("email").limit(1);member=!error&&!!(data&&data.length)}
   if(!member){showSignIn("notmember");emit();return}
   hideSignIn();
-  if(!started){started=true;setInterval(poll,20000)}
+  if(!started){started=true;setInterval(poll,20000);ntLoad();setInterval(ntLoad,30000)}
   publicLoad();
 }
 async function signOut(){if(sb)await sb.auth.signOut()}
@@ -1733,7 +1776,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

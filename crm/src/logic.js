@@ -42,12 +42,12 @@ const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11
 // Funnel stage on each post (15 Nov): stored as Reach / Trust / Convert, shown as TOFU / MOFU / BOFU.
 const FUNNEL_PILL={Reach:{label:'TOFU · Reach',bg:'oklch(0.95 0.04 155)',fg:'oklch(0.42 0.12 155)'},Trust:{label:'MOFU · Trust',bg:'oklch(0.95 0.04 300)',fg:'oklch(0.45 0.14 300)'},Convert:{label:'BOFU · Convert',bg:'oklch(0.95 0.05 60)',fg:'oklch(0.5 0.14 55)'},'':{label:'No funnel tag',bg:'var(--n-soft)',fg:'var(--ink-3)'}};
 const PAGES={home:{sec:'home',label:'Growth'},replies:{sec:'out',label:'Replies'},send:{sec:'out',label:'Send today'},pipeline:{sec:'out',label:'Pipeline'},scripts:{sec:'out',label:'DM scripts'},inbox:{sec:'mid',label:'Replies and calls'},calendar:{sec:'in',label:'Calendar'},posts:{sec:'in',label:'Inspiration'},engaged:{sec:'mid',label:'Engaged'},tracker:{sec:'in',label:'Post tracker'},pdm:{sec:'mid',label:'Who engaged'},comps:{sec:'in',label:'Competitors'},
-  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},leadSignals:{sec:'leads',label:'Signals'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
+  leads:{sec:'leads',label:'Overview'},leadBoard:{sec:'leads',label:'Pipeline'},leadList:{sec:'leads',label:'All leads'},leadAdd:{sec:'leads',label:'Add people'},leadSetup:{sec:'leads',label:'Setup'},gtmNow:{sec:'leads',label:'Right now'},gtmViews:{sec:'leads',label:'Lead lists'},liPipe:{sec:'out',label:'Pipeline'},leadDossier:{sec:'leads',label:'Call dossiers'},leadBrief:{sec:'leads',label:'Daily brief'},notifs:{sec:'leads',label:'Notifications'},leadSignals:{sec:'leads',label:'Signals'},xShared:{sec:'out',label:'From LinkedIn'},liOut:{sec:'out',label:'Bot and outreach'},liInbox:{sec:'in',label:'Messages to us'},liMid:{sec:'mid',label:'Replied to us'},gtmEngage:{sec:'mid',label:'Engagement'},gtmDash:{sec:'leads',label:'Dashboard'},liPeople:{sec:'mid',label:'Liked our posts'}};
 const SECS=[{id:'home',label:'Growth',pages:['home']},{id:'out',label:'Outbound',hint:'30 DMs and 30 replies a day',pages:['send','replies','pipeline','xShared']},{id:'in',label:'Inbound',hint:'3 posts a day',pages:['calendar','posts','tracker']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['engaged']}];
 // 9 Nov: these pages now live inside others (scripts in Pipeline, competitors in Inspiration, replies and who engaged in Engaged).
 const MOVED={growth:['home',{}],scripts:['pipeline',{pipeTab:'Scripts'}],comps:['posts',{inspTab:'comp'}],inbox:['engaged',{}],pdm:['engaged',{}]};
 const SECLBL={home:'Home',out:'Outbound',in:'Inbound',mid:'Midbound',leads:'Leads'};
-const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','leadSignals','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
+const LEAD_SEC={id:'leads',label:'Leads',hint:'Everyone we’re talking to',pages:['leads','leadBrief','notifs','leadSignals','gtmNow','leadBoard','leadDossier','leadList','leadAdd','leadSetup']};
 // A call booked for the GTM service (a LinkedIn or X lead, not clipping): these get a call dossier.
 const isGtmCall=l=>!!l&&/^(call booked|proposal sent)$/i.test(l.stage||'')&&/^(linkedin|x)$/i.test(l.source||'')&&!/clip|ugc|reel/i.test(String(l.pitch||'')+' '+String(l.closed_for||''))&&(((l.fields||{}).call||{}).kind!=='clipping');
 // The call on a lead (11 Nov, from Gmail and cal.com): when, the Meet link, GTM or clipping, booked / declined / cancelled.
@@ -377,6 +377,7 @@ class Component extends DCLogic {
     const L=this.leadsAll();const LI=l=>(l.fields||{}).li||{};const n={};
     const SIG=/^li-src:(funding|site|magnet|launch|hiring):/;
     n.leadSignals=L.filter(l=>SIG.test(String(l.origin_key||''))&&t(l.created_at)>since('leadSignals')).length+L.filter(l=>Object.values(LI(l).magnets||{}).some(x=>t(x)>since('leadSignals'))&&!SIG.test(String(l.origin_key||''))).length;
+    n.notifs=(AK.NT.items||[]).filter(e=>t(e.at)>since('notifs')).length;
     const br=(AK.BR.rows||[])[0];n.leadBrief=br&&t(br.made_at||br.day)>since('leadBrief')?1:0;
     n.leadDossier=L.filter(l=>t(((l.fields||{}).brief||{}).at)>since('leadDossier')).length;
     n.liMid=L.filter(l=>t(LI(l).replied)>since('liMid')).length;
@@ -1285,6 +1286,7 @@ class Component extends DCLogic {
     else if(page==='gtmNow'){const A=this.gtmAll().filter(x=>!x.c.closed);const hi=A.filter(x=>x.c.radar.level==='HIGH');h.next=hi.length?hi.length+(hi.length===1?' lead has':' leads have')+' a fresh reason to reach out this week. Start with '+(hi.sort((a,b)=>b.c.radar.score-a.c.radar.score)[0].l.name||'the top one')+'.':'Ranked by the Buying Window Radar: recent raise, GTM hiring, launches, founder posts and team gaps. Verified facts are kept apart from inferences.';}
     else if(page==='gtmViews'){const A=this.gtmAll();const n=A.filter(x=>x.c.score.icp&&!x.c.closed).length;const u=A.filter(x=>x.c.score.band==='unverified'&&!x.c.closed).length;h.next=n+' open '+(n===1?'lead fits':'leads fit')+' the ICP on evidence'+(u?'; '+u+' more need research to be scored':'')+'. Nothing here sends messages: copy, send yourself, then log it.';}
     else if(page==='leadSignals'){const L=this.leadsAll();const f=L.filter(l=>String(l.origin_key||'').startsWith('li-src:funding:'));const t0=Date.now()-7*864e5;const fw=f.filter(l=>Date.parse(l.created_at)>t0).length;h.next=f.length?fw+' founders who just raised added this week ('+f.length+' in all). Newest: '+f.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0].name+'.':'The funding search runs every morning at 8:30 IST.';}
+    else if(page==='notifs'){const N=AK.NT.items||[];const t0=new Date();t0.setHours(0,0,0,0);const td=N.filter(e=>Date.parse(e.at)>=t0.getTime());h.next=!AK.NT.loaded?'Loading what the bots did…':td.length?'Today the bots did '+td.length+(td.length===1?' thing':' things')+(td.filter(e=>!e.ok).length?', '+td.filter(e=>!e.ok).length+' didn’t go through':'')+'. Newest first, live.':'Nothing sent yet today. Every message, follow-up and reply the bots send shows up here as it happens.';}
     else if(page==='leadBrief'){const b=(AK.BR.rows||[])[0];h.next=!AK.BR.loaded?'Loading the brief…':!b?'No brief yet. It writes itself at 8:00 IST, or press Write it now.':'Today: '+((b.data.overall||[])[4]?b.data.overall[4].v:0)+' people to follow up with. Written '+this.since(b.made_at)+'.';}
     else if(page==='leadDossier'){const D=this.leadsAll().filter(isGtmCall);const w=D.filter(l=>!((l.fields||{}).brief||{}).at).length;h.next=D.length?D.length+(D.length===1?' GTM call':' GTM calls')+' booked'+(w?', '+w+' dossier'+(w===1?'':'s')+' being written.':'. Every dossier is ready.'):'No GTM calls booked yet.';}
     else if(page==='liPipe'){const w=AK.LBT.rows.filter(t=>t.status==='review').length;h.next=w?w+(w===1?' message is':' messages are')+' waiting for your OK. Approve them on the cards below.':'Nothing waiting for your OK. New people who engage with our posts show up in Leads found.';}
@@ -1327,6 +1329,7 @@ class Component extends DCLogic {
     if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(page==='leadDossier')return{...base,dos:this.dossierVals()};
     if(page==='leadBrief')return{...base,db:this.dailyVals(),ow:this.outreachVals(),sc:this.scoreVals()};
+    if(page==='notifs')return{...base,nt:this.notifVals()};
     if(page==='leadSignals')return{...base,sg:this.leadSignalsVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
@@ -1805,6 +1808,25 @@ class Component extends DCLogic {
       li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:pl(liReview,'request','requests')+' to approve · '+pl(liAnswer,'reply','replies')+' to answer',next:pl(q(['invite']),'request','requests')+', '+pl(q(['dm','accept']),'first message','first messages')+' and '+pl(q(['followup']),'follow-up','follow-ups')+' queued',open:()=>jump('LinkedIn','liPipe')},
       x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:pl(xApprove,'first DM','first DMs')+' to approve · '+pl(L.rep.length,'reply','replies')+' to answer',next:pl(xQ.filter(t=>t.kind==='dm').length,'first DM','first DMs')+' and '+pl(xQ.filter(t=>t.kind!=='dm').length,'follow-up','follow-ups')+' queued',open:()=>jump('X','pipeline')},
       updated:'Live · '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),details:!!s.briefDetails,detailsLabel:s.briefDetails?'Hide details':'Show details: follow-up lists, everyone on LinkedIn, past briefs',toggleDetails:()=>this.setState(z=>({briefDetails:!z.briefDetails}))};}
+  /* Notifications (15 Nov): every message, follow-up and reply the extension sends (LinkedIn and X), live, newest first. */
+  notifVals(){const s=this.state;const N=AK.NT.items||[];const f=s.ntF||'All';const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime();
+    const keep=e=>f==='All'||(f==='Problems'?!e.ok:f==='Replies'?/^Repl/.test(e.what):e.chan===f);
+    const L=N.filter(keep);const n=s.ntN||60;
+    const dayOf=at=>{const d=new Date(at);const d0=new Date(d);d0.setHours(0,0,0,0);const diff=Math.round((T0-d0.getTime())/864e5);return diff===0?'Today':diff===1?'Yesterday':d.toLocaleDateString([], {weekday:'long',day:'numeric',month:'short'});};
+    const items=[];let last='';
+    for(const e of L.slice(0,n)){const day=dayOf(e.at);
+      items.push({isDay:day!==last,day,id:e.id,time:new Date(e.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),chan:e.chan,chanBg:e.chan==='X'?'#111':'#0a66c2',chanTxt:e.chan==='X'?'𝕏':'in',
+        what:e.what,who:e.who,sub:e.sub||'',text:clip(e.text||'',260),hasText:!!e.text,quote:clip(e.quote||'',140),hasQuote:!!e.quote,ok:e.ok,
+        dot:e.ok?'var(--ok)':'var(--bad)',whatC:e.ok?'var(--ink)':'var(--bad)',hasLink:!!e.link,open:()=>{if(e.link)window.open(e.link,'_blank','noopener');},
+        hasLead:!!e.lead,openLead:()=>this.openLead(e.lead)});last=day;}
+    const today=N.filter(e=>Date.parse(e.at)>=T0);const c=pred=>String(today.filter(pred).length);
+    const stats=[{label:'Sent today',v:c(e=>e.ok)},{label:'LinkedIn',v:c(e=>e.ok&&e.chan==='LinkedIn')},{label:'X DMs and follow-ups',v:c(e=>e.ok&&e.chan==='X'&&!/^Repl/.test(e.what))},{label:'X replies posted',v:c(e=>e.ok&&/^Repl/.test(e.what))},{label:'Didn’t go through',v:c(e=>!e.ok)}];
+    const tabs=['All','LinkedIn','X','Replies','Problems'].map(k=>({label:k+(k==='Problems'&&N.some(e=>!e.ok)?' ('+N.filter(e=>!e.ok).length+')':''),on:k===f,bg:k===f?'var(--ink)':'rgba(255,255,255,.85)',fg:k===f?'#fff':'var(--ink-2)',pick:()=>this.setState({ntF:k,ntN:60})}));
+    const perm=typeof Notification==='undefined'?'unsupported':Notification.permission;
+    return{items,has:items.length>0,none:AK.NT.loaded&&!items.length,loading:!AK.NT.loaded,stats,tabs,err:AK.NT.err||'',hasErr:!!AK.NT.err,
+      more:L.length>n,moreLabel:'Show '+Math.min(100,L.length-n)+' more',showMore:()=>this.setState({ntN:n+100}),
+      desk:!!AK.NT.desk,deskLabel:AK.NT.desk?'Desktop notifications: on':'Turn on desktop notifications',deskBg:AK.NT.desk?'var(--ok-soft)':'var(--ink)',deskFg:AK.NT.desk?'var(--ok-ink)':'#fff',
+      toggleDesk:()=>AK.ntDesk(!AK.NT.desk),deskNote:perm==='unsupported'?'This browser can’t show desktop notifications.':AK.NT.desk?'New sends pop up on your screen while this tab is open, even in the background.':'Get a pop-up for every message, follow-up and reply the bots send.'};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
     const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};
     const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));const made=pick?Date.parse(pick.made_at):0;const done=s.briefDone||{};
