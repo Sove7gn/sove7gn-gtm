@@ -240,7 +240,9 @@ async function sync(fromButton) {
     if (!me.signed_in) { await log("You're signed out of LinkedIn in this Chrome. Sign in and it carries on.", true); return { signed_out: true }; }
     if (h.paused) { await log("Paused on LinkedIn > Outreach in the CRM."); return { paused: true }; }
 
+    const step = (n) => api("x_job", { name: "linkedin", ok: true, note: n + " (" + new Date().toLocaleTimeString() + ")", version: VERSION }).catch(() => {});
     // 1. Everyone who liked or commented on our posts (every 3 hours).
+    step("reading who engaged with our posts");
     if (h.scan_engagers) {
       let cqid = await commentsQid(me, h.extra_posts);
       let e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
@@ -256,6 +258,7 @@ async function sync(fromButton) {
     }
     // 1b. New sources: requests sent to us, people we tagged, profile viewers, commenters on founder posts we commented on.
     await moreSources(me, h);
+    step("reading new connections and chats");
     // 2. Accepts and replies.
     let conns = [], threads = [];
     try { conns = await op("connections"); } catch (e) { await log("Couldn't read your connections: " + e.message, true); }
@@ -275,8 +278,10 @@ async function sync(fromButton) {
     summary.state = st;
     if (st.accepted || st.replied) await log((st.accepted ? st.accepted + " accepted. " : "") + (st.replied ? st.replied + " replied (follow-ups stopped)." : ""));
 
+    step("planning what to send");
     // 3. What to send next.
     const p = await api("plan", { version: VERSION });
+    step("done: " + ((p.tasks || []).length) + " messages to send");
     for (const L of p.lookups || []) {
       try { const r = await op("lookup", L); await api("contact", { lead_id: L.lead_id, ...r }); } catch (e) { await log("Lookup failed: " + e.message, true); }
       await sleep(rand(1500, 4000));
