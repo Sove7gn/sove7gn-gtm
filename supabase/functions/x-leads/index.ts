@@ -115,17 +115,27 @@ async function twGet(url: string): Promise<Response> {
   }
   return await fetch(url, { headers: { "X-API-Key": TWAPI } });
 }
-async function xSearch(query: string, maxItems: number): Promise<any[]> {
+// (16 Nov) Deep paging: every run read the same newest 40 posts per search, so after a few days nearly everyone had been judged
+// (about 250 people read, 0 to 2 new). Now page 1 is the newest posts and the next pages carry on from where the last run of
+// that search stopped (cursors kept in crm_state "x_leads_cursors"), so each run reaches people further back in the 30 days.
+const CURSORS: Record<string, string> = {};
+async function xSearch(query: string, maxItems: number, key = ""): Promise<any[]> {
   if (TWAPI) {   // twitterapi.io (10 Nov): same data as the Apify scraper, about $0.15 per 1,000 posts, 20 a page
     const out: any[] = [];
-    let cursor = "";
-    for (let page = 0; page < Math.min(TW_PAGES, Math.ceil(maxItems / 20)) && out.length < maxItems; page++) {
+    const pages = Math.min(TW_PAGES, Math.ceil(maxItems / 20));
+    for (let page = 0; page < pages && out.length < maxItems; page++) {
+      const deep = page > 0 && key;
+      const cursor = page === 0 ? "" : deep ? (CURSORS[key] || "") : "";
       const r = await twGet("https://api.twitterapi.io/twitter/tweet/advanced_search?queryType=Latest&query=" + encodeURIComponent(query) + "&cursor=" + encodeURIComponent(cursor));
       if (!r.ok) throw new Error("twitterapi.io answered " + r.status + ": " + (await r.text()).slice(0, 160));
       const j = await r.json();
       out.push(...(j.tweets ?? []));
-      if (!j.has_next_page || !j.next_cursor) break;
-      cursor = j.next_cursor;
+      const nextC = j.has_next_page && j.next_cursor ? String(j.next_cursor) : "";
+      if (key) {
+        if (page === 0 && !CURSORS[key]) CURSORS[key] = nextC;     // first time: the deep pages start after page 1
+        else if (page > 0) CURSORS[key] = nextC;                  // carry on next run; "" = reached the end, start again from the top
+      }
+      if (!nextC && page === 0) break;
     }
     return out.slice(0, maxItems).filter((i) => i && i.id && i.author?.userName);
   }
@@ -140,7 +150,7 @@ async function xSearch(query: string, maxItems: number): Promise<any[]> {
 }
 
 // What we search for. Each one is a reason to talk to them now.
-const since = () => istDay(new Date(Date.now() - 14 * 864e5));
+const since = () => istDay(new Date(Date.now() - 30 * 864e5));   // (16 Nov) 30 days: anyone who raised or launched this month
 const QUERIES = (s: string) => [
   { seg: "Raised recently", max: 80, q: `("we raised" OR "just raised" OR "excited to announce" OR "thrilled to announce" OR "proud to announce" OR "happy to announce") ("seed round" OR "pre-seed" OR "Series A" OR "Series B" OR "Series C" OR "seed funding") -filter:replies -filter:retweets min_faves:5 since:${s}` },
   { seg: "Raised recently", max: 60, q: `("raised a $" OR "raised $" OR "closed our $" OR "our $" OR "just closed" OR "we closed") ("seed" OR "Series A" OR "Series B" OR "round") (B2B OR SaaS OR AI OR platform OR enterprise OR agents) -filter:replies -filter:retweets min_faves:5 since:${s}` },
@@ -230,6 +240,8 @@ async function findLeads(force: boolean) {
   const used = new Map(scripts.map((t) => [t.id, body.filter((r) => r.cells[ix("Template")] === t.id).length]));
   const nextScript = () => { if (!scripts.length) return ""; const t = [...scripts].sort((a, b) => (used.get(a.id)! - used.get(b.id)!) || a.id.localeCompare(b.id))[0]; used.set(t.id, used.get(t.id)! + 1); return t.id; };
 
+  const { data: cur } = await db.from("crm_state").select("value").eq("key", "x_leads_cursors").maybeSingle();
+  try { Object.assign(CURSORS, JSON.parse(String(cur?.value ?? "{}"))); } catch (_) { /* start from the top */ }
   const { data: judgedBefore } = await db.from("crm_x_people").select("handle").not("judged_at", "is", null);
   const seen = new Set((judgedBefore ?? []).map((p) => p.handle));
 
@@ -237,7 +249,8 @@ async function findLeads(force: boolean) {
   const s = since();
   const Q = QUERIES(s), results: any[][] = [];
   for (let i = 0; i < Q.length; i += 4)   // Apify runs five jobs at once at most; the other jobs may be running too
-    results.push(...await Promise.all(Q.slice(i, i + 4).map((q) => xSearch(q.q, q.max).then((items) => items.map((x) => ({ ...x, _seg: q.seg }))).catch((e) => { console.log("search failed", String(e)); return []; }))));
+    results.push(...await Promise.all(Q.slice(i, i + 4).map((q, k) => xSearch(q.q, q.max, "q" + (i + k)).then((items) => items.map((x) => ({ ...x, _seg: q.seg }))).catch((e) => { console.log("search failed", String(e)); return []; }))));
+  await db.from("crm_state").upsert({ key: "x_leads_cursors", value: JSON.stringify(CURSORS) });   // where each search's deep pages carry on next run
   const tweets = results.flat();
   const best = new Map<string, any>();
   for (const t of tweets) {

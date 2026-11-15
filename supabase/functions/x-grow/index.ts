@@ -89,6 +89,7 @@ Deno.serve(async (req) => {
     if (both || body.replies) out.replies = await replyTargets();
     if (both || body.followers) out.followers = await newFollowers();
     if (both || body.followers || body.warm) out.warm = await warmDMs();
+    if (body.follow_src) out.follow_src = await followSource(+(body.max ?? 10) || 10);
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary: out }).eq("id", run.id);
     return json(out);
   } catch (e) {
@@ -344,6 +345,94 @@ async function dailyPosts(force = false) {
   return { added, slots: jobs.map((j) => j.s.slot), placeholders: placed };
 }
 
+// 5. Followers of our client's founders (16 Nov): people who follow Shreenabh (@ShreenabhA) and Karan (@karanwalia_ai) of Aktoria
+//    (YC S26, our client). Each run reads the next 3 pages of their followers, keeps only founders and C-suite at funded B2B startups
+//    (pre-seed to Series C, judged once), writes their 3 ideas ahead (sent as X follow-up 1), and adds them to the DM Pipeline, where
+//    they wait in X > Pipeline > To approve. Opener: they follow Shreenabh / Karan, and 3 quick ideas on offer. Never a pitch first.
+//    Settings and progress: crm_lead_settings "x_follow_src".
+const FOLLOW_SRC_DEFAULT = { client: "Aktoria", client_note: "Aktoria (YC S26), one of the founders we work with", accounts: { ShreenabhA: { name: "Shreenabh" }, karanwalia_ai: { name: "Karan" } } as Record<string, any> };
+const F_FOUNDER = /(co-?founder|founder|\bceo\b|\bcto\b|\bcoo\b|\bcmo\b|\bcro\b|chief|building @|founding)/i;
+const F_NOT = /(crypto|web3|defi|nft|onchain|blockchain|\bvc\b|venture|investor|investing|angel|\bfund\b|capital|partner at|recruit|talent|hiring manager|student|intern|looking for (a )?(job|role)|open to work|journalist|reporter|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|marketing studio)/i;
+async function followSource(maxAdd = 10) {
+  const t0 = Date.now();   // Supabase stops a run at 150 s: judging stops at 75 s so there is time to write ideas and save
+  const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
+  const cfg: any = { ...FOLLOW_SRC_DEFAULT, ...(st?.value ?? {}) };
+  for (const h of Object.keys(FOLLOW_SRC_DEFAULT.accounts)) cfg.accounts[h] = { ...FOLLOW_SRC_DEFAULT.accounts[h], ...(cfg.accounts?.[h] ?? {}) };
+  // 1. Next pages of followers (3 pages of 200 per account per run), skipping accounts already read to the end.
+  const people = new Map<string, any>();
+  for (const [acc, a] of Object.entries<any>(cfg.accounts)) {
+    if (a.done) continue;
+    for (let p = 0; p < 2; p++) {
+      const j = await tw("/twitter/user/followers?userName=" + acc + "&pageSize=200&cursor=" + encodeURIComponent(a.cursor || ""));
+      for (const f of j.followers ?? []) { const h = String(f.userName || f.screen_name || ""); if (h && !people.has(h.toLowerCase())) people.set(h.toLowerCase(), { ...f, _via: acc }); }
+      a.read = (a.read ?? 0) + (j.followers ?? []).length;
+      if (!j.has_next_page || !j.next_cursor) { a.done = true; a.cursor = ""; break; }
+      a.cursor = j.next_cursor;
+    }
+  }
+  // 2. Cheap checks, then skip anyone already judged or already in the pipeline.
+  const { data: pl } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").gte("row", 4);
+  const inPipe = new Set((pl ?? []).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase()).filter(Boolean));
+  const hs = [...people.keys()];
+  const seen = new Set<string>();
+  for (let i = 0; i < hs.length; i += 300) { const { data } = await db.from("crm_x_people").select("handle").in("handle", hs.slice(i, i + 300)).not("judged_at", "is", null); for (const r of data ?? []) seen.add(r.handle); }
+  const cands = [...people.values()].filter((f) => { const h = String(f.userName || f.screen_name).toLowerCase(), bio = String(f.description || "");
+    return h !== HANDLE.toLowerCase() && !Object.keys(cfg.accounts).some((a) => a.toLowerCase() === h) && !inPipe.has(h) && !seen.has(h) && f.can_dm !== false &&
+      (f.followers_count ?? 0) >= 40 && (f.followers_count ?? 0) <= 200000 && F_FOUNDER.test(bio) && !F_NOT.test(bio); });
+  // 3. Judge (Exa through exaFetch): only founders / C-suite at funded B2B startups, pre-seed to Series C, count.
+  const schema = { type: "object", required: ["fit", "why", "company", "role", "what", "stage"], properties: {
+    fit: { type: "string", enum: ["Core buyer", "Good fit", "Not a buyer"], description: "Core buyer = founder, co-founder or C-suite (CEO, CTO, COO, CMO, CRO) at a B2B or B2B2C software or deep tech startup that has raised pre-seed, seed, Series A, B or C (or is in YC or a top accelerator), roughly 2 to 100 people. Good fit = startup founder but not clearly funded or not B2B. Not a buyer = everyone else: investors, agencies, consultants, students, job seekers, big-company employees, consumer apps, crypto." },
+    why: { type: "string", description: "One plain sentence: who they are and the evidence for the verdict" }, company: { type: "string" }, role: { type: "string" },
+    what: { type: "string", description: "What the company builds, in one short sentence" }, stage: { type: "string", description: "Latest known round and when, e.g. 'Seed, $4M, Oct 2026' or 'YC S26', or 'unknown'" } } };
+  const judged: any[] = []; let cost = 0;
+  // people who passed the bio check last time but weren't judged yet go first; the rest wait for the next run
+  const slim = (f: any) => ({ userName: f.userName || f.screen_name, name: f.name, description: f.description, followers_count: f.followers_count, id: f.id, can_dm: f.can_dm, _via: f._via });
+  const queue = [...(cfg.queue ?? []).filter((q: any) => !seen.has(String(q.userName).toLowerCase()) && !inPipe.has(String(q.userName).toLowerCase())), ...cands.map(slim)];
+  const batchList = queue.slice(0, 24);
+  let judgedN = 0;
+  for (let i = 0; i < batchList.length && Date.now() - t0 < 75e3; i += 6) {
+    judgedN = i + 6;
+    const out = await Promise.all(batchList.slice(i, i + 6).map(async (f) => {
+      const bio = String(f.description || ""), at = (bio.match(/@([A-Za-z0-9_]{2,15})/) || [])[1] || "";
+      const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+        body: JSON.stringify({ query: (at ? at + " " : "") + clip(bio, 120) + " startup funding", numResults: 4, outputSchema: schema,
+          systemPrompt: "Is this person a founder or C-suite at a funded B2B startup? " + f.name + " (@" + (f.userName || f.screen_name) + "), " + (f.followers_count ?? 0) + " followers on X, bio: \"" + clip(bio, 250) + "\". Use the search results to find their company and its funding. Only facts from the results." }) }).catch(() => null);
+      const j = r && r.ok ? await r.json() : null; cost += j?.costDollars?.total ?? 0;
+      return { f, o: j?.output?.content ?? null };
+    }));
+    judged.push(...out);
+  }
+  cfg.queue = queue.slice(Math.min(judgedN, batchList.length), 400);   // the ones not judged in time wait for the next run
+  const fits = judged.filter((x) => x.o?.fit === "Core buyer" && !/^unknown$/i.test(String(x.o.stage || "").trim())).slice(0, maxAdd);
+  // 4. Their 3 ideas, written ahead (X follow-up 1 sends them).
+  const tips = fits.length ? await llm(fits.map((x) => "Write 3 short, specific ideas for how " + (x.o.company || "this startup") + " could get more inbound from X and LinkedIn, for its founder " + x.f.name + ". " +
+    "What they build: " + x.o.what + ". Their X bio: \"" + clip(String(x.f.description || ""), 200) + "\". Each idea is one numbered line (1., 2., 3.), under 200 characters, concrete (a post format, a list to tag, a reply habit, a profile fix), " +
+    "written to the founder as 'you'. No pitch, no links, no em dashes, no hashtags. Answer with the 3 lines only.")).catch(() => []) : [];
+  // 5. Save: everyone judged (so nobody is paid for twice), then the fits into the DM Pipeline.
+  const nowIso = new Date().toISOString();
+  const rowsX = judged.map((x, i) => { const fi = fits.indexOf(x); return { handle: String(x.f.userName || x.f.screen_name).toLowerCase(), name: x.f.name || "", bio: clip(String(x.f.description || ""), 300),
+    followers: x.f.followers_count ?? null, fit: x.o?.fit === "Core buyer" ? "hot" : x.o?.fit === "Good fit" ? "warm" : "not a fit", why: noDash(x.o?.why || "Could not judge"), role: x.o?.role || "", company: x.o?.company || "",
+    company_what: x.o?.what || "", company_stage: x.o?.stage || "", found_by: "follows:" + x.f._via, added: fi >= 0, judged_at: nowIso, tips: fi >= 0 ? noDash(String(tips[fi] || "")) : "" }; });
+  if (rowsX.length) await db.from("crm_x_people").upsert(rowsX, { onConflict: "handle" });
+  let next = Math.max(3, ...(pl ?? []).map((r) => r.row)) + 1; const writes: any[] = []; const added: string[] = [];
+  for (const [i, x] of fits.entries()) {
+    if (!String(tips[i] || "").trim()) continue;   // the ideas must exist before we offer them
+    const h = String(x.f.userName || x.f.screen_name), first = String(x.f.name || h).trim().split(/\s+/)[0], co = x.o.company && !/^unknown$/i.test(x.o.company) ? x.o.company : "your company";
+    const via = cfg.accounts[x.f._via]?.name || x.f._via;
+    const opener = "Hey " + first + ", saw you follow " + via + " from " + cfg.client_note + ". Had a look at what you're building at " + co + " and I have 3 quick ideas that could lift your inbound on X, want me to send them over?";
+    const row = next++;
+    writes.push({ row, col: 3, values: [[x.f.name || h, co, x.o.role || "Founder", ACCOUNT, "X DM", "Warm", "Follows " + cfg.client, "9", h, "", "",
+      "Follows @" + x.f._via + " (" + cfg.client + ", our client). " + clip(String(x.o.what || ""), 140), "https://x.com/" + h, istStamp(new Date()), "C1", opener, "To send", ""]] });
+    writes.push({ row, col: 28, values: [["Added by x-grow (followers of @" + x.f._via + ") on " + istStamp(new Date()) + ". " + noDash(x.o.why || "") + " Bio: " + clip(String(x.f.description || ""), 160)]] });
+    writes.push({ row, col: 35, values: [[x.o.stage || ""]] });
+    if (x.f.id) writes.push({ row, col: 38, values: [[String(x.f.id)]] });
+    added.push(x.f.name + " (@" + h + ")");
+  }
+  if (writes.length) { const { data: res, error } = await db.rpc("crm_call", { body: { action: "rows", writes } }); if (error || !String(res).startsWith("ok")) throw new Error("Saving follower leads failed: " + (error?.message ?? res)); }
+  await db.from("crm_lead_settings").upsert({ key: "x_follow_src", value: { ...cfg, last: nowIso, last_result: { read: people.size, checked: cands.length, judged: judged.length, added: added.length } } }, { onConflict: "key" });
+  return { read: people.size, passed_bio_check: cands.length, waiting: (cfg.queue ?? []).length, judged: judged.length, added: added.length, people: added, cost_exa: Math.round(cost * 1000) / 1000 };
+}
+
 // 3. Warm DMs on autopilot (15 Nov): everyone the CRM judged worth a DM (replied, quoted, commented a keyword, tagged, followed)
 //    gets a DM Pipeline row (script W1, Warm) and a task for the X bot, which sends it from Reyansh's X tab within its daily cap
 //    (warm people go before cold ones). Follow-ups 1 and 2 come from W1. At most 10 a run.
@@ -352,7 +441,7 @@ async function warmDMs() {
   const week = Date.now() - 7 * 864e5;
   const MONS: Record<string, number> = Object.fromEntries(MON.map((m, i) => [m, i]));
   const when = (s: string) => { const m = String(s || "").match(/^(\d{1,2}) (\w{3}) (\d{4})/); return m ? Date.UTC(+m[3], MONS[m[2]] ?? 0, +m[1]) : 0; };
-  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return (c[15] || "To message") === "To message" && c[18] === "DM + reply" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });
+  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return (c[15] || "To message") === "To message" && c[18] === "DM + reply" && c[12] === "Core buyer" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });   // (16 Nov) only the ICP (founder or C-suite at a funded B2B startup) gets an automatic DM; the rest stay on Engaged
   if (!todo.length) return { queued: 0 };
   const { data: pl } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").gte("row", 4);
   const inPipe = new Set((pl ?? []).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase()).filter(Boolean));
