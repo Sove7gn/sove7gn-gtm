@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1688,10 +1688,26 @@ async function replyPlan(l: any, sr: { label: string; draft: string }, chan: str
   return { move, text, kind, status, label: sr.label, chan };
 }
 
+// Which X chats the extension should open this run: people we DMed in the last 3 weeks who aren't closed, oldest checked first.
+async function x_inbox_targets(_b: any) {
+  const since = new Date(Date.now() - 21 * 864e5).toISOString();
+  const { data: xt } = await db.from("crm_x_tasks").select("user_id,row").eq("status", "sent").gte("sent_at", since).limit(3000);
+  const uids = [...new Set((xt ?? []).map((t: any) => String(t.user_id ?? "")).filter(Boolean))];
+  const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox_checked").maybeSingle(); const checked: Record<string, number> = { ...((sv?.value as any) ?? {}) };
+  const pick = uids.sort((a, b) => (checked[a] || 0) - (checked[b] || 0)).slice(0, 15);
+  const now2 = Date.now(); for (const u of pick) checked[u] = now2;
+  for (const k of Object.keys(checked)) if (!uids.includes(k)) delete checked[k];
+  await db.from("crm_lead_settings").upsert({ key: "x_inbox_checked", value: checked });
+  return { user_ids: pick };
+}
+
 // ───────── X inbox (16 Nov): the extension reads the X DM inbox; replies to our DMs are caught, sorted and answered ─────────
 async function x_inbox(b: any) {
   const me = String(b.me?.id ?? "");
-  const items = (b.items ?? []).filter((m: any) => m && m.from && String(m.from) !== me && m.text).map((m: any) => ({ ...m, from: String(m.from), at: +m.at || 0 }));
+  const raw = (b.items ?? []).filter((m: any) => m && m.from && m.text).map((m: any) => ({ ...m, from: String(m.from), to: String(m.to ?? ""), at: +m.at || 0 }));
+  const items = raw.filter((m: any) => m.from !== me);
+  // our own last message to each person: if it's after their reply, Reyansh already answered by hand
+  const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
   await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length });
   if (!items.length) return { ok: true, replied: 0 };
   const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
@@ -1701,17 +1717,19 @@ async function x_inbox(b: any) {
   for (const r of all) if (r.row > h.row) { const u = String(obj(r)["X user ID"] ?? "").trim(); if (u) byUid.set(u, r); }
   const { data: xt } = await db.from("crm_x_tasks").select("row,user_id,status,sent_at,kind").limit(10000);
   for (const t of xt ?? []) if (t.user_id && !byUid.has(String(t.user_id))) { const r = all.find((x: any) => x.row === t.row); if (r) byUid.set(String(t.user_id), r); }
-  const lastSent = new Map<number, number>(); for (const t of xt ?? []) if (t.status === "sent") lastSent.set(t.row, Math.max(lastSent.get(t.row) || 0, Date.parse(t.sent_at) || 0));
+  // their messages count from our FIRST DM on (a follow-up may have gone out after they replied)
+  const firstSent = new Map<number, number>(); for (const t of xt ?? []) if (t.status === "sent") { const v = Date.parse(t.sent_at) || 0; if (v && (!firstSent.get(t.row) || v < firstSent.get(t.row)!)) firstSent.set(t.row, v); }
   const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox").maybeSingle(); const seen: Record<string, number> = { ...((sv?.value as any) ?? {}) };
   let replied = 0;
   for (const uid of [...new Set(items.map((m: any) => m.from))]) {
     const r = byUid.get(uid as string); if (!r) continue;
-    const c = obj(r); const ls = lastSent.get(r.row) || 0; const sn = seen[r.row] || 0;
+    const c = obj(r); const ls = firstSent.get(r.row) || 0; const sn = seen[r.row] || 0;
     const mine = items.filter((m: any) => m.from === uid && m.at > Math.max(ls, sn)).sort((a: any, b2: any) => a.at - b2.at);
     if (!ls || !mine.length) continue;
     const at = mine[mine.length - 1].at; seen[r.row] = at;
     const said = mine.map((m: any) => m.text).join("\n"); const iso = new Date(at).toISOString();
     const handle = String(c["X handle"] ?? "").replace(/^@/, ""); const byHand = /^by hand/i.test(c["DM result"] || "");
+    const answeredAt = (myLast.get(uid as string) || 0) > at ? new Date(myLast.get(uid as string)!).toISOString() : null;
     let l: any = handle ? await leadByHandle(handle) : null;
     const pseudo: any = l ?? { name: c["Name"], company: c["Company"], role: c["Role"], fields: {} };
     const sr = await sortReply(pseudo, said, "X").catch(() => ({ label: "other", draft: "" }));
@@ -1722,14 +1740,15 @@ async function x_inbox(b: any) {
     if (!l && handle) l = await leadByHandle(handle);
     const R = await replyPlan(l ?? pseudo, sr, "X");
     if (l) {
-      const x = { ...(l.fields?.x ?? {}) }; x.replied = x.replied || iso; x.replied_last = iso; x.reply_label = sr.label; x.draft = R.text || sr.draft; x.reply_text = clip(said, 600); x.answered = null;
-      await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), x }, last_touch: iso, ...R.move }).eq("id", l.id);
+      const x = { ...(l.fields?.x ?? {}) }; x.replied = x.replied || iso; x.replied_last = iso; x.reply_label = sr.label; x.draft = R.text || sr.draft; x.reply_text = clip(said, 600); x.answered = answeredAt;
+      await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), x }, last_touch: answeredAt || iso, ...(answeredAt ? {} : R.move) }).eq("id", l.id);
       await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on X (" + REPLY_LABEL[sr.label] + "): “" + clip(said, 600) + "”", by_email: "x" });
     }
-    if (R.status && !byHand) await db.from("crm_x_tasks").insert({ row: r.row, name: c["Name"], company: c["Company"], handle, user_id: uid, kind: R.kind, text: R.text, status: R.status, decided_by: "auto: reply" });
+    if (R.status && !byHand && !answeredAt) await db.from("crm_x_tasks").insert({ row: r.row, name: c["Name"], company: c["Company"], handle, user_id: uid, kind: R.kind, text: R.text, status: R.status, decided_by: "auto: reply" });
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
+  await xStatus({ inbox_debug: { me, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
   return { ok: true, replied };
 }
 
@@ -2215,7 +2234,8 @@ async function x_done(b: any) {
   if (b.ok && (t.kind === "reply" || t.kind === "close")) {
     await db.from("crm_x_tasks").update({ status: "sent", sent_at: now.toISOString() }).eq("id", t.id);
     const ld = await leadByHandle(t.handle);
-    if (ld) { await db.from("crm_leads").update({ fields: { ...(ld.fields ?? {}), x: { ...(ld.fields?.x ?? {}), answered: now.toISOString() } }, last_touch: now.toISOString() }).eq("id", ld.id);
+    if (ld) { const tipsSent = IDEAS_RE.test(String(t.text ?? "")) && !ld.fields?.tips?.sent_at ? { tips: { ...(ld.fields?.tips ?? {}), sent_at: now.toISOString(), on: "X" } } : {};
+      await db.from("crm_leads").update({ fields: { ...(ld.fields ?? {}), ...tipsSent, x: { ...(ld.fields?.x ?? {}), answered: now.toISOString() } }, last_touch: now.toISOString() }).eq("id", ld.id);
       await db.from("crm_lead_events").insert({ lead_id: ld.id, kind: "message", text: (t.kind === "close" ? "Sent the closing message on X:\n" : "Answered on X:\n") + t.text, by_email: "x bot" }); }
     return { ok: true };
   }

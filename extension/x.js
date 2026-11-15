@@ -55,5 +55,17 @@ export async function xOp(op, a = {}) {
       .filter((m) => m.text && Date.now() - m.at < 14 * 864e5);
     return { ok: true, me: myId, items };
   }
+  // (16 Nov) One chat's messages (the inbox call only returns the last few hours): the same call X makes when you open a chat.
+  if (op === "conv") {
+    if (!ct0 || !myId) return { ok: false, error: "Signed out of X in this Chrome" };
+    const [x, y] = [BigInt(myId), BigInt(a.user_id)];
+    const conv = x < y ? x + "-" + y : y + "-" + x;
+    const r = await call("/i/api/1.1/dm/conversation/" + conv + ".json?context=FETCH_DM_CONVERSATION&include_profile_interstitial_type=1&dm_users=false&include_groups=true&include_inbox_timelines=true&supports_reactions=true&include_conversation_info=true&count=40");
+    if (!r.ok || !r.json) return { ok: false, error: errOf(r).message };
+    const tl = r.json.conversation_timeline || {};
+    const items = (tl.entries || []).map((e) => e.message).filter(Boolean).map((m) => ({ id: m.id, conv: m.conversation_id, at: +m.time || 0,
+      from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") })).filter((m) => m.text);
+    return { ok: true, items };
+  }
   throw new Error("Unknown X step: " + op);
 }
