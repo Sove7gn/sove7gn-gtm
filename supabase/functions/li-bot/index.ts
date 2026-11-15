@@ -1953,7 +1953,11 @@ async function xAutoFollowups(): Promise<number> {
     if (offered && (kind === "fu1" || kind === "fu2")) {
       if (kind === "fu1") {
         const { data: ld } = await db.from("crm_leads").select("fields").or("x_handle.ilike.@" + handle + ",x_handle.ilike." + handle).limit(1);
-        const body = String((ld?.[0] as any)?.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").trim();
+        let body = String((ld?.[0] as any)?.fields?.tips?.text ?? "").replace(/^Hey [^,\n]*,\s*here they are:\s*/i, "").trim();
+        if (!body) {   // (16 Nov) X-only leads (e.g. followers of our client's founders): their ideas were written ahead into crm_x_people
+          const { data: xp } = await db.from("crm_x_people").select("tips").eq("handle", handle.toLowerCase()).maybeSingle();
+          body = String((xp as any)?.tips ?? "").trim();
+        }
         raw = body ? "Hey {first}, sending them over anyway, 3 ideas for {company}:\n\n" + body : "";
       } else raw = "Hey {first}, if it's easier, here's my calendar to talk it through: https://cal.com/sove7gn-gtm/30min";
       if (!raw) continue;
