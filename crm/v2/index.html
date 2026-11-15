@@ -4478,6 +4478,7 @@ function kcard(k,plat){
     +(k.sub?'<div class="ell k2-s">'+esc(k.sub)+'</div>':'')+(k.one?'<div class="k2-o">'+esc(k.one)+'</div>':'')+(chips?'<div class="k2-c">'+chips+'</div>':'')
     +(k.status?'<div class="k2-st">'+esc(plainWords(k.status))+'</div>':'')
     +(k.hasMsg&&canEdit()&&!hand?'<div class="k2-a">'+btn('Approve',k.approve,'pri sm')+btn('Skip',k.skip,'sm ghost')+'</div>':'')
+    +(!k.hasMsg&&!k.isFailed&&canEdit()&&!hand&&/^(Writing the request|Looking them up)/.test(k.status||'')?'<div class="k2-a">'+btn('Write it now',()=>{AK.lbtRun();L.toast('Writing the request now. About 30 seconds, then Approve shows here.');},'sm')+'</div>':'')
     +(k.isFailed&&canEdit()?'<div class="k2-a">'+btn('Try again',k.retry,'sm')+'</div>':'')
     +(k.hasDraft?'<div class="k2-a">'+btn('Copy reply',k.copyDraft,'sm')+'</div>':'')+(k.hasTips?'<div class="k2-a">'+btn('Copy 3 ideas',k.copyTips,'sm')+'</div>':'')
     +(k.hasInmail?'<div class="k2-a">'+btn('InMail',k.inmail,'sm ghost')+'</div>':'')+'</div>';

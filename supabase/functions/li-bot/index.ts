@@ -836,7 +836,8 @@ async function state(b: any) {
   }
   // (15 Nov) Recent connections the CRM doesn't know (requests Reyansh sent by hand before the bot, accepted now): added as leads,
   // researched by the next runs, and only those who fit the ICP get the 3 ideas and the follow-ups (see plan).
-  const unknown = (b.connections ?? []).filter((c: any) => !find(c) && c.pid && c.name && (!c.at || Date.now() - Date.parse(c.at) < 30 * 864e5));
+  // (16 Nov, Reyansh) Old connections the CRM didn't know are no longer added as leads: they were mostly not a fit and cluttered the pipeline.
+  const unknown: any[] = [];
   if (unknown.length) {
     const { data: all } = await db.from("crm_leads").select("linkedin,fields").eq("source", "LinkedIn").limit(8000);
     const seen = new Set<string>(); for (const l of all ?? []) { const x: any = l; for (const v of [x.fields?.li?.urn, x.fields?.li?.pid, String(x.linkedin ?? "").toLowerCase().replace(/\/+$/, "").split("/in/")[1]]) if (v) seen.add(String(v).toLowerCase()); }
