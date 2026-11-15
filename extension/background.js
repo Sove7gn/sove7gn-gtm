@@ -12,7 +12,16 @@ const VERSION = chrome.runtime.getManifest().version;
 const store = chrome.storage.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
-let busy = false, xbusy = false;
+let busy = false, xbusy = false, xbusyAt = 0, xbusyName = "";
+// (16 Nov) One X tab, one job at a time. Jobs wait their turn instead of skipping (sending DMs used to lose to the reader for
+// hours), and a lock older than 8 minutes is treated as stuck and taken over.
+async function xAcquire(name, waitMs) {
+  const t0 = Date.now();
+  while (xbusy && Date.now() - xbusyAt < 8 * 60e3) { if (Date.now() - t0 > waitMs) { await xReport(name, false, "waited for " + xbusyName); return false; } await sleep(2000); }
+  xbusy = true; xbusyAt = Date.now(); xbusyName = name; return true;
+}
+// What each X job last did, so the CRM's Bots page (and Claude) can see it.
+async function xReport(name, ok, note) { try { await api("x_job", { name, ok, note: String(note || "").slice(0, 300), version: VERSION }); } catch (_) {} }
 // A fresh worker means nothing is running (Chrome may have stopped the last one midway), so clear stale flags.
 store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test again."] } } : {}) }));
 
@@ -367,8 +376,8 @@ async function inmailTest(t) {
 }
 
 async function xTick() {
-  if (xbusy) return;
-  xbusy = true; const ka = keepAlive();
+  if (!(await xAcquire("dms", 100e3))) return;
+  const ka = keepAlive();
   try {
     const { key } = await store.get("key"); if (!key) return;
     // Refresh in the CRM (13 Nov): asked every 3 minutes; when it was pressed, read LinkedIn (post numbers, engagers) now.
@@ -402,7 +411,7 @@ async function xTick() {
       const r = await xop("send", { user_id: t.user_id, text: t.text });
       await api("x_done", { id: t.id, ...r });
       const what = { dm: "first DM", fu1: "follow-up 1", fu2: "follow-up 2" }[t.kind] || "DM";
-      if (r.ok) await log("X: sent " + what + " to " + t.name + ".");
+      if (r.ok) { await log("X: sent " + what + " to " + t.name + "."); await xReport("dms", true, "sent " + what + " to " + t.name); }
       else if (r.cant) await log("X: " + t.name + "'s DMs are closed (" + r.error + "), so they're off today's list.");
       else { await log("X: couldn't send to " + t.name + ": " + r.error, true); if (r.limit) await store.set({ xqueue: [], xplanAt: Date.now() + 30 * 60e3 }); }
     } catch (e) {
@@ -418,9 +427,9 @@ async function xTick() {
 // 15+ minutes apart, in his hours, and holds off while X's cooldown is on). In the bot's own X tab it opens the post, likes it,
 // opens X's reply box with the reply filled in and presses Post: the same clicks he would make, done by X's own page.
 async function xReplyTick() {
-  if (xbusy) return;
   const { key } = await store.get("key"); if (!key) return;
-  xbusy = true; const ka = keepAlive();
+  if (!(await xAcquire("replies", 120e3))) return;
+  const ka = keepAlive();
   let task = null;
   try {
     const me = await xop("me");
@@ -512,9 +521,9 @@ async function xg(action, body = {}) {
 // Every 10 minutes (16 Nov): reads the X DM inbox and hands the CRM any new messages. The CRM matches them to people we DMed,
 // marks them Replied, sorts the reply (interested, question, not now, not interested), drafts the answer and stops the follow-ups.
 async function xInboxTick() {
-  if (xbusy) return;
   const { key } = await store.get("key"); if (!key) return;
-  xbusy = true; const ka = keepAlive();
+  if (!(await xAcquire("inbox", 180e3))) return;
+  const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
     const r = await xop("inbox");
@@ -529,15 +538,33 @@ async function xInboxTick() {
       convs.push({ uid, ok: !!(c && c.ok), n: c && c.items ? c.items.length : 0, error: c && c.error ? String(c.error).slice(0, 120) : "" });
       await sleep(rand(1500, 3500));
     }
-    const out = await api("x_inbox", { me, items, version: VERSION, debug: { pages: r.pages || [], convs } });
+    let dom = [];
+    try {
+      const id = await xTab();
+      await chrome.tabs.update(id, { url: "https://x.com/messages" }); await loaded(id); await sleep(rand(5000, 7000));
+      const d = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms)); const out = new Map();
+        const grab = () => {
+          const cells = [...document.querySelectorAll('[data-testid="conversation"], a[href*="/messages/"], a[href*="/i/chat/"], [role="tab"][href*="chat"]')];
+          for (const c of cells) { const a = c.matches("a") ? c : c.querySelector("a[href]"); const href = (a && a.getAttribute("href")) || "";
+            const text = String(c.innerText || "").trim().slice(0, 400); if (text && !out.has(href + "|" + text.slice(0, 40))) out.set(href + "|" + text.slice(0, 40), { href, text }); }
+        };
+        for (let i = 0; i < 4; i++) { grab(); const list = document.querySelector('[data-testid="DmScrollerContainer"], [aria-label*="onversation"], main section'); if (list) list.scrollBy(0, 900); else window.scrollBy(0, 900); await wait(1500); }
+        grab(); return { cells: [...out.values()].slice(0, 120), url: location.href, sample: document.body.innerText.slice(0, 1500) };
+      } });
+      const res = (d && d[0] && d[0].result) || {}; dom = res.cells || []; convs.push({ page: res.url, cells: dom.length, sample: dom.length ? "" : String(res.sample || "").slice(0, 600) });
+    } catch (e) { convs.push({ page: "error", error: String(e.message || e).slice(0, 160) }); }
+    const out = await api("x_inbox", { me, items, dom, version: VERSION, debug: { pages: r.pages || [], convs } });
+    await xReport("inbox", true, (r.items || []).length + " inbox messages, " + convs.length + " chats, " + dom.length + " page rows, " + ((out && out.replied) || 0) + " new replies");
     if (out && out.replied) await log("X: " + out.replied + " new " + (out.replied === 1 ? "reply" : "replies") + " to our DMs, sorted with an answer ready in the CRM.");
   } catch (e) { await log("X inbox: " + (e.message || e), true); }
   finally { xbusy = false; clearInterval(ka); }
 }
 async function xReadTick() {
-  if (xbusy) return;
   const { key } = await store.get("key"); if (!key) return;
-  xbusy = true; const ka = keepAlive();
+  const { xqueue = [] } = await store.get("xqueue"); if (xqueue.length) return;   // DMs waiting go first
+  if (!(await xAcquire("reader", 20e3))) return;
+  const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
     const { job } = await xg("read_plan", { version: VERSION });

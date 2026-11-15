@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1689,6 +1689,15 @@ async function replyPlan(l: any, sr: { label: string; draft: string }, chan: str
   return { move, text, kind, status, label: sr.label, chan };
 }
 
+// (16 Nov) What each X job in the extension last did (dms, replies, inbox, reader), shown on the CRM's Bots page.
+async function x_job(b: any) {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
+  const v: any = data?.value ?? {}; const jobs = { ...(v.jobs ?? {}) };
+  jobs[String(b.name ?? "job")] = { at: new Date().toISOString(), ok: !!b.ok, note: String(b.note ?? "").slice(0, 300) };
+  await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...v, jobs, seen: new Date().toISOString(), version: b.version ?? v.version } });
+  return { ok: true };
+}
+
 // Which X chats the extension should open this run: people we DMed in the last 3 weeks who aren't closed, oldest checked first.
 async function x_inbox_targets(_b: any) {
   const since = new Date(Date.now() - 21 * 864e5).toISOString();
@@ -1707,10 +1716,22 @@ async function x_inbox(b: any) {
   const me = String(b.me?.id ?? "");
   const raw = (b.items ?? []).filter((m: any) => m && m.from && m.text).map((m: any) => ({ ...m, from: String(m.from), to: String(m.to ?? ""), at: +m.at || 0 }));
   const items = raw.filter((m: any) => m.from !== me);
+  // (16 Nov) Rows read off the Messages page (new X chats are encrypted, so only the page shows them): a row whose last
+  // message isn't ours ("You: ...") and that we haven't seen before counts as their reply, matched by @handle or chat link.
+  const domRows = (b.dom ?? []).filter((d: any) => d && d.text);
+  const domHits: { handle: string; uid: string; text: string }[] = [];
+  for (const d of domRows) {
+    const lines = String(d.text).split("\n").map((x: string) => x.trim()).filter(Boolean);
+    const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase();
+    const ids = String(d.href ?? "").match(/(\d{5,})-(\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
+    const last = lines[lines.length - 1] || "";
+    if ((!handle && !uid) || /^(you|you sent|you:)/i.test(last) || /^you:/i.test(last)) continue;
+    domHits.push({ handle, uid, text: last.slice(0, 400) });
+  }
   // our own last message to each person: if it's after their reply, Reyansh already answered by hand
   const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
   await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length, inbox_ext: b.debug ?? null });
-  if (!items.length) return { ok: true, replied: 0 };
+  if (!items.length && !domHits.length) return { ok: true, replied: 0 };
   const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
   const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5); if (!h) return { ok: false };
   const obj = (r: any) => { const o: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
@@ -1720,11 +1741,24 @@ async function x_inbox(b: any) {
   for (const t of xt ?? []) if (t.user_id && !byUid.has(String(t.user_id))) { const r = all.find((x: any) => x.row === t.row); if (r) byUid.set(String(t.user_id), r); }
   // their messages count from our FIRST DM on (a follow-up may have gone out after they replied)
   const firstSent = new Map<number, number>(); for (const t of xt ?? []) if (t.status === "sent") { const v = Date.parse(t.sent_at) || 0; if (v && (!firstSent.get(t.row) || v < firstSent.get(t.row)!)) firstSent.set(t.row, v); }
-  const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox").maybeSingle(); const seen: Record<string, number> = { ...((sv?.value as any) ?? {}) };
+  const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox").maybeSingle(); const seen: Record<string, any> = { ...((sv?.value as any) ?? {}) };
+  // page rows become messages: matched to a pipeline row by chat id or @handle, ignored if it's one of our own sent texts or seen before
+  const byHandle = new Map<string, any>(); for (const r of all) if (r.row > h.row) { const hh = String(obj(r)["X handle"] ?? "").replace(/^@/, "").toLowerCase(); if (hh) byHandle.set(hh, r); }
+  const { data: ours } = await db.from("crm_x_tasks").select("row,text").eq("status", "sent").limit(10000);
+  const ourText = (row: number, t: string) => (ours ?? []).some((o: any) => o.row === row && String(o.text ?? "").replace(/\s+/g, " ").slice(0, 40).toLowerCase() === t.replace(/\s+/g, " ").slice(0, 40).toLowerCase());
+  for (const d of domHits) {
+    const r = (d.uid && byUid.get(d.uid)) || (d.handle && byHandle.get(d.handle)); if (!r) continue;
+    const uid = d.uid || String(obj(r)["X user ID"] ?? "") || [...byUid.entries()].find(([, v]) => v === r)?.[0] || "";
+    if (!uid || ourText(r.row, d.text) || seen["dom:" + r.row] === d.text) continue;
+    seen["dom:" + r.row] = d.text; items.push({ from: uid, to: me, text: d.text, at: Date.now(), via: "page" });
+  }
+  const { data: oa } = await db.from("crm_x_tasks").select("row").in("kind", ["reply", "close"]).in("status", ["review", "ready", "sending"]).limit(2000);
+  const openAns = new Set((oa ?? []).map((t: any) => t.row));
   let replied = 0;
   for (const uid of [...new Set(items.map((m: any) => m.from))]) {
     const r = byUid.get(uid as string); if (!r) continue;
-    const c = obj(r); const ls = firstSent.get(r.row) || 0; const sn = seen[r.row] || 0;
+    if (openAns.has(r.row)) continue;                       // an answer for them is already waiting for your OK
+    const c = obj(r); const ls = firstSent.get(r.row) || 0; const sn = +seen[r.row] || 0;
     const mine = items.filter((m: any) => m.from === uid && m.at > Math.max(ls, sn)).sort((a: any, b2: any) => a.at - b2.at);
     if (!ls || !mine.length) continue;
     const at = mine[mine.length - 1].at; seen[r.row] = at;
@@ -1749,7 +1783,7 @@ async function x_inbox(b: any) {
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
-  await xStatus({ inbox_debug: { me, ext: b.debug ?? null, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
+  await xStatus({ inbox_debug: { me, ext: b.debug ?? null, dom_rows: domRows.length, dom_hits: domHits.length, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
   return { ok: true, replied };
 }
 
