@@ -43,5 +43,17 @@ export async function xOp(op, a = {}) {
     if (+e.code === 88 || r.status === 429) return { ok: false, limit: true, error: "X rate limit: " + e.message };
     return { ok: false, error: "X answered " + r.status + ": " + e.message };
   }
+  // (16 Nov) The DM inbox: the last messages of every chat, so replies to our DMs reach the CRM. Read only, nothing is sent.
+  if (op === "inbox") {
+    if (!ct0 || !myId) return { ok: false, error: "Signed out of X in this Chrome" };
+    const q = "nsfw_filtering_enabled=false&filter_low_quality=false&include_quality=all&dm_secret_conversations_enabled=false&cards_platform=Web-12&include_cards=1&include_ext_alt_text=true&include_quote_count=true&include_reply_count=1&tweet_mode=extended&dm_users=true&include_groups=true&include_inbox_timelines=true&supports_reactions=true&include_conversation_info=true";
+    const r = await call("/i/api/1.1/dm/inbox_initial_state.json?" + q);
+    if (!r.ok || !r.json) return { ok: false, error: errOf(r).message };
+    const st = r.json.inbox_initial_state || {};
+    const items = (st.entries || []).map((e) => e.message).filter(Boolean).map((m) => ({ id: m.id, conv: m.conversation_id, at: +m.time || 0,
+      from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") }))
+      .filter((m) => m.text && Date.now() - m.at < 14 * 864e5);
+    return { ok: true, me: myId, items };
+  }
   throw new Error("Unknown X step: " + op);
 }

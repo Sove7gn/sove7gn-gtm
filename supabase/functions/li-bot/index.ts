@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -870,15 +870,23 @@ async function state(b: any) {
       await log(l.id, "You messaged them yourself on LinkedIn, so the bot stopped its follow-ups.", "note");
       continue;
     }
-    if (li.replied || !since || Date.parse(t.them_at) <= since) continue;
-    li.replied = t.them_at; li.stop = "replied"; if (t.urn) li.urn = t.urn;
-    const sr = await sortReply(l, String(t.them_text ?? "")).catch(() => ({ label: "other", draft: "" }));
-    li.reply_label = sr.label; li.draft = sr.draft;
-    // Every reply goes to In talks and Reyansh takes it from there; the label and drafted answer are hints on the card.
-    const move: Record<string, unknown> = ACTIVE.test(l.stage) ? { stage: "In talks" } : {};
-    await saveLi(l, li, move);
+    // (16 Nov) Every reply, not only the first: a later reply is sorted again with a new draft; our own message after their
+    // reply marks it answered. The reply rules decide the stage and whether an answer (or a closing message) is queued.
+    if (li.replied) {
+      const lastThem = Date.parse(li.replied_last || li.replied) || 0;
+      if (t.me_at && Date.parse(t.me_at) > lastThem && !li.answered) { li.answered = t.me_at; await saveLi(l, li); }
+      if (Date.parse(t.them_at) <= lastThem + 1000) continue;
+    } else if (!since || Date.parse(t.them_at) <= since) continue;
+    if (!li.replied) li.replied = t.them_at;
+    li.replied_last = t.them_at; li.answered = null; if (li.stop !== "by hand") li.stop = "replied"; if (t.urn) li.urn = t.urn;
+    const said = String(t.them_text ?? "");
+    const sr = await sortReply(l, said, "LinkedIn").catch(() => ({ label: "other", draft: "" }));
+    li.reply_label = sr.label; li.draft = sr.draft; li.reply_text = clip(said, 600);
+    const R = await replyPlan(l, sr, "LinkedIn");
+    await saveLi(l, li, R.move);
     await stopTasks(l.id, "They replied");
-    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on LinkedIn: “" + clip(String(t.them_text ?? ""), 600) + "”", by_email: "linkedin" });
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on LinkedIn (" + REPLY_LABEL[sr.label] + "): “" + clip(said, 600) + "”", by_email: "linkedin" });
+    if (R.status && li.stop !== "by hand") await db.from("crm_li_tasks").insert({ lead_id: l.id, kind: R.kind, step: 0, text: R.text, subject: "", status: R.status });
     replied++;
   }
   return { accepted, replied, asked };
@@ -1047,7 +1055,7 @@ async function plan(_b: any) {
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
-    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && (t.kind === "magnet" || (!l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)))); };
+    const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && l.fields?.li?.stop !== "by hand" && (t.kind === "magnet" || t.kind === "reply" || t.kind === "close" || (!l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)))); };
     const inv = (ready ?? []).filter((t) => t.kind === "invite" && ok(t)).slice(0, invitesLeft);
     // InMails (14 Nov): 30 credits a month on Premium, so never more than what's left this month (IST), and 2 per run at most.
     const m0 = new Date(Date.now() + 19800e3); const monthStart = new Date(Date.UTC(m0.getUTCFullYear(), m0.getUTCMonth(), 1) - 19800e3).toISOString();
@@ -1089,7 +1097,7 @@ async function claim(b: any) {
   const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id,kind");
   if (!data?.length) return { ok: false };
   const { data: l } = await db.from("crm_leads").select("fields,archived").eq("id", data[0].lead_id).maybeSingle();
-  if (!l || l.archived || (data[0].kind !== "magnet" && (l.fields?.li?.replied || l.fields?.li?.stop))) {
+  if (!l || l.archived || l.fields?.li?.stop === "by hand" || (!["magnet", "reply", "close"].includes(data[0].kind) && (l.fields?.li?.replied || l.fields?.li?.stop))) {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "Stopped before sending" }).eq("id", b.id);
     return { ok: false };
   }
@@ -1108,6 +1116,13 @@ async function done(b: any) {
   if (b.urn && await urnTaken(b.urn, lead)) b.urn = "";
   if (b.urn) li.urn = b.urn; if (b.pid) li.pid = b.pid;
   const at = now();
+  if (t.kind === "reply" || t.kind === "close") {
+    if (!b.ok) { await db.from("crm_li_tasks").update({ status: "failed", error: clip(String(b.error ?? "Failed"), 300) }).eq("id", t.id); return { ok: true }; }
+    await db.from("crm_li_tasks").update({ status: "sent", sent_at: at }).eq("id", t.id);
+    li.answered = at; li.last = at; await saveLi(lead, li);
+    await log(lead.id, (t.kind === "close" ? "Sent the closing message on LinkedIn:\n" : "Answered on LinkedIn:\n") + t.text);
+    return { ok: true };
+  }
   if (b.already === "connected") {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "Already connected" }).eq("id", t.id);
     if (!li.acc) { li.acc = at; await log(lead.id, "Already connected with us on LinkedIn"); }
@@ -1635,9 +1650,9 @@ async function withdrawn(b: any) {
 }
 
 // ───────── replies: sorted, with an answer drafted ─────────
-async function sortReply(l: Lead, text: string): Promise<{ label: string; draft: string }> {
+async function sortReply(l: Lead, text: string, chan = "LinkedIn"): Promise<{ label: string; draft: string }> {
   const li = l.fields?.li ?? {}, ic = l.fields?.li_icp ?? {};
-  const prompt = "You help Reyansh (founder of SOVE7GN, a done-for-you GTM growth studio for funded B2B founders) answer a LinkedIn reply from a lead.\n" +
+  const prompt = "You help Reyansh (founder of SOVE7GN, a done-for-you GTM growth studio for funded B2B founders) answer a " + chan + " reply from a lead. We often offered them 3 free ideas for their inbound; a yes to that counts as interested.\n" +
     "Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : "") + (ic.one_liner ? ". Company: " + ic.one_liner : "") + ".\n" +
     "Our last message angle: " + (li.angle || "advice") + ". They wrote: \"" + clip(text, 800) + "\"\n" +
     "Return JSON only: {\"label\": one of \"interested\" (wants to talk or asks for the call/ideas), \"question\" (asks something), \"not_now\" (busy, later, maybe next month), \"not_interested\" (no, not relevant, unsubscribe), \"other\"; " +
@@ -1646,6 +1661,76 @@ async function sortReply(l: Lead, text: string): Promise<{ label: string; draft:
   const j = parseJson(r.r ?? "") ?? {};
   const label = ["interested", "question", "not_now", "not_interested", "other"].includes(j.label) ? j.label : "other";
   return { label, draft: String(j.draft ?? "").replace(/\s*[—–]\s*/g, ", ").slice(0, 600) };
+}
+
+// ───────── reply rules (16 Nov) ─────────
+// What happens when someone writes back, per kind of reply. Edited on the CRM's Bots page (crm_lead_settings "reply_rules").
+// send: "review" = the answer waits for Reyansh's OK, "auto" = it goes out on its own, "off" = only a draft on their card.
+const REPLY_LABEL: Record<string, string> = { interested: "interested", question: "a question", not_now: "not now", not_interested: "not interested", other: "replied" };
+const CLOSE_DEFAULT = "No worries at all {first}, I won't bother you again. In case it's useful later: we built the whole GTM engine for Aktoria (a YC company) and got them 30+ sales calls in 2 weeks, all organic. Feel free to reach out anytime.";
+async function replyRules() {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "reply_rules").maybeSingle();
+  const v: any = data?.value ?? {};
+  const d: any = { interested: { stage: "In talks", send: "review" }, question: { stage: "In talks", send: "review" }, not_now: { stage: "Cold lead", send: "review" },
+    not_interested: { stage: "Lost", send: "review" }, other: { stage: "In talks", send: "review" } };
+  for (const k of Object.keys(d)) d[k] = { ...d[k], ...(v[k] ?? {}) };
+  return { ...d, close_text: String(v.close_text || CLOSE_DEFAULT) };
+}
+async function replyPlan(l: any, sr: { label: string; draft: string }, chan: string) {
+  const R = await replyRules(); const rule = R[sr.label] ?? R.other;
+  const move: Record<string, unknown> = {};
+  if (l?.id && !/^(call booked|proposal sent|won)$/i.test(l.stage || "") && rule.stage && l.stage !== rule.stage) { move.stage = rule.stage; move.stage_at = now(); }
+  const first = firstName(l?.name || ""), co = l?.company && !/^unknown$/i.test(l.company) ? l.company : "your company";
+  let text = sr.draft, kind = "reply";
+  if (sr.label === "not_interested") { text = String(R.close_text).replace(/\{first\}/g, first).replace(/\{company\}/g, co); kind = "close"; }
+  else if (sr.label === "interested" && l?.fields?.tips?.text && !l?.fields?.tips?.sent_at) text = String(l.fields.tips.text);
+  const status = !text || rule.send === "off" ? null : rule.send === "auto" ? "ready" : "review";
+  return { move, text, kind, status, label: sr.label, chan };
+}
+
+// ───────── X inbox (16 Nov): the extension reads the X DM inbox; replies to our DMs are caught, sorted and answered ─────────
+async function x_inbox(b: any) {
+  const me = String(b.me?.id ?? "");
+  const items = (b.items ?? []).filter((m: any) => m && m.from && String(m.from) !== me && m.text).map((m: any) => ({ ...m, from: String(m.from), at: +m.at || 0 }));
+  await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length });
+  if (!items.length) return { ok: true, replied: 0 };
+  const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
+  const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5); if (!h) return { ok: false };
+  const obj = (r: any) => { const o: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
+  const byUid = new Map<string, any>();
+  for (const r of all) if (r.row > h.row) { const u = String(obj(r)["X user ID"] ?? "").trim(); if (u) byUid.set(u, r); }
+  const { data: xt } = await db.from("crm_x_tasks").select("row,user_id,status,sent_at,kind").limit(10000);
+  for (const t of xt ?? []) if (t.user_id && !byUid.has(String(t.user_id))) { const r = all.find((x: any) => x.row === t.row); if (r) byUid.set(String(t.user_id), r); }
+  const lastSent = new Map<number, number>(); for (const t of xt ?? []) if (t.status === "sent") lastSent.set(t.row, Math.max(lastSent.get(t.row) || 0, Date.parse(t.sent_at) || 0));
+  const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox").maybeSingle(); const seen: Record<string, number> = { ...((sv?.value as any) ?? {}) };
+  let replied = 0;
+  for (const uid of [...new Set(items.map((m: any) => m.from))]) {
+    const r = byUid.get(uid as string); if (!r) continue;
+    const c = obj(r); const ls = lastSent.get(r.row) || 0; const sn = seen[r.row] || 0;
+    const mine = items.filter((m: any) => m.from === uid && m.at > Math.max(ls, sn)).sort((a: any, b2: any) => a.at - b2.at);
+    if (!ls || !mine.length) continue;
+    const at = mine[mine.length - 1].at; seen[r.row] = at;
+    const said = mine.map((m: any) => m.text).join("\n"); const iso = new Date(at).toISOString();
+    const handle = String(c["X handle"] ?? "").replace(/^@/, ""); const byHand = /^by hand/i.test(c["DM result"] || "");
+    let l: any = handle ? await leadByHandle(handle) : null;
+    const pseudo: any = l ?? { name: c["Name"], company: c["Company"], role: c["Role"], fields: {} };
+    const sr = await sortReply(pseudo, said, "X").catch(() => ({ label: "other", draft: "" }));
+    const cells: Record<string, unknown> = { "DM result": (byHand ? "By hand · " : "") + "Replied: " + REPLY_LABEL[sr.label] };
+    if (!c["Replied on"]) { cells.Status = "Replied"; cells["Replied on"] = sheetSerial(new Date(at), true); }
+    await db.rpc("crm_call", { body: { action: "pipeline", row: r.row, name: c["Name"], company: c["Company"], cells } });
+    await db.from("crm_x_tasks").update({ status: "skipped", error: "They replied" }).eq("row", r.row).in("status", ["ready", "sending", "review"]).in("kind", ["dm", "fu1", "fu2", ...X_FU_KINDS]);
+    if (!l && handle) l = await leadByHandle(handle);
+    const R = await replyPlan(l ?? pseudo, sr, "X");
+    if (l) {
+      const x = { ...(l.fields?.x ?? {}) }; x.replied = x.replied || iso; x.replied_last = iso; x.reply_label = sr.label; x.draft = R.text || sr.draft; x.reply_text = clip(said, 600); x.answered = null;
+      await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), x }, last_touch: iso, ...R.move }).eq("id", l.id);
+      await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on X (" + REPLY_LABEL[sr.label] + "): “" + clip(said, 600) + "”", by_email: "x" });
+    }
+    if (R.status && !byHand) await db.from("crm_x_tasks").insert({ row: r.row, name: c["Name"], company: c["Company"], handle, user_id: uid, kind: R.kind, text: R.text, status: R.status, decided_by: "auto: reply" });
+    replied++;
+  }
+  await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
+  return { ok: true, replied };
 }
 
 // ───────── call brief: when a GTM call is booked, research them and write the call plan ─────────
@@ -1931,7 +2016,7 @@ async function xAutoFollowups(): Promise<number> {
   const now = Date.now(), add: any[] = [];
   for (const r of P.filter((x: any) => x.row > ph.row)) {
     const c = obj(ph, r); const name = c["Name"]; const handle = String(c["X handle"] ?? "").replace(/^@/, "");
-    if (!name || !handle || c["Replied on"] || /^(not specified|unknown)$/i.test(name.trim())) continue;
+    if (!name || !handle || c["Replied on"] || /^by hand/i.test(c["DM result"] || "") || /^(not specified|unknown)$/i.test(name.trim())) continue;
     const st = c["Status"] || "", sent = sheetTime(c["Sent on"]), f1 = sheetTime(c["FU1 sent"]);
     let kind = "";
     if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";
@@ -2002,7 +2087,7 @@ async function x_plan(b: any) {
     }
     if (!uid) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); continue; }
     let text = String(t.text ?? "");
-    if (IDEAS_RE.test(text)) {
+    if (t.kind !== "reply" && t.kind !== "close" && IDEAS_RE.test(text)) {
       const ld = await leadByHandle(t.handle);
       if (ld && (ld.fields?.tips?.sent_at || ld.fields?.li?.tips_dm)) {
         const first = firstName(t.name), co = ld.company && !/^unknown$/i.test(ld.company) ? ld.company : "your company";
@@ -2083,6 +2168,8 @@ async function x_claim(b: any) {
   const xs = await xSettings();
   if (xs.paused) { await db.from("crm_x_tasks").update({ status: "ready", claimed_at: null }).eq("id", t.id); return { ok: false, why: xs.cooling ? "X asked us to slow down, waiting until " + String(xs.cooldown_until).slice(11, 16) + " UTC" : "X sending is paused" }; }
   if (!c || c["Name"] !== t.name) return await skip("Their row in the DM Pipeline moved or changed");
+  if (/^by hand/i.test(c["DM result"] || "")) return await skip("You're handling them by hand");
+  if (t.kind === "reply" || t.kind === "close") return { ok: true };
   // (12 Nov) No "Hey Not," messages, no cold DM to someone we're already talking to, and nobody twice.
   if (/^(not specified|unknown|n\/?a|none|null|-)?$/i.test(String(t.name ?? "").trim()) || !/^[\p{L}]{2,}/u.test(String(t.name ?? "").trim())) return await skip("No real name on their row");
   const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase();
@@ -2123,6 +2210,13 @@ async function x_done(b: any) {
   if (!b.ok) {
     await db.from("crm_x_tasks").update({ status: "failed", error: clip(String(b.error ?? "Failed"), 300) }).eq("id", t.id);
     await xStatus({ last_error: clip(String(b.error ?? "Failed"), 300), last_error_at: now.toISOString() });
+    return { ok: true };
+  }
+  if (b.ok && (t.kind === "reply" || t.kind === "close")) {
+    await db.from("crm_x_tasks").update({ status: "sent", sent_at: now.toISOString() }).eq("id", t.id);
+    const ld = await leadByHandle(t.handle);
+    if (ld) { await db.from("crm_leads").update({ fields: { ...(ld.fields ?? {}), x: { ...(ld.fields?.x ?? {}), answered: now.toISOString() } }, last_touch: now.toISOString() }).eq("id", ld.id);
+      await db.from("crm_lead_events").insert({ lead_id: ld.id, kind: "message", text: (t.kind === "close" ? "Sent the closing message on X:\n" : "Answered on X:\n") + t.text, by_email: "x bot" }); }
     return { ok: true };
   }
   const cells: Record<string, unknown> | null = t.kind === "dm" ? { Status: "Sent", "Sent on": sheetSerial(now, true) } : t.kind === "fu1" ? { Status: "FU1 sent", "FU1 sent": sheetSerial(now, false) }

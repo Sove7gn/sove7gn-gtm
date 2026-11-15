@@ -1329,7 +1329,7 @@ const XT={rows:[],status:{},loaded:false,at:0};
 async function xtLoad(){
   if(!sb||!session||!member)return;
   try{const since=new Date(Date.now()-3*864e5).toISOString();
-    const [a,b,c,d]=await Promise.all([sb.from("crm_x_tasks").select("*").in("status",["ready","sending"]).limit(500),
+    const [a,b,c,d]=await Promise.all([sb.from("crm_x_tasks").select("*").in("status",["review","ready","sending"]).limit(500),
       sb.from("crm_x_tasks").select("*").gte("created_at",since).order("created_at",{ascending:false}).limit(500),
       sb.from("crm_lead_settings").select("key,value").in("key",["x_bot","x_bot_status"]),
       sb.from("crm_x_tasks").select("id,row,kind,status,sent_at,created_at").in("kind",["dm","fu1","fu2","fu3","fu4","fu5","fu6","fu7"]).eq("status","sent").limit(4000)]);
@@ -1349,6 +1349,10 @@ async function xtQueue(items){
   toast(items.length===1?"Queued for the bot. It sends from your X tab within a few minutes.":items.length+" DMs queued. The bot sends one every few minutes from your X tab.");
   await xtLoad();return true;
 }
+// (16 Nov) Answers and closing messages the bot wrote for people who replied on X wait as status "review": approve (ready), edit, skip.
+async function xtSet(ids,patch){ids=[].concat(ids);if(!sb||!ids.length)return false;const before=XT.rows;const p={...patch};if(p.status)p.decided_by=meEmail();
+  XT.rows=XT.rows.map(r=>ids.includes(r.id)?{...r,...p}:r);emit();
+  const {error}=await sb.from("crm_x_tasks").update(p).in("id",ids);if(error){XT.rows=before;emit();toast("Couldn't save: "+error.message,true);return false}return true}
 async function xtCancel(id){
   if(!sb)return;const r=XT.rows.find(t=>t.id===id);if(r)r.status="skipped";emit();
   const {error}=await sb.from("crm_x_tasks").update({status:"skipped",error:"Cancelled in the CRM"}).eq("id",id).in("status",["ready","sending"]);
@@ -1781,7 +1785,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

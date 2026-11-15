@@ -22,14 +22,16 @@ function setup() {
   chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 });
   chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 });
   chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 });
+  chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : tick()));
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
 chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
 chrome.alarms.get("xreadtick").then((a) => { if (!a) chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 }); });
+chrome.alarms.get("xinbox").then((a) => { if (!a) chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 }); });
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -446,7 +448,23 @@ async function xReplyTick() {
     const like = (lk && lk[0] && lk[0].result) || {};
     if (like.gone) { await api("xr_done", { url: task.url, ok: false, error: "The post is gone (deleted or hidden)" }); await log("X: " + task.name + "'s post is gone, reply skipped."); return; }
     await sleep(rand(2500, 6000));
-    await chrome.tabs.update(id, { url: "https://x.com/intent/post?in_reply_to=" + task.id + "&text=" + encodeURIComponent(task.text) }); await loaded(id); await sleep(rand(5000, 8000));
+    // (16 Nov) Reply on the post itself: press its Reply button, type the text into X's box, press Reply. X stopped filling
+    // in the separate reply page's box, which is why replies failed. The old page is only the fallback.
+    const typed = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [task.id, task.text], func: async (tid, text) => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
+      const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
+      const rb = art && art.querySelector('[data-testid="reply"]'); if (!rb) return { ok: false };
+      rb.click();
+      let box = null; for (let i = 0; i < 20 && !box; i++) { await wait(400); box = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]'); }
+      if (!box) return { ok: false };
+      box.focus(); await wait(300);
+      document.execCommand("insertText", false, text); await wait(800);
+      return { ok: box.innerText.trim().length > 2 };
+    } }).catch(() => null);
+    const inPlace = !!(typed && typed[0] && typed[0].result && typed[0].result.ok);
+    if (!inPlace) { await chrome.tabs.update(id, { url: "https://x.com/intent/post?in_reply_to=" + task.id + "&text=" + encodeURIComponent(task.text) }); await loaded(id); await sleep(rand(5000, 8000)); }
+    else await sleep(rand(1200, 2500));
     const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       const alertText = () => [...document.querySelectorAll('[role="alert"], [data-testid="toast"]')].map((e) => e.innerText).join(" ");
@@ -464,7 +482,7 @@ async function xReplyTick() {
         const a = alertText();
         if (/automated|try again later|rate limit|over capacity|temporarily/i.test(a)) return { ok: false, limit: true, error: "X: " + a.slice(0, 200) };
         if (/already said that|something went wrong|can.t reply|isn.t available|restricted who can reply/i.test(a)) return { ok: false, error: "X: " + a.slice(0, 200) };
-        if (!document.querySelector('[data-testid="tweetButton"]') || !/\/intent\//.test(location.pathname) || /your post was sent|reply was sent/i.test(a)) return { ok: true };
+        if (!document.querySelector('[data-testid="tweetButton"]') || /your post was sent|reply was sent/i.test(a)) return { ok: true };
       }
       return { ok: false, error: "Pressed Post but X didn't confirm within 12 seconds" };
     } });
@@ -490,6 +508,21 @@ async function xg(action, body = {}) {
   const j = await r.json().catch(() => ({ error: "x-grow answered " + r.status }));
   if (j.error) throw new Error(j.error);
   return j;
+}
+// Every 10 minutes (16 Nov): reads the X DM inbox and hands the CRM any new messages. The CRM matches them to people we DMed,
+// marks them Replied, sorts the reply (interested, question, not now, not interested), drafts the answer and stops the follow-ups.
+async function xInboxTick() {
+  if (xbusy) return;
+  const { key } = await store.get("key"); if (!key) return;
+  xbusy = true; const ka = keepAlive();
+  try {
+    const me = await xop("me"); if (!me.signed_in) return;
+    const r = await xop("inbox");
+    if (!r || !r.ok) { await log("X inbox: " + ((r && r.error) || "couldn't read it"), true); return; }
+    const out = await api("x_inbox", { me, items: r.items, version: VERSION });
+    if (out && out.replied) await log("X: " + out.replied + " new " + (out.replied === 1 ? "reply" : "replies") + " to our DMs, sorted with an answer ready in the CRM.");
+  } catch (e) { await log("X inbox: " + (e.message || e), true); }
+  finally { xbusy = false; clearInterval(ka); }
 }
 async function xReadTick() {
   if (xbusy) return;

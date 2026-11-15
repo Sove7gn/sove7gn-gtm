@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=c6be334d00"></script>
+<script src="./data.js?v=4ab5127dac"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -2363,7 +2363,7 @@ class Component extends DCLogic {
     {const rank=l=>{const x=LI(l);return(/^(won|call booked|proposal sent|in talks)$/i.test(l.stage)?16:0)+(x.replied?8:0)+(x.dm?4:0)+(x.acc?2:0)+(x.req?1:0);};
       const best=new Map();for(const l of pool){const k=GTM.normName(l.name)||l.id;const b=best.get(k);if(!b||rank(l)>rank(b))best.set(k,l);}
       const keep=new Set([...best.values()].map(l=>l.id));for(let i=pool.length-1;i>=0;i--)if(!keep.has(pool[i].id))pool.splice(i,1);}
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='accept'?'Accept their request + first message':t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail';
+    const kindLabel=t=>t.kind==='reply'?'Answer to their reply':t.kind==='close'?'Closing message (they said no)':t.kind==='invite'?(t.text?'Connection request + note':'Connection request (no note left this month)'):t.kind==='accept'?'Accept their request + first message':t.kind==='dm'?'First message':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail';
     const tone=n=>n>=8?{bg:'#e3f6ea',fg:'#16723b'}:n>=5?{bg:'#fff1dc',fg:'#9a5b00'}:{bg:'var(--n-soft-2)',fg:'var(--ink-3)'};
     const btn=(label,fn)=>({label,go:e=>{e&&e.stopPropagation&&e.stopPropagation();fn();}});
     const card=(l,col,out)=>{const x=LI(l),ic=ICP(l),iv=I(l),S=this.liPipeScore(l),tn=tone(S.n),t=open.get(l.id);const ed=(s.lbtEd||{})[t?t.id:''];
@@ -2515,7 +2515,7 @@ class Component extends DCLogic {
       seenMin>45?{t:'The extension last checked in '+this.since(st.seen)+'. It only runs while Chrome is open.',c:'var(--warn)'}:
       {t:'The extension is running. Last check '+this.since(st.seen)+'.',c:'var(--ok)'};
     const save=patch=>{if(!AK.canEdit())return;AK.leadSettingSave('li_bot',{...(AK.LD.settings.li_bot||{}),...patch});};
-    const kindLabel=t=>t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail'+(t.subject?' · subject: '+t.subject:'')+' (uses 1 of your 30 credits)';
+    const kindLabel=t=>t.kind==='reply'?'Answer to their reply':t.kind==='close'?'Closing message (they said no)':t.kind==='invite'?(t.text?'Request + note':'Request, no note'):t.kind==='dm'?'DM 1':t.kind==='followup'?'Follow-up '+(t.step%100):'InMail'+(t.subject?' · subject: '+t.subject:'')+' (uses 1 of your 30 credits)';
     const card=t=>{const l=byId.get(t.lead_id)||{};const ed=(s.lbtEd||{})[t.id];const tx=ed!=null?ed:t.text;
       return{...avatar(l.name||'?'),id:t.id,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),kind:kindLabel(t),text:tx,
         chars:t.kind==='invite'?tx.length+' / 300':tx.length+' characters',
