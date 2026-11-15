@@ -526,13 +526,14 @@ async function xInboxTick() {
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
-    const r = await xop("inbox");
+    const { xdeepAt = 0 } = await store.get("xdeepAt"); const deep = Date.now() - xdeepAt > 6 * 3600e3;
+    const r = await xop("inbox", { deep }); if (deep) await store.set({ xdeepAt: Date.now() });
     if (!r || !r.ok) { await log("X inbox: " + ((r && r.error) || "couldn't read it"), true); return; }
     // (16 Nov) The inbox only holds the last few hours, so also open the chats of people we DMed lately (15 a run, oldest checked first).
     const items = [...(r.items || [])];
     const tg = await api("x_inbox_targets", {}).catch(() => ({ user_ids: [] }));
     const convs = [];
-    for (const uid of (tg.user_ids || []).slice(0, 15)) {
+    for (const uid of (tg.user_ids || []).slice(0, 6)) {
       const c = await xop("conv", { user_id: uid }).catch((e) => ({ ok: false, error: String(e.message || e) }));
       if (c && c.ok) items.push(...c.items);
       convs.push({ uid, ok: !!(c && c.ok), n: c && c.items ? c.items.length : 0, error: c && c.error ? String(c.error).slice(0, 120) : "" });
@@ -543,7 +544,10 @@ async function xInboxTick() {
       const id = await xTab();
       await chrome.tabs.update(id, { url: "https://x.com/i/chat" }); await loaded(id); await sleep(rand(3000, 5000));
       // X's new chat (x.com/i/chat) loads its list a few seconds after the page; wait for it, then read each chat's link and last line.
-      const d = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
+      let d = null;
+      for (let attempt = 0; attempt < 4 && !d; attempt++) {
+        if (attempt) { await sleep(4000); await loaded(id); }
+        d = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
         const wait = (ms) => new Promise((r) => setTimeout(r, ms)); const out = new Map();
         const links = () => [...document.querySelectorAll('a[href*="/i/chat/"], a[href*="/messages/"], [data-testid="conversation"]')];
         for (let i = 0; i < 30 && links().length < 2; i++) await wait(1000);
@@ -556,7 +560,8 @@ async function xInboxTick() {
         for (let i = 0; i < 5; i++) { if (sc && sc !== document.body) sc.scrollBy(0, 1200); else window.scrollBy(0, 1200); await wait(1500); grab(); }
         const ids = [...new Set([...document.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid")))].slice(0, 40);
         return { cells: [...out.values()].slice(0, 150), url: location.href, locked, sample: out.size ? "" : document.body.innerText.slice(0, 1500), testids: ids };
-      } });
+      } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
+      }
       const res = (d && d[0] && d[0].result) || {}; dom = res.cells || []; convs.push({ page: res.url, cells: dom.length, locked: !!res.locked, sample: dom.length ? "" : String(res.sample || "").slice(0, 800), testids: dom.length ? [] : (res.testids || []) });
       if (res.locked) await xReport("chat", false, "X chat is locked: open x.com/i/chat in Chrome once and enter your chat passcode, so the bot can read replies");
     } catch (e) { convs.push({ page: "error", error: String(e.message || e).slice(0, 160) }); }

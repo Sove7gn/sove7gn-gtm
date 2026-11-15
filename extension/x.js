@@ -54,7 +54,7 @@ export async function xOp(op, a = {}) {
       from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") }));
     let items = pick(st.entries); const pages = [];
     // (16 Nov) The first answer only covers the last few hours: page back through both inboxes (trusted and requests) up to 14 days.
-    for (const box of ["trusted", "untrusted"]) {
+    for (const box of a.deep ? ["trusted", "untrusted"] : []) {
       let maxId = ((st.inbox_timelines || {})[box] || {}).min_entry_id;
       for (let i = 0; i < 12 && maxId; i++) {
         const p = await call("/i/api/1.1/dm/inbox_timeline/" + box + ".json?max_id=" + maxId + "&" + q);
