@@ -18,6 +18,47 @@ let busy = false, busyAt = 0, xbusy = false, xbusyAt = 0, xbusyName = "";
 // 10 minutes is treated as stuck.
 const within = (p, ms, msg) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 const lockFree = () => !busy || Date.now() - busyAt > 10 * 60e3;
+// (16 Nov) Background tabs only run their timers about once a minute, so a "wait and check again" loop inside the page could take
+// many minutes. Pages now get quick looks (pageRun) and every wait happens here in the extension.
+async function pageRun(id, func, args = [], all = false) {
+  const r = await within(chrome.scripting.executeScript({ target: { tabId: id, allFrames: all }, world: "MAIN", func, args }), 30e3, "The X tab didn't answer");
+  return all ? (r || []).map((x) => x && x.result) : (r && r[0] && r[0].result);
+}
+const X_GRAB = (kind) => {
+  const items = []; const users = kind === "my_followers" || kind === "follow_src";
+  if (users) {
+    for (const c of document.querySelectorAll('[data-testid="UserCell"]')) {
+      const link = [...c.querySelectorAll('a[href^="/"]')].map((a) => a.getAttribute("href")).find((h) => /^\/\w{1,15}$/.test(h || "")); if (!link) continue;
+      const handle = link.slice(1); const texts = [...c.querySelectorAll('div[dir="auto"], span')].map((e) => e.innerText.trim()).filter(Boolean);
+      const name = (texts[0] || handle).split("\n")[0];
+      const bio = [...c.querySelectorAll('div[dir="auto"]')].map((e) => e.innerText.trim()).filter((t) => t && t !== name && !t.startsWith("@") && t.length > 12).pop() || "";
+      items.push({ handle, name, bio });
+    }
+  } else {
+    for (const a of document.querySelectorAll('article[data-testid="tweet"]')) {
+      const t = a.querySelector("time"); const link = t && t.closest("a"); if (!link) continue;
+      const url = new URL(link.getAttribute("href"), location.origin).href.split("?")[0]; const m = url.match(/x\.com\/(\w{1,15})\/status\/(\d+)/); if (!m) continue;
+      const un = a.querySelector('[data-testid="User-Name"]'); const name = un ? (un.innerText.split("\n")[0] || m[1]) : m[1];
+      const txt = a.querySelector('[data-testid="tweetText"]'); const grp = a.querySelector('[role="group"][aria-label]'); const lab = grp ? grp.getAttribute("aria-label") : "";
+      const pick = (w) => { const mm = lab.match(new RegExp("([\\d,.]+[KM]?)\\s+" + w, "i")); return mm ? mm[1] : null; };
+      items.push({ url, handle: m[1], name, text: txt ? txt.innerText : "", time: t.getAttribute("datetime"), reply: /Replying to/i.test(a.innerText.slice(0, 300)), replies: pick("repl"), likes: pick("like"), views: pick("view") });
+    }
+  }
+  return items;
+};
+const X_CHAT = () => {
+  const deep = (root, sel, acc) => { root.querySelectorAll(sel).forEach((e) => acc.push(e)); root.querySelectorAll("*").forEach((e) => { if (e.shadowRoot) deep(e.shadowRoot, sel, acc); }); return acc; };
+  const SEL = 'a[href*="/i/chat/"], a[href*="/messages/"], [data-testid="conversation"], [data-testid*="onversation"], [role="listitem"], [role="option"]';
+  const items = deep(document, SEL, []).filter((e) => { const t = String(e.innerText || "").trim(); return t.includes("\n") && t.length < 500; });
+  const cells = items.map((c) => { const a = c.matches("a") ? c : c.querySelector("a[href]"); return { href: (a && a.getAttribute("href")) || c.getAttribute("data-testid") || "", text: String(c.innerText || "").trim().slice(0, 400) }; });
+  const body = document.body ? String(document.body.innerText || "") : "";
+  return { url: location.href, cells, locked: /passcode|enter your pin|recover your|set up encryption/i.test(body) && cells.length < 2, sample: cells.length ? "" : body.slice(0, 900) };
+};
+const X_CHAT_SCROLL = () => {
+  const a = document.querySelector('a[href*="/i/chat/"], [role="listitem"], [data-testid="conversation"]'); let sc = a && a.parentElement;
+  while (sc && sc.parentElement && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+  if (sc && sc !== document.body) sc.scrollBy(0, 1200); return 1;
+};
 async function wake(t) {
   try { await chrome.tabs.update(t.id, { autoDiscardable: false }); } catch (_) {}
   if (t.discarded || t.frozen) { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); return true; }
@@ -463,68 +504,50 @@ async function xReplyTick() {
     task = (p.tasks || [])[0]; if (!task) return;
     const id = await xTab();
     await chrome.tabs.update(id, { url: task.url }); await loaded(id); await sleep(rand(5000, 9000));
-    const lk = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [task.id], func: async (tid) => {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      for (let i = 0; i < 20; i++) {
-        const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
-        const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
-        if (art) {
-          if (art.querySelector('[data-testid="unlike"]')) return { liked: true, already: true };
-          const b = art.querySelector('[data-testid="like"]');
-          if (b) { b.click(); await wait(1200); return { liked: !!art.querySelector('[data-testid="unlike"]') }; }
-        }
-        if (/this post (is unavailable|was deleted)|hmm\.\.\.this page doesn.t exist/i.test(document.body.innerText)) return { liked: false, gone: true };
-        await wait(500);
-      }
-      return { liked: false };
-    } });
-    const like = (lk && lk[0] && lk[0].result) || {};
+    const ART = (tid) => { const arts = [...document.querySelectorAll('article[data-testid="tweet"]')]; return arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0] || null; };
+    let like = {};
+    for (let i = 0; i < 20; i++) {
+      const v = await pageRun(id, (tid) => {
+        if (/this post (is unavailable|was deleted)|hmm\.\.\.this page doesn.t exist/i.test(document.body.innerText)) return { gone: true };
+        const arts = [...document.querySelectorAll('article[data-testid="tweet"]')]; const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
+        if (!art) return null; if (art.querySelector('[data-testid="unlike"]')) return { liked: true };
+        const b = art.querySelector('[data-testid="like"]'); if (b) { b.click(); return { liked: true, clicked: true }; } return null;
+      }, [task.id]).catch(() => null);
+      if (v) { like = v; break; } await sleep(600);
+    }
     if (like.gone) { await api("xr_done", { url: task.url, ok: false, error: "The post is gone (deleted or hidden)" }); await log("X: " + task.name + "'s post is gone, reply skipped."); return; }
     await sleep(rand(2500, 6000));
-    // (16 Nov) Reply on the post itself: press its Reply button, type the text into X's box, press Reply. X stopped filling
-    // in the separate reply page's box, which is why replies failed. The old page is only the fallback.
-    const typed = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [task.id, task.text], func: async (tid, text) => {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
-      const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
-      const rb = art && art.querySelector('[data-testid="reply"]'); if (!rb) return { ok: false };
-      rb.click();
-      let box = null; for (let i = 0; i < 20 && !box; i++) { await wait(400); box = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]'); }
-      if (!box) return { ok: false };
-      box.focus(); await wait(300);
-      document.execCommand("insertText", false, text); await wait(800);
-      return { ok: box.innerText.trim().length > 2 };
-    } }).catch(() => null);
-    const inPlace = !!(typed && typed[0] && typed[0].result && typed[0].result.ok);
-    if (!inPlace) { await chrome.tabs.update(id, { url: "https://x.com/intent/post?in_reply_to=" + task.id + "&text=" + encodeURIComponent(task.text) }); await loaded(id); await sleep(rand(5000, 8000)); }
-    else await sleep(rand(1200, 2500));
-    const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const alertText = () => [...document.querySelectorAll('[role="alert"], [data-testid="toast"]')].map((e) => e.innerText).join(" ");
-      let btn = null;
-      for (let i = 0; i < 24; i++) {
-        btn = document.querySelector('[role="dialog"] [data-testid="tweetButton"]') || document.querySelector('[data-testid="tweetButtonInline"]') || document.querySelector('[data-testid="tweetButton"]');
-        const box = document.querySelector('[data-testid="tweetTextarea_0"]');
-        if (btn && btn.getAttribute("aria-disabled") !== "true" && box && box.innerText.trim().length > 2) break;
-        btn = null; await wait(500);
-      }
-      if (!btn) return { ok: false, error: "X's reply box didn't open with the text (signed out, or X changed the page)" };
-      btn.click();
-      for (let i = 0; i < 24; i++) {
-        await wait(500);
-        const a = alertText();
+    // (16 Nov) Reply on the post itself: press its Reply button, type into X's box (dialog or inline), press Reply.
+    const TYPE = (text) => { const box = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]'); if (!box) return null;
+      if (box.innerText.trim().length > 2) return { ok: true }; box.focus(); document.execCommand("insertText", false, text); return { ok: box.innerText.trim().length > 2 }; };
+    const typeIn = async () => { for (let i = 0; i < 20; i++) { const v = await pageRun(id, TYPE, [task.text]).catch(() => null); if (v && v.ok) return true; await sleep(500); } return false; };
+    await pageRun(id, (tid) => { const arts = [...document.querySelectorAll('article[data-testid="tweet"]')]; const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
+      const rb = art && art.querySelector('[data-testid="reply"]'); if (rb) rb.click(); return !!rb; }, [task.id]).catch(() => false);
+    await sleep(800);
+    let typed = await typeIn();
+    if (!typed) { await chrome.tabs.update(id, { url: "https://x.com/intent/post?in_reply_to=" + task.id + "&text=" + encodeURIComponent(task.text) }); await loaded(id); await sleep(rand(4000, 6000)); typed = await typeIn(); }
+    await sleep(rand(1200, 2500));
+    let r = null, clicked = false;
+    for (let i = 0; i < 24 && !clicked; i++) {
+      const v = await pageRun(id, () => { const btn = document.querySelector('[role="dialog"] [data-testid="tweetButton"]') || document.querySelector('[data-testid="tweetButtonInline"]') || document.querySelector('[data-testid="tweetButton"]');
+        const box = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]');
+        if (btn && btn.getAttribute("aria-disabled") !== "true" && box && box.innerText.trim().length > 2) { btn.click(); return true; } return false; }).catch(() => false);
+      if (v) clicked = true; else await sleep(500);
+    }
+    if (!clicked) r = { ok: false, error: "X's reply box didn't open with the text (signed out, or X changed the page)" };
+    for (let i = 0; i < 24 && !r; i++) {
+      await sleep(500);
+      r = await pageRun(id, () => { const a = [...document.querySelectorAll('[role="alert"], [data-testid="toast"]')].map((e) => e.innerText).join(" ");
         if (/automated|try again later|rate limit|over capacity|temporarily/i.test(a)) return { ok: false, limit: true, error: "X: " + a.slice(0, 200) };
         if (/already said that|something went wrong|can.t reply|isn.t available|restricted who can reply/i.test(a)) return { ok: false, error: "X: " + a.slice(0, 200) };
         const bx = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]');
-        if (!btn.isConnected || !bx || bx.innerText.trim().length < 2 || /your post was sent|reply was sent/i.test(a)) return { ok: true };
-      }
-      return { ok: false, error: "Pressed Post but X didn't confirm within 12 seconds" };
-    } });
-    const r = (res && res[0] && res[0].result) || { ok: false, error: "X tab didn't answer" };
+        if (!bx || bx.innerText.trim().length < 2 || /your post was sent|reply was sent/i.test(a)) return { ok: true }; return null; }).catch(() => null);
+    }
+    if (!r) r = { ok: false, error: "Pressed Reply but X didn't confirm within 12 seconds" };
     await api("xr_done", { url: task.url, ok: r.ok, error: r.error, limit: r.limit, liked: like.liked });
     if (r.ok) await log("X: replied to " + task.name + (like.liked ? " (and liked the post)." : "."));
     else await log("X: couldn't reply to " + task.name + ": " + r.error, true);
-    await chrome.tabs.update(id, { url: "https://x.com/messages" }).catch(() => {});
+    await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
   } catch (e) {
     await log("X replies: " + (e.message || e), true);
     if (task) { try { await api("xr_done", { url: task.url, ok: false, error: String(e.message || e) }); } catch (_) {} }
@@ -594,29 +617,21 @@ async function xInboxTick() {
       await chrome.tabs.update(id, { url: "https://x.com/i/chat" }); await loaded(id); await sleep(rand(3000, 5000));
       // X's new chat (x.com/i/chat) loads its list a few seconds after the page; wait for it, then read each chat's link and last line.
       // (16 Nov) X's new chat runs inside an embedded frame, so read every frame (and the chat app's shadow roots).
-      let frames = null;
-      for (let attempt = 0; attempt < 4 && !frames; attempt++) {
-        if (attempt) { if (attempt === 2) await chrome.tabs.reload(id).catch(() => {}); await sleep(4000); await loaded(id); }
-        frames = await chrome.scripting.executeScript({ target: { tabId: id, allFrames: true }, world: "MAIN", func: async () => {
-          const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-          const deep = (root, sel, acc) => { root.querySelectorAll(sel).forEach((e) => acc.push(e)); root.querySelectorAll("*").forEach((e) => { if (e.shadowRoot) deep(e.shadowRoot, sel, acc); }); return acc; };
-          const SEL = 'a[href*="/i/chat/"], a[href*="/messages/"], [data-testid="conversation"], [data-testid*="onversation"], [data-testid*="chat-list"] [role="link"], [role="listitem"], [role="option"]';
-          const items = () => deep(document, SEL, []).filter((e) => { const t = String(e.innerText || "").trim(); return t.includes("\n") && t.length < 500; });
-          for (let i = 0; i < 20 && items().length < 2; i++) await wait(1000);
-          const out = new Map();
-          const grab = () => { for (const c of items()) { const a = c.matches("a") ? c : c.querySelector("a[href]"); const href = (a && a.getAttribute("href")) || c.getAttribute("data-testid") || "";
-            const text = String(c.innerText || "").trim().slice(0, 400); out.set(href + "|" + text.slice(0, 60), { href, text }); } };
-          grab();
-          const first = items()[0]; let sc = first && first.parentElement;
-          while (sc && sc.parentElement && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
-          for (let i = 0; i < 5 && sc; i++) { sc.scrollBy(0, 1200); await wait(1500); grab(); }
-          const body = document.body ? String(document.body.innerText || "") : "";
-          return { url: location.href, cells: [...out.values()].slice(0, 150), locked: /passcode|enter your pin|recover your|set up encryption/i.test(body) && out.size < 2, sample: out.size ? "" : body.slice(0, 900) };
-        } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
-        if (frames && !frames.some((f) => f && f.result && (f.result.cells || []).length)) frames = attempt < 3 ? null : frames;
+      // quick looks into every frame of the chat page; if the list doesn't draw, reload once
+      let fr = [];
+      for (let i = 0; i < 25; i++) {
+        fr = ((await pageRun(id, X_CHAT, [], true).catch(() => [])) || []).filter(Boolean);
+        if (fr.some((f) => (f.cells || []).length >= 2)) break;
+        if (i === 12) { await chrome.tabs.reload(id).catch(() => {}); await loaded(id); }
+        await sleep(1500);
+      }
+      const seenC = new Set(fr.flatMap((f) => (f.cells || []).map((c) => c.href + "|" + c.text.slice(0, 60))));
+      for (let k = 0; k < 4 && fr.some((f) => (f.cells || []).length); k++) {
+        await pageRun(id, X_CHAT_SCROLL, [], true).catch(() => []); await sleep(1500);
+        for (const f of ((await pageRun(id, X_CHAT, [], true).catch(() => [])) || []).filter(Boolean)) for (const c of f.cells || []) {
+          const key = c.href + "|" + c.text.slice(0, 60); if (seenC.has(key)) continue; seenC.add(key); const host = fr.find((x) => x.url === f.url); if (host) host.cells.push(c); else fr.push(f); }
       }
       await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
-      const fr = (frames || []).map((f) => f && f.result).filter(Boolean);
       dom = fr.flatMap((f) => f.cells || []);
       convs.push({ page: "chat", frames: fr.map((f) => ({ url: String(f.url).slice(0, 120), cells: (f.cells || []).length, sample: String(f.sample || "").slice(0, 500) })) });
       if (fr.some((f) => f.locked)) await xReport("chat", false, "X chat is locked: open x.com/i/chat in Chrome once and enter your chat passcode, so the bot can read replies");
@@ -638,53 +653,26 @@ async function xReadTick() {
     if (!job) return;
     const id = await xTab();
     await chrome.tabs.update(id, { url: job.url }); await loaded(id); await sleep(rand(5000, 8000));
-    const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [job.kind, job.scrolls || 3], func: async (kind, scrolls) => {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const out = new Map(); let still = 0, end = false;
-      const users = kind === "my_followers" || kind === "follow_src";
-      const grab = () => {
-        let added = 0;
-        if (users) {
-          for (const c of document.querySelectorAll('[data-testid="UserCell"]')) {
-            const link = [...c.querySelectorAll('a[href^="/"]')].map((a) => a.getAttribute("href")).find((h) => /^\/\w{1,15}$/.test(h || ""));
-            if (!link) continue; const handle = link.slice(1); if (out.has(handle.toLowerCase())) continue;
-            const texts = [...c.querySelectorAll('div[dir="auto"], span')].map((e) => e.innerText.trim()).filter(Boolean);
-            const name = (texts[0] || handle).split("\n")[0];
-            const bio = [...c.querySelectorAll('div[dir="auto"]')].map((e) => e.innerText.trim()).filter((t) => t && t !== name && !t.startsWith("@") && t.length > 12).pop() || "";
-            out.set(handle.toLowerCase(), { handle, name, bio }); added++;
-          }
-        } else {
-          for (const a of document.querySelectorAll('article[data-testid="tweet"]')) {
-            const t = a.querySelector("time"); const link = t && t.closest("a"); if (!link) continue;
-            const url = new URL(link.getAttribute("href"), location.origin).href.split("?")[0]; if (out.has(url)) continue;
-            const m = url.match(/x\.com\/(\w{1,15})\/status\/(\d+)/); if (!m) continue;
-            const un = a.querySelector('[data-testid="User-Name"]'); const name = un ? (un.innerText.split("\n")[0] || m[1]) : m[1];
-            const txt = a.querySelector('[data-testid="tweetText"]'); const grp = a.querySelector('[role="group"][aria-label]');
-            const lab = grp ? grp.getAttribute("aria-label") : "";
-            const pick = (w) => { const mm = lab.match(new RegExp("([\\d,.]+[KM]?)\\s+" + w, "i")); return mm ? mm[1] : null; };
-            out.set(url, { url, handle: m[1], name, text: txt ? txt.innerText : "", time: t.getAttribute("datetime"), reply: /Replying to/i.test(a.innerText.slice(0, 300)),
-              replies: pick("repl"), likes: pick("like"), views: pick("view") }); added++;
-          }
-        }
-        return added;
-      };
-      for (let i = 0; i < 40 && !document.querySelector(users ? '[data-testid="UserCell"]' : 'article[data-testid="tweet"]'); i++) {
-        if (/no results for|nothing to see here|hmm\.\.\.this page/i.test(document.body.innerText)) return { items: [], end: true };
-        await wait(500);
-      }
-      for (let i = 0; i < scrolls; i++) {
-        const n = grab(); still = n ? 0 : still + 1;
-        if (still >= 4) { end = true; break; }
-        window.scrollBy(0, window.innerHeight * (1.2 + Math.random() * 0.6)); await wait(1200 + Math.random() * 1300);
-      }
-      grab();
-      return { items: [...out.values()], end };
-    } });
-    const r = (res && res[0] && res[0].result) || { items: [] };
+    const users = job.kind === "my_followers" || job.kind === "follow_src";
+    let ready = false;
+    for (let i = 0; i < 40 && !ready; i++) {
+      const v = await pageRun(id, (u) => document.querySelector(u ? '[data-testid="UserCell"]' : 'article[data-testid="tweet"]') ? "ok" : /no results for|nothing to see here|hmm\.\.\.this page/i.test(document.body.innerText) ? "empty" : "", [users]).catch(() => "");
+      if (v === "ok") ready = true; else if (v === "empty") break; else await sleep(600);
+    }
+    const out = new Map(); let still = 0, end = !ready;
+    const take = (got) => { let n = 0; for (const it of got || []) { const k = it.url || String(it.handle || "").toLowerCase(); if (k && !out.has(k)) { out.set(k, it); n++; } } return n; };
+    for (let i = 0; ready && i < (job.scrolls || 3); i++) {
+      const n = take(await pageRun(id, X_GRAB, [job.kind]).catch(() => [])); still = n ? 0 : still + 1;
+      if (still >= 4) { end = true; break; }
+      await pageRun(id, () => { window.scrollBy(0, window.innerHeight * (1.2 + Math.random() * 0.6)); return 1; }).catch(() => 0);
+      await sleep(1200 + Math.random() * 1300);
+    }
+    if (ready) take(await pageRun(id, X_GRAB, [job.kind]).catch(() => []));
+    const r = { items: [...out.values()], end };
     const done = await xg("read_done", { job, items: r.items, end: !!r.end });
     const what = { replies: "fresh posts by ICP founders", leads: "raise / launch posts", my_followers: "your newest followers", follow_src: "followers of @" + job.via }[job.kind] || job.kind;
     await log("X: read " + r.items.length + " " + what + (done.new != null ? ", " + done.new + " new to reply to" : done.added != null ? ", " + done.added + " added to the pipeline" : "") + ".");
-    await chrome.tabs.update(id, { url: "https://x.com/messages" }).catch(() => {});
+    await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
   } catch (e) { await log("X reading: " + (e.message || e), true); }
   finally { clearInterval(ka); xbusy = false; }
 }
