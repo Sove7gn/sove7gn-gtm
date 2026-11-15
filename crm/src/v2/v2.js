@@ -142,25 +142,38 @@ function needs(){return memo('needs',()=>{
 /* ---------- shell ---------- */
 let pending=false;
 const editing=()=>{const a=document.activeElement;return !!a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName)&&!a.closest('.pal')&&document.getElementById('app').contains(a);};
-function schedule(){if(renderQ)return;renderQ=true;setTimeout(()=>{renderQ=false;render();},0);}
+function schedule(){if(renderQ)return;renderQ=true;const wait=Math.max(0,180-(Date.now()-lastRender));setTimeout(()=>{renderQ=false;render();},wait);}
 function mount(){
   document.getElementById('app').innerHTML='<div class="app"><aside class="rail" id="rail"></aside><div style="display:flex;flex-direction:column;min-width:0;min-height:0">'
     +'<div class="top" id="top"></div><main class="main" id="main"><div id="tbar"></div><div class="col" id="col"></div></main></div></div><div id="ov"></div><div id="palc"></div>';
   L.mainRef.current=document.getElementById('main');
 }
+// (16 Nov) Smooth redraws: each part of the screen is only replaced when its content changed, and every scroll position
+// (down and sideways: the calendar week, the pipeline boards, each column, the panel) is kept across a redraw.
+const LAST={};let lastRender=0;
+function paint(id,html,after){const el=document.getElementById(id);if(!el)return;if(LAST[id]===html)return;
+  const keep=[];document.querySelectorAll('[data-keep]').forEach(k=>{if(el.contains(k))keep.push([k.dataset.keep,k.scrollLeft,k.scrollTop]);});
+  el.innerHTML=html;LAST[id]=html;if(after)after(el);
+  for(const [k,x,y] of keep){const n=el.querySelector('[data-keep="'+CSS.escape(k)+'"]');if(n){n.scrollLeft=x;n.scrollTop=y;}}}
+// no redraw while the mouse is held down (a drag about to start) or while something is being scrolled
+document.addEventListener('pointerdown',e=>{if(e.button===0)V.hold=true;},true);
+document.addEventListener('pointerup',()=>{V.hold=false;if(pending)setTimeout(render,60);},true);
+for(const ev of ['pointercancel','dragend','dragstart'])document.addEventListener(ev,()=>{V.hold=false;},true);
+window.addEventListener('blur',()=>{V.hold=false;});
+document.addEventListener('scroll',()=>{V.scrollAt=Date.now();},true);
 function render(){
-  if(editing()||V.dragging){pending=true;return;}
-  pending=false;A=[];RC={};
+  if(editing()||V.dragging||V.hold){pending=true;return;}
+  const sw=Date.now()-(V.scrollAt||0);if(sw<600){pending=true;setTimeout(()=>{if(pending)render();},620-sw);return;}
+  pending=false;A=[];RC={};lastRender=Date.now();
   L.viewOnlyRole=false;L.founder=!AK.canEdit();
-  const keep={};document.querySelectorAll('[data-keep]').forEach(el=>{keep[el.dataset.keep]=el.scrollTop;});
   const g=AK.gate();
   document.getElementById('rail').className='rail'+(V.menu?' open':'');
-  document.getElementById('rail').innerHTML=railHtml(g);
-  document.getElementById('top').innerHTML='<button type="button" class="btn sm"'+act(()=>{V.menu=!V.menu;schedule();})+'>☰</button><b>'+esc(PAGE[V.page].label)+'</b><span class="sp"></span><button type="button" class="btn sm"'+act(openSearch)+'>Search</button>';
-  document.getElementById('tbar').innerHTML=g?'':tbarHtml();if(!g)safe(replyAlerts);
-  const col=document.getElementById('col');col.innerHTML=pageHtml(g);col.classList.toggle('anim',!!V.anim);V.anim=false;
-  document.getElementById('ov').innerHTML=(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':'');
-  document.querySelectorAll('[data-keep]').forEach(el=>{if(keep[el.dataset.keep]!=null)el.scrollTop=keep[el.dataset.keep];});
+  paint('rail',railHtml(g));
+  paint('top','<button type="button" class="btn sm"'+act(()=>{V.menu=!V.menu;schedule();})+'>☰</button><b>'+esc(PAGE[V.page].label)+'</b><span class="sp"></span><button type="button" class="btn sm"'+act(openSearch)+'>Search</button>');
+  paint('tbar',g?'':tbarHtml());if(!g)safe(replyAlerts);
+  const anim=!!V.anim;V.anim=false;
+  paint('col',pageHtml(g),el=>el.classList.toggle('anim',anim));
+  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
   document.title=PAGE[V.page].label+' · '+(AK.BRAND||'SOVE7GN')+' CRM';
 }
 function railHtml(g){
@@ -177,7 +190,7 @@ function pageHtml(g){
     return '<div class="card" style="margin-top:40px"><div class="sec-b"><h2 style="margin:0 0 6px;font-size:16px">'+esc(g.title)+'</h2><p class="note">'+esc(g.body||'')+'</p>'+(g.action==='retry'?btn('Try again',()=>location.reload(),'pri'):'')+'</div></div>';}
   const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings}[V.page];
   const ld=AK.leadsState();
-  if(f&&!ld.loaded)return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
+  if(f&&!ld.loaded&&!['calendar','results','ideas','bots','settings','messages','replies'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
   if(f)return safe(f,'<div class="errline">This page couldn’t be drawn. Open the current CRM while it’s fixed.</div>');
   return pgSoon(V.page);
 }
@@ -506,7 +519,7 @@ function pgCalendar(){
     btn('←',base.prev,'sm')+'<span class="wk"><b>'+esc(base.weekName)+'</b> <span class="meta">'+esc(base.label)+'</span></span>'+btn('→',base.next,'sm')+(base.weekName!=='This week'?btn('Today',base.now,'sm ghost'):''));
   h+='<div class="bar"><div class="chips">'+[['all','All'],['LinkedIn','LinkedIn'],['X','X']].map(([k,l])=>'<button type="button" class="chip'+(cur===k?' on':'')+'"'+act(()=>{V.f.cal=k;schedule();})+'>'+(k!=='all'?platMark(k)+' ':'')+esc(l)+'</button>').join('')+'</div><span class="sp"></span>'
     +'<span class="wsum">'+stp('Posted')+' '+cnt('Posted')+' &nbsp;'+stp('Scheduled')+' '+cnt('Scheduled')+' &nbsp;'+stp('Ready to post')+' '+cnt('Ready to post')+' &nbsp;'+stp('Draft')+' '+cnt('Draft')+'</span></div>';
-  h+='<div class="week2">'+cols.map(({d,i,cards,xcol})=>'<div class="day2'+(d.today?' today':'')+'" data-drop="'+i+'"><div class="day2-h"><b>'+esc(d.dow)+'</b><span>'+esc(d.date)+'</span>'+(d.today?'<span class="tg" style="color:#fff;background:var(--fg);border-color:var(--fg)">Today</span>':'')+'<span class="sp"></span><span class="faint">'+cards.filter(c=>c.isCard).length+'</span></div><div class="day2-b">'
+  h+='<div class="week2" data-keep="week">'+cols.map(({d,i,cards,xcol})=>'<div class="day2'+(d.today?' today':'')+'" data-drop="'+i+'"><div class="day2-h"><b>'+esc(d.dow)+'</b><span>'+esc(d.date)+'</span>'+(d.today?'<span class="tg" style="color:#fff;background:var(--fg);border-color:var(--fg)">Today</span>':'')+'<span class="sp"></span><span class="faint">'+cards.filter(c=>c.isCard).length+'</span></div><div class="day2-b">'
     +cards.map(c=>c.isCard?calCardHtml(c):c.isSlot&&canEdit()&&c._p==='X'?'<button type="button" class="cs"'+act(cb(c.slotNew))+'>+ '+esc(c.slotLabel||'Post')+(c.slotHint?' <span class="faint">'+esc(c.slotHint)+'</span>':'')+'</button>':'').join('')
     +(xcol&&xcol.canAdd&&canEdit()&&cur!=='LinkedIn'?'<button type="button" class="cs"'+act(cb(xcol.add))+'>+ Add a post</button>':'')+'</div></div>').join('')+'</div>';
   return h;
@@ -793,10 +806,10 @@ function board(B,plat){
   const cols=(B.cols||[]);const ex=V.pexp&&V.pexp.plat===plat?cols.find(c=>c.id===V.pexp.id):null;
   if(ex)return '<div class="bar" style="margin-top:12px">'+btn('← Back to the board',()=>{V.pexp=null;schedule();},'sm')+'<b style="margin-left:8px">'+esc(plainWords(ex.name))+'</b><span class="cnt">'+esc(ex.n)+'</span><span class="sp"></span>'+(ex.hasAll&&canEdit()?btn('Approve all',ex.all,'pri sm'):'')+'</div>'
     +'<div class="kgrid">'+(ex.cards||[]).map(k=>kcard(k,plat)).join('')+'</div>';
-  return '<div class="board2">'+cols.map(c=>'<div class="bc"><div class="bc-h" style="border-top-color:'+esc(c.dot||'var(--faint)')+'"><b>'+esc(plainWords(c.name))+'</b><span class="cnt">'+esc(c.n)+'</span><span class="sp"></span>'
+  return '<div class="board2" data-keep="board:'+plat+'">'+cols.map(c=>'<div class="bc"><div class="bc-h" style="border-top-color:'+esc(c.dot||'var(--faint)')+'"><b>'+esc(plainWords(c.name))+'</b><span class="cnt">'+esc(c.n)+'</span><span class="sp"></span>'
     +(c.hasBulk&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.bulk))+'>'+esc(c.bulkLabel)+'</button>':c.hasAll&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.all))+'>Approve all</button>':'')
     +'<button type="button" class="exp" title="Open the whole column"'+act(()=>{V.pexp={plat,id:c.id};schedule();})+'>⤢</button></div>'
-    +(c.hint?'<div class="bc-hint">'+esc(plainWords(c.hint))+'</div>':'')+'<div class="bc-b">'
+    +(c.hint?'<div class="bc-hint">'+esc(plainWords(c.hint))+'</div>':'')+'<div class="bc-b" data-keep="bc:'+plat+':'+esc(c.id)+'">'
     +(c.cards||[]).slice(0,V.more['b:'+plat+c.id]?400:25).map(k=>kcard(k,plat)).join('')
     +((c.cards||[]).length>25&&!V.more['b:'+plat+c.id]?'<button type="button" class="lnk"'+act(()=>{V.more['b:'+plat+c.id]=true;schedule();})+'>Show '+((c.cards||[]).length-25)+' more</button>':'')
     +(!(c.cards||[]).length?'<div class="kc-empty">Nobody here</div>':'')+'</div></div>').join('')+'</div>';
