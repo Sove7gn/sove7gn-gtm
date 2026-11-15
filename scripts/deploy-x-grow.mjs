@@ -22,7 +22,7 @@ const url = env.NEXT_PUBLIC_SUPABASE_URL + "/functions/v1/x-grow";
 const JOBS = [
   { name: "x-grow-replies", cron: "10 12-23,0-2 * * *", body: { replies: true } },
   { name: "x-grow-followers", cron: "40 1,7,13,19 * * *", body: { followers: true } },
-  { name: "x-grow-posts", cron: "45 11 * * *", body: { posts: true } },   // 5:15 PM IST: the day's News post (6:30 PM) and, Mon/Wed/Fri, the Shoutout (10:45 PM)
+  { name: "x-grow-posts", cron: "0 11 * * *", body: { posts: true } },   // 4:30 PM IST: AI tool (5:45 PM), News (6:30 PM), Thu Article (8:30 PM), Mon/Wed/Fri Shoutout (10:45 PM); placeholders a week ahead
 ];
 const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 1, onnotice: () => {} });
 try {

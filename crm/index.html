@@ -441,7 +441,7 @@ const xDm=(id,handle,text)=>{id=String(id||'').trim();const h=String(handle||'')
 // Funnel: Reach = top (gets new people in), Trust = middle (proof, stories, numbers), Convert = bottom (comment a word, offers).
 const GROWTH={from:95,goal:10000,start:new Date(2026,10,15),end:new Date(2026,11,31,23,59),
   miles:[['2026-11-22','22 Nov'],['2026-11-29','29 Nov'],['2026-12-06','6 Dec'],['2026-12-13','13 Dec'],['2026-12-20','20 Dec'],['2026-12-27','27 Dec'],['2026-12-31','31 Dec']],
-  mix:[['Reach',20,'New people find you: founders lists, save-worthy tactics, the daily news post, 3 shoutouts'],['Trust',6,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
+  mix:[['Reach',27,'New people find you: founders lists, tactics, the daily AI tool and news posts, 3 shoutouts'],['Trust',7,'They start to trust you: real numbers, the CRM, stories, weekly updates'],['Convert',5,'They raise a hand: comment a word to get something, free teardowns, the offer']],
   week:[['Mon','Founders list (Reach) · Trust · Reach'],['Tue','Founders list (Reach) · Reach · Trust'],['Wed','Founders list (Reach) · Trust (proof) · Convert'],['Thu','Founders list (Reach) · Trust · Convert'],
     ['Fri','Founders list (Reach) · Reach · Convert (the offer)'],['Sat','Founders list (Reach) · Personal (Trust) · Convert'],['Sun','Founders list (Reach) · Weekly numbers (Trust) · Convert']],
   kit:[['bio','Bio','I get funded B2B founders customers from X and LinkedIn: your posts, the replies, the DMs, booked calls. Seed to Series C.'],
@@ -521,12 +521,12 @@ const SLOT_HINT={'Account tag':'Tag 4 to 6 founders who just raised or are hirin
 const dupWords=t=>new Set(String(t||'').toLowerCase().replace(/https?:\/\/\S+/g,' ').replace(/[^a-z0-9$ ]+/g,' ').split(/\s+/).filter(w=>w.length>2).slice(0,60));
 const dupSim=(A,B)=>{if(A.size<6||B.size<6)return 0;let n=0;for(const w of A)if(B.has(w))n++;return n/Math.min(A.size,B.size);};
 function markRepeats(list){const live=list.filter(p=>p.link||p.status==='Posted').map(p=>({p,w:dupWords(p.text)}));const kept=[];
-  for(const p of list){if(p.link||p.status==='Posted'){p.dup=null;continue;}const w=dupWords(p.text);
+  for(const p of list){if(p.link||p.status==='Posted'||/^\(Written for you on /.test(p.text||'')){p.dup=null;continue;}const w=dupWords(p.text);   // (16 Nov) the job's daily placeholders look alike on purpose
     const hit=live.find(x=>x.p.account===p.account&&dupSim(w,x.w)>=0.7)||kept.find(x=>x.p.account===p.account&&x.p.status===p.status&&dupSim(w,x.w)>=0.85);
     p.dup=hit?hit.p:null;if(!hit)kept.push({p,w});}
   return list;}
 // (15 Nov) News and Shoutout: the daily news post and the Mon/Wed/Fri creator shoutout, written by the x-grow job.
-const SLOTS_EXTRA=['News','Shoutout'];
+const SLOTS_EXTRA=['AI tool','News','Article','Shoutout'];
 const slotOf=o=>{const v=String(o['Daily slot']||'').trim();if(SLOTS3.includes(v)||SLOTS_EXTRA.includes(v))return v;const t=String(o['Post type']||'');
   return /tag/i.test(t)?'Account tag':/founder|behind the scenes/i.test(t)?'Founder':/data|lead magnet|how it works|operator floor|company news/i.test(t)?'Data & product':'';};
 const POST_KINDS=[...SLOTS3,...SLOTS_EXTRA,'Other'];
@@ -542,7 +542,7 @@ const CAL_TYPES=['Lead magnet','Founder story','Data post','Tagging post','How i
 const CAL_AIMED=CFG.aimed||['Everyone'];
 const CAL_ST=['Draft','Ready to post','Scheduled','Posted'];
 const CAL_PILL={Draft:['var(--n-soft)','var(--ink-2)'],Scheduled:['var(--in-soft)','var(--in-ink)'],Posted:['var(--ok-soft)','var(--ok-ink)']};
-const KIND_DOT={'Account tag':'var(--mid)','Founder':'oklch(0.68 0.16 45)','Data & product':'var(--out)',News:'oklch(0.6 0.16 25)',Shoutout:'oklch(0.62 0.14 200)',Other:'var(--ink-4)'};
+const KIND_DOT={'Account tag':'var(--mid)','Founder':'oklch(0.68 0.16 45)','Data & product':'var(--out)','AI tool':'oklch(0.62 0.15 280)',News:'oklch(0.6 0.16 25)',Article:'oklch(0.55 0.12 160)',Shoutout:'oklch(0.62 0.14 200)',Other:'var(--ink-4)'};
 const ZONES={ist:{tz:'Asia/Kolkata',label:'IST'},pst:{tz:'America/Los_Angeles',label:'PST'}};
 const zparts=(ms,tz)=>{const o={};new Intl.DateTimeFormat('en-US',{timeZone:tz,year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(x=>{o[x.type]=+x.value||0;});return{y:o.year,m:o.month-1,d:o.day,H:o.hour%24,M:o.minute};};
 const wallToMs=(y,m,d,H,M,tz)=>{let g=Date.UTC(y,m,d,H,M);for(let i=0;i<2;i++){const p=zparts(g,tz);g+=Date.UTC(y,m,d,H,M)-Date.UTC(p.y,p.m,p.d,p.H,p.M);}return g;};
@@ -1269,7 +1269,7 @@ class Component extends DCLogic {
     const keys=new Set(days.map(d=>d.key));const accs=this.accs();
     const plat=s.plat;const isLi=plat==='LinkedIn';
     const placed=this.postList().filter(p=>!p.dup&&onCal(p)&&platOf(p.o)===plat).map(p=>({p,w:calWhere(p.o,zone)})).filter(x=>x.w&&keys.has(x.w.key)&&accs.some(a=>a.acc===x.p.account));
-    const kind=isLi?'All':s.calKind;const FUN={Reach:20,Trust:6,Convert:5};const shown=kind==='All'?placed:FUN[kind]?placed.filter(x=>x.p.funnel===kind):placed.filter(x=>x.p.kind===kind);
+    const kind=isLi?'All':s.calKind;const FUN={Reach:27,Trust:7,Convert:5};const shown=kind==='All'?placed:FUN[kind]?placed.filter(x=>x.p.funnel===kind):placed.filter(x=>x.p.kind===kind);
     const kinds=(isLi?[]:['All',...POST_KINDS]).map(k=>{const on=kind===k;const n=k==='All'?placed.length:placed.filter(x=>x.p.kind===k).length;
       return{label:k,count:String(n)+(!isLi&&SLOTS3.includes(k)?'/'+(accs.length*7):''),go:()=>this.setState({calKind:k}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink)',bd:on?'var(--ink)':'var(--hairline-strong)',dot:KIND_DOT[k]||'transparent',hasDot:k!=='All'};})
       // funnel chips (15 Nov): TOFU / MOFU / BOFU this week against the plan's 10 / 6 / 5
@@ -5245,7 +5245,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <section style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
 <div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
-<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (31 posts)</h2>
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (39 posts)</h2>
 <sc-for list="{{ gr.mix }}" as="m">
 <div style="display:flex; flex-direction:column; gap:4px;">
 <div style="display:flex; justify-content:space-between; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.k }}</span><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.n }} / {{ m.tgt }}</span></div>
@@ -5258,7 +5258,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
 <h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">The week (7:30 PM · 9:45 PM · 11:30 PM IST)</h2>
 <sc-for list="{{ gr.week }}" as="w"><div style="display:flex; gap:10px; font-size:var(--fs-sm);"><span style="flex:0 0 36px; font-weight:600;">{{ w.d }}</span><span style="color:var(--ink-2);">{{ w.t }}</span></div></sc-for>
-<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. The news post (6:30 PM) and the Mon/Wed/Fri shoutout (10:45 PM) are written for you every day at 5:15 PM IST.</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. Written for you every day at 4:30 PM IST: the AI tool post (5:45 PM), the news post (6:30 PM), the Thursday X Article (8:30 PM) and the Mon/Wed/Fri shoutout (10:45 PM).</span>
 </div>
 </section>
 
@@ -5415,7 +5415,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <sc-if value="{{ k.canEdit }}"><button onClick="{{ k.remove }}" title="Take off the calendar" style="margin-left:auto; width:28px; height:28px; border:0; border-radius:7px; display:grid; place-items:center; background:transparent; color:var(--ink-3); cursor:pointer;" style-hover="background:var(--n-soft); color:var(--ink);"><svg width="15" height="15" viewBox="0 0 24 24" style="fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;"><polyline points="4 7 20 7"></polyline><path d="M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button></sc-if>
 </div>
 <sc-if value="{{ k.notLi }}"><div style="display:flex; gap:6px;">
-<select value="{{ k.slot }}" onChange="{{ k.setSlot }}" disabled="{{ k.ro }}" aria-label="Daily slot" style="flex:1; min-width:0; height:30px; padding:0 6px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); color:var(--ink-2); cursor:pointer;"><option value="">Slot…</option><option value="Account tag">Account tag</option><option value="Founder">Founder</option><option value="Data &amp; product">Data &amp; product</option><option value="News">News</option><option value="Shoutout">Shoutout</option></select>
+<select value="{{ k.slot }}" onChange="{{ k.setSlot }}" disabled="{{ k.ro }}" aria-label="Daily slot" style="flex:1; min-width:0; height:30px; padding:0 6px; border:0; border-radius:8px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); color:var(--ink-2); cursor:pointer;"><option value="">Slot…</option><option value="Account tag">Account tag</option><option value="Founder">Founder</option><option value="Data &amp; product">Data &amp; product</option><option value="AI tool">AI tool</option><option value="News">News</option><option value="Article">Article</option><option value="Shoutout">Shoutout</option></select>
 <select value="{{ k.funnel }}" onChange="{{ k.setFunnel }}" disabled="{{ k.ro }}" aria-label="Funnel stage" style="flex:1; min-width:0; height:30px; padding:0 6px; border:0; border-radius:8px; background:{{ k.fun.bg }}; color:{{ k.fun.fg }}; font-weight:600; box-shadow:inset 0 0 0 1px var(--hairline-strong); font-size:var(--fs-xs); cursor:pointer;"><option value="">Funnel…</option><option value="Reach">TOFU · Reach</option><option value="Trust">MOFU · Trust</option><option value="Convert">BOFU · Convert</option></select>
 </div></sc-if>
 <div style="display:flex; align-items:center; gap:10px;">

@@ -236,52 +236,112 @@ async function llm(prompts: string[]): Promise<string[]> {
   const res = JSON.parse(String(out?.data?.stdout ?? "").split("@@").pop() || "{}");
   return prompts.map((_, i) => noDash(String(res[String(i)] ?? "").trim().replace(/^"|"$/g, "").replace(/#\w+/g, "").trim()));
 }
+// Daily slots written by this job (16 Nov v2). Each has a placeholder on the Calendar for the next 7 days, so the week is visible;
+// on the day at 4:30 PM IST the placeholder is filled with a post written from that day's material.
+const PLACEHOLDER = "(Written for you on ";
+const DAILY_SLOTS: { slot: string; time: string; funnel: string; days: number[]; what: string }[] = [
+  { slot: "AI tool", time: "5:45 PM", funnel: "Reach", days: [0, 1, 2, 3, 4, 5, 6], what: "a new AI tool or workflow founders can use to get customers, with how to use it" },
+  { slot: "News", time: "6:30 PM", funnel: "Reach", days: [0, 1, 2, 3, 4, 5, 6], what: "the biggest AI or startup story of that day, named in line 1" },
+  { slot: "Article", time: "8:30 PM", funnel: "Trust", days: [4], what: "a long X Article from our own playbook (post it with X's Articles button)" },
+  { slot: "Shoutout", time: "10:45 PM", funnel: "Reach", days: [1, 3, 5], what: "credit to a bigger GTM creator for their best post this week, quoting it" },
+];
+const ARTICLE_TOPICS = [
+  "How a seed-stage founder gets 10 buyer conversations a week from X",
+  "How to find founders the week they raise (the searches, the checks, the first DM)",
+  "Founder-led GTM for funded B2B startups: posts, replies and DMs as one system",
+  "What 3 startups that sell GTM do on X that works, and what doesn't",
+];
+const OUR_FACTS = "Facts you may use (all true): Reyansh is 20 and runs SOVE7GN, a done-for-you GTM agency for funded B2B founders (seed to Series C): founder posts on X and LinkedIn, replies under posts buyers read, DMs to everyone who engages, booked calls. " +
+  "His own CRM finds about 40 founders a day on X who just raised, launched or posted a GTM job, scores fit 1 to 10, checks why-now and warmth, and sends the top 30 a DM. He uses 3 DM scripts: a pitch, asking for advice, and giving 3 free ideas first. " +
+  "First DMs are 3 lines: one true thing (congrats on the raise), one thing he noticed about how they get customers, one easy question; the call link comes in message 3. " +
+  "He posts 3+ times a day on X: founders-to-watch lists that tag founders, trust posts with real numbers, and 'comment a word and I'll DM you' posts. He leaves 30 replies a day under posts by GTM creators and his leads, in the first hour. " +
+  "He studied 3 GTM startups on X: the one founder who wins gets about 1,400 views a post (Reyansh was getting about 35) using screenshots of real moments, comment-to-get posts, short unpolished posts and free work in public; another founder only posts on LinkedIn; another pays bigger accounts to post about them. " +
+  "Checks for a founder ready to buy GTM help: raised in the last 6 months, still posting the GTM job themselves, no marketing or SDR hire, posting on X less than weekly, launch post under 50 likes. " +
+  "X searches: \"raised\" \"seed\" min_faves:20; \"founding AE\" OR \"first GTM hire\"; \"(YC F26)\" \"launching\"; from:competitor min_faves:50; to:big account in your space. " +
+  "Never invent client results, revenue or follower numbers.";
+const isPlaceholder = (t: string) => String(t || "").startsWith(PLACEHOLDER);
 async function dailyPosts(force = false) {
   const now = new Date(), x = new Date(now.getTime() + 330 * 60e3);
-  const date = x.getUTCDate() + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear(), dow = x.getUTCDay();
+  const dateOf = (d: Date) => d.getUTCDate() + " " + MON[d.getUTCMonth()] + " " + d.getUTCFullYear();
+  const weekOf = (d: Date) => "W" + (Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(2026, 10, 2)) / (7 * 864e5)) + 1);
+  const date = dateOf(x), dow = x.getUTCDay();
   const { data: op } = await db.from("crm_sheet").select("row,cells").eq("tab", "Our Posts").gte("row", 4);
-  const have = (slot: string) => (op ?? []).some((r) => r.cells?.[1] === date && r.cells?.[27] === slot);
-  const usedTags = new Set((op ?? []).flatMap((r) => [...String(r.cells?.[9] ?? "").matchAll(/@(\w+)/g)].map((m) => m[1].toLowerCase())));
-  const jobs: { slot: string; time: string; type: string; prompt: string; their?: string; link?: string; why: string }[] = [];
-  // News: Exa picks the story (via exaFetch), the model writes the post.
-  if (!have("News")) {
-    const since = new Date(now.getTime() - 30 * 3600e3).toISOString();
-    const schema = { type: "object", required: ["headline", "what", "who", "url"], properties: {
-      headline: { type: "string", description: "The single biggest story of the last day that startup founders and people who sell to them are talking about: a big AI model or product launch, a big raise or acquisition, a big move by a well-known founder or company. Prefer AI and startups." },
-      what: { type: "string", description: "3 to 5 plain facts about it: who, what, numbers, why founders care" },
-      who: { type: "string", description: "The product, company or person name people will search for" }, url: { type: "string" } } };
+  const rows = op ?? [];
+  const find = (d: string, slot: string) => rows.find((r) => r.cells?.[1] === d && r.cells?.[27] === slot && r.cells?.[14] !== "Deleted");
+  const usedTags = new Set(rows.flatMap((r) => [...String(r.cells?.[9] ?? "").matchAll(/@(\w+)/g)].map((m) => m[1].toLowerCase())));
+  let next = Math.max(3, ...rows.map((r) => r.row)) + 1;
+  const cellsFor = (d: Date, s: typeof DAILY_SLOTS[0], text: string, extra: Record<number, string> = {}) => {
+    const c = [weekOf(d), dateOf(d), s.time, ACCOUNT, "X", s.slot === "AI tool" ? "AI discovery" : s.slot === "News" ? "News take" : s.slot === "Article" ? "X Article" : "Shoutout (tag a bigger creator)",
+      "Written by the CRM", "", "", text, "", s.slot === "Article" ? "Article cover (X asks for one)" : "None", "", "", "To post", "", "", "", "", "", "", "", "", "", "Founders", "Yes", "", s.slot, s.funnel];
+    for (const [k, v] of Object.entries(extra)) c[+k] = v;
+    return c;
+  };
+  // 1. Placeholders for the next 7 days, so the week shows on the Calendar.
+  let placed = 0;
+  for (let k = 1; k <= 7; k++) {
+    const d = new Date(x.getTime() + k * 864e5);
+    for (const s of DAILY_SLOTS) {
+      if (!s.days.includes(d.getUTCDay()) || find(dateOf(d), s.slot)) continue;
+      const cells = cellsFor(d, s, PLACEHOLDER + ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] + " " + dateOf(d).replace(/ \d{4}$/, "") + " at 4:30 PM IST: " + s.what + ".)");
+      const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells }); if (!error) { placed++; rows.push({ row: next - 1, cells }); }
+    }
+  }
+  // 2. Today's posts.
+  const todays = DAILY_SLOTS.filter((s) => (s.days.includes(dow) || (force && s.slot === "Shoutout")) && (() => { const r = find(date, s.slot); return !r || isPlaceholder(r.cells?.[9]); })());
+  const jobs: { s: typeof DAILY_SLOTS[0]; prompt: string; their?: string; link?: string; why: string; append?: string }[] = [];
+  const since = (h: number) => new Date(now.getTime() - h * 3600e3).toISOString();
+  const exaPick = async (query: string, hours: number, schema: any, sys: string) => {
     const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "biggest AI and startup news today", category: "news", numResults: 8, startPublishedDate: since, outputSchema: schema,
-        systemPrompt: "Pick one story only, from the last 24 hours. Use the search results as the source." }) });
-    const j = r.ok ? await r.json() : null; const s = j?.output?.content;
-    if (s?.headline) jobs.push({ slot: "News", time: "6:30 PM", type: "News take", link: s.url || "", their: s.headline + "\n\n" + s.what,
-      why: "News post (TOFU): people search for " + (s.who || "this") + " today, so naming it in line 1 brings them to us. Post within the hour. Source: " + (s.url || "search"),
-      prompt: "Write an X post reacting to today's news. Name " + (s.who || "the product or company") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. " +
-        "News: " + s.headline + ". Facts: " + s.what + "\n" + POST_RULES });
+      body: JSON.stringify({ query, category: "news", numResults: 8, startPublishedDate: since(hours), outputSchema: schema, systemPrompt: sys }) });
+    return r.ok ? (await r.json())?.output?.content : null;
+  };
+  for (const s of todays) {
+    if (s.slot === "News") {
+      const n = await exaPick("biggest AI and startup news today", 30, { type: "object", required: ["headline", "what", "who", "url"], properties: {
+        headline: { type: "string", description: "The single biggest story of the last day that startup founders are talking about: a big AI launch, a big raise or acquisition, a big move by a known founder or company" },
+        what: { type: "string", description: "3 to 5 plain facts: who, what, numbers, why founders care" }, who: { type: "string", description: "The product, company or person name people will search for" }, url: { type: "string" } } },
+        "Pick one story only, from the last 24 hours. Use the search results as the source.");
+      if (n?.headline) jobs.push({ s, link: n.url || "", their: n.headline + "\n\n" + n.what, why: "News (TOFU): people search for " + (n.who || "this") + " today. Post within the hour. Source: " + (n.url || "search"),
+        prompt: "Write an X post reacting to today's news. Name " + (n.who || "it") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. News: " + n.headline + ". Facts: " + n.what + "\n" + POST_RULES });
+    } else if (s.slot === "AI tool") {
+      const t = await exaPick("new AI tool or AI agent launched this week for sales, marketing or founders", 96, { type: "object", required: ["tool", "what", "steps", "url"], properties: {
+        tool: { type: "string", description: "Name of one new or newly updated AI tool, model feature or agent useful for a startup founder getting customers (sales, outreach, content, research)" },
+        what: { type: "string", description: "What it does, in 2 plain sentences, facts only" }, steps: { type: "string", description: "3 short steps a founder could follow to use it for getting customers" }, url: { type: "string" } } },
+        "Pick one tool launched or updated in the last few days. Prefer tools that are actually usable today. Use the search results as the source.");
+      if (t?.tool) jobs.push({ s, link: t.url || "", their: t.tool + ": " + t.what, append: t.url ? "\n\n" + t.url : "", why: "AI discovery (TOFU): a new tool people are searching for, with a how-to they can save. Source: " + (t.url || "search"),
+        prompt: "Write an X post about a new AI tool. Line 1: name " + t.tool + " and what it does for founders in under 120 characters. Then 3 short numbered steps for how a founder can use it to get customers. End with a short line asking if they have tried it. Tool facts: " + t.what + " Steps idea: " + t.steps + "\n" + POST_RULES.replace("under 500 characters", "under 600 characters") });
+    } else if (s.slot === "Article") {
+      const topic = ARTICLE_TOPICS[Math.floor(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) / (7 * 864e5)) % ARTICLE_TOPICS.length];
+      jobs.push({ s, their: topic, why: "X Article (MOFU): a long, saveable playbook. Bookmarks push it far, and it proves we know the work. Post it with X's Articles button, then share it with its first line.",
+        prompt: "Write an X Article (long post) titled: \"" + topic + "\". 800 to 1,100 words. First line is the title, then a 2-line intro, then 4 to 6 sections with short headers in plain text, short paragraphs and numbered steps, written as Reyansh in first person. " +
+          "End with: if you want this run for you, DM me \"GTM\". " + OUR_FACTS + " No em dashes, no hashtags, no emojis, no 'it's not X, it's Y'. Answer with the article text only." });
+    } else if (s.slot === "Shoutout") {
+      const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
+        .gte("created_at", since(48)).order("likes", { ascending: false, nullsFirst: false }).limit(30);
+      const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
+      if (pick) jobs.push({ s, link: pick.url, their: pick.post_text, append: "\n\n" + pick.url, why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
+        prompt: "Write an X post that gives credit to @" + pick.author + " (" + pick.name + ") for this post of theirs:\n\"\"\"\n" + String(pick.post_text).slice(0, 1200) + "\n\"\"\"\n" +
+          "Start with @" + pick.author + " and what they got right in one line. Then 2 or 3 short lines on why it matters for startup founders, or how Reyansh is applying it this week (no made-up results). End with a line that asks others to add to it. Do not include their link.\n" + POST_RULES });
+    }
   }
-  // Shoutout: Mon, Wed, Fri. The creator's best post of the last 2 days from the reply list, someone not tagged before if possible.
-  if ((force || [1, 3, 5].includes(dow)) && !have("Shoutout")) {
-    const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
-      .gte("created_at", new Date(now.getTime() - 2 * 864e5).toISOString()).order("likes", { ascending: false, nullsFirst: false }).limit(30);
-    const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
-    if (pick) jobs.push({ slot: "Shoutout", time: "10:45 PM", type: "Shoutout (tag a bigger creator)", link: pick.url, their: pick.post_text,
-      why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
-      prompt: "Write an X post that gives credit to @" + pick.author + " (" + pick.name + ") for this post of theirs:\n\"\"\"\n" + String(pick.post_text).slice(0, 1200) + "\n\"\"\"\n" +
-        "Start with @" + pick.author + " and what they got right in one line. Then 2 or 3 short lines on why it matters for startup founders, or how Reyansh is applying it this week (no made-up results). " +
-        "End with a line that asks others to add to it. Do not include their link, it is added after.\n" + POST_RULES });
-  }
-  if (!jobs.length) return { added: 0, note: "Already on the calendar for " + date };
+  if (!jobs.length) return { added: 0, placeholders: placed };
   const texts = await llm(jobs.map((j) => j.prompt));
-  const wk = "W" + (Math.floor((Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) - Date.UTC(2026, 10, 2)) / (7 * 864e5)) + 1);
-  let next = Math.max(3, ...(op ?? []).map((r) => r.row)) + 1, added = 0;
+  let added = 0;
   for (const [i, jb] of jobs.entries()) {
     let t = texts[i]; if (!t || /^skip/i.test(t)) continue;
-    if (jb.slot === "Shoutout" && jb.link) t = t + "\n\n" + jb.link;
-    const cells = [wk, date, jb.time, ACCOUNT, "X", jb.type, jb.slot === "Shoutout" ? "@" + (jb.link?.match(/x\.com\/(\w+)/)?.[1] ?? "") : "News", jb.link || "", jb.their || "", t, jb.why,
-      "None", "", "", "To post", "", "", "", "", "", "", "", "", "", "Founders", "Yes", "", jb.slot, "Reach"];
-    const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells }); if (!error) added++;
+    t = t + (jb.append ?? "");
+    const extra = { 7: jb.link || "", 8: jb.their || "", 10: jb.why };
+    const have = find(date, jb.s.slot);
+    if (have) {   // fill the placeholder in place (cells are 0-based here: 7 Their link, 8 Their post, 9 Our version, 10 What we changed)
+      const c = [...(have.cells ?? [])]; while (c.length < 29) c.push("");
+      c[7] = jb.link || ""; c[8] = jb.their || ""; c[9] = t; c[10] = jb.why;
+      const { error } = await db.from("crm_sheet").update({ cells: c, updated_at: new Date().toISOString() }).eq("tab", "Our Posts").eq("row", have.row); if (error) continue;
+    } else {
+      const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells: cellsFor(x, jb.s, t, extra) }); if (error) continue;
+    }
+    added++;
   }
-  return { added, slots: jobs.map((j) => j.slot) };
+  return { added, slots: jobs.map((j) => j.s.slot), placeholders: placed };
 }
 
 // 3. Warm DMs on autopilot (15 Nov): everyone the CRM judged worth a DM (replied, quoted, commented a keyword, tagged, followed)

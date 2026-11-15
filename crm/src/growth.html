@@ -10,7 +10,7 @@
 
 <section style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap:var(--s-3);">
 <div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
-<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (31 posts)</h2>
+<h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">This week's mix (39 posts)</h2>
 <sc-for list="{{ gr.mix }}" as="m">
 <div style="display:flex; flex-direction:column; gap:4px;">
 <div style="display:flex; justify-content:space-between; gap:8px;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.k }}</span><span style="font-size:var(--fs-sm); font-weight:600;">{{ m.n }} / {{ m.tgt }}</span></div>
@@ -23,7 +23,7 @@
 <div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-4); border-radius:var(--r-lg); background:var(--glass); border:1px solid var(--glass-edge); box-shadow:var(--shadow-sm), var(--hi);">
 <h2 style="margin:0; font-size:var(--fs-lg); font-weight:600;">The week (7:30 PM · 9:45 PM · 11:30 PM IST)</h2>
 <sc-for list="{{ gr.week }}" as="w"><div style="display:flex; gap:10px; font-size:var(--fs-sm);"><span style="flex:0 0 36px; font-weight:600;">{{ w.d }}</span><span style="color:var(--ink-2);">{{ w.t }}</span></div></sc-for>
-<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. The news post (6:30 PM) and the Mon/Wed/Fri shoutout (10:45 PM) are written for you every day at 5:15 PM IST.</span>
+<span style="font-size:var(--fs-xs); color:var(--ink-3);">7:30 PM IST is 9 AM in New York. Written for you every day at 4:30 PM IST: the AI tool post (5:45 PM), the news post (6:30 PM), the Thursday X Article (8:30 PM) and the Mon/Wed/Fri shoutout (10:45 PM).</span>
 </div>
 </section>
 
