@@ -1657,7 +1657,7 @@ async function sortReply(l: Lead, text: string, chan = "LinkedIn"): Promise<{ la
     "Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : "") + (ic.one_liner ? ". Company: " + ic.one_liner : "") + ".\n" +
     "Our last message angle: " + (li.angle || "advice") + ". They wrote: \"" + clip(text, 800) + "\"\n" +
     "Return JSON only: {\"label\": one of \"interested\" (wants to talk or asks for the call/ideas), \"question\" (asks something), \"not_now\" (busy, later, maybe next month), \"not_interested\" (no, not relevant, unsubscribe), \"other\"; " +
-    "\"draft\": a short, warm reply in plain words, no dashes, no hashtags, under 60 words. If interested or a question, answer and suggest a time or share https://cal.com/sove7gn-gtm/30min. If not_now, thank them and say you'll check back in a month. If not_interested, thank them politely and close.}";
+    "\"draft\": a short, warm reply in plain words, no dashes, no hashtags, under 60 words. Never end the conversation unless they said no: a thanks or a short acknowledgement gets a warm line plus one easy question about how they get customers today, or the call link. If interested or a question, answer and suggest a time or share https://cal.com/sove7gn-gtm/30min. If not_now, thank them and say you'll check back in a month. If not_interested, thank them politely and close.}";
   const r = await llmMany([{ id: "r", prompt }]).catch(() => ({} as Record<string, string>));
   const j = parseJson(r.r ?? "") ?? {};
   const label = ["interested", "question", "not_now", "not_interested", "other"].includes(j.label) ? j.label : "other";
