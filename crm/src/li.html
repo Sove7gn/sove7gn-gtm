@@ -381,7 +381,7 @@
 <!-- X tab, Shared leads (11 Nov): LinkedIn leads scoring 6+ to reach on X too. Values from xSharedVals() in logic.js (xs). -->
 <sc-if value="{{ is.xShared }}">
 <div style="display:flex; flex-direction:column; gap:10px;">
-<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ xs.n }} LinkedIn leads scoring 6 or more · {{ xs.todo }} not messaged on X yet. Reaching them on both channels makes your name stick.</span>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ xs.n }} LinkedIn leads scoring 6 or more. Nothing to do here by hand: every 15 minutes the bot finds their X handle and adds them to X › Pipeline, where their first DM waits for your OK.</span>
 <sc-if value="{{ xs.none }}"><span style="padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">No LinkedIn leads score 6+ yet.</span></sc-if>
 <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap:10px;">
 <sc-for list="{{ xs.cards }}" as="k">

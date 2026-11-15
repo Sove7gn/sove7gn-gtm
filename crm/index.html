@@ -475,7 +475,7 @@ const callWhen=t=>t?new Date(t).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',
 // read from the LinkedIn queue sheet (which posts on its own); every other page is X only.
 // Leads (6 Nov): a third option, everyone we're talking to from any channel, with its own pages.
 const PLATS=['X','LinkedIn','Leads'];const LI_PAGES=['calendar','tracker','liInbox','liPeople','gtmEngage','liMid','liPipe','liOut'];const LI_ONLY=['liPeople','liInbox','liMid','liPipe','liOut','gtmEngage'];
-const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound'],prospect:['Found by our ICP search','Outbound'],list:['From our founder list','Outbound'],launch:['Just launched (PH / HN)','Outbound'],hiring:['Hiring for growth / GTM','Outbound']};
+const LI_SRC={liked:['Liked our post','Midbound'],commented:['Commented on our post','Midbound'],viewed:['Viewed our profile','Midbound'],inbound:['Sent us a request','Inbound'],tagged:['We tagged them','Outbound'],niche:['Commented on a founder post','Outbound'],outbound:['We reached out first','Outbound'],funding:['Just raised (funding news)','Outbound'],site:['Visited our website','Midbound'],magnet:['Asked for a lead magnet','Midbound'],prospect:['Found by our ICP search','Outbound'],connection:['Accepted your request (older connection)','Outbound'],list:['From our founder list','Outbound'],launch:['Just launched (PH / HN)','Outbound'],hiring:['Hiring for growth / GTM','Outbound']};
 const liSrcOf=l=>{const li=(l.fields||{}).li||{};if(li.src)return li.src;const o=String(l.origin_key||'');if(o.startsWith('li-src:'))return o.split(':')[1]||'outbound';if(o.startsWith('li-person:'))return /comment/i.test(l.source_detail||'')?'commented':'liked';return 'outbound';};
 const LI_ANGLE={advice:'A · Ask for advice',pitch:'B · Direct pitch',freebie:'C · Free ideas'};
 const LI_SECS=[{id:'in',label:'Inbound',hint:'Our posts, and people who come to us',pages:['calendar','tracker','liInbox']},{id:'mid',label:'Midbound',hint:'People who engage with us',pages:['liPeople','gtmEngage','liMid']},{id:'out',label:'Outbound',hint:'Requests and messages we send',pages:['liPipe','liOut']}];
@@ -2221,10 +2221,10 @@ class Component extends DCLogic {
     const cards=list.map(({l,S})=>{const ic=ICP(l),x=LI(l);const xh=String(ic.x||l.x_handle||'').replace(/^@/,'');const first=String(l.name||'').split(/\s+/)[0]||'there';
       const msg='Hey '+first+', we\u2019re connected on LinkedIn too. Really like what you\u2019re building at '+(l.company||'your company')+'. Would love to swap notes on GTM sometime, open to a quick chat?';
       const li=x.replied?'Replied on LinkedIn':x.dm?'First message sent on LinkedIn':x.acc?'Connected on LinkedIn':x.req?'LinkedIn request sent':'Not contacted on LinkedIn yet';
-      const xdm=(l.fields||{}).x_dm;
+      const xdm=(l.fields||{}).x_dm;const xl=(l.fields||{}).x_li||{};
       return{...avatar(l.name||'?'),name:l.name||'(no name)',sub:[l.role,l.company].filter(Boolean).join(' \u00b7 '),score:String(S.n),one:ic.one_liner||'',loc:[ic.hq_city,ic.hq_country].filter(Boolean).join(', '),li,
         hasX:!!xh,handle:'@'+xh,openX:()=>window.open(xh?'https://x.com/'+xh:'https://x.com/search?q='+encodeURIComponent((l.name||'')+' '+(l.company||''))+'&f=user','_blank','noopener'),xLabel:xh?'Open @'+xh+' on X':'Find them on X',
-        copy:()=>this.copy(msg,'xs'+l.id,'Message copied. Paste it in their X DMs.'),msg,done:!!xdm,notDone:!xdm,doneText:xdm?'Messaged on X '+this.since(xdm):'',
+        copy:()=>this.copy(msg,'xs'+l.id,'Message copied. Paste it in their X DMs.'),msg,done:!!xdm||!!xl.done||!!xl.looked,notDone:!xdm&&!xl.done&&!xl.looked,doneText:xdm?'Messaged on X '+this.since(xdm):xl.done?'✓ In X › Pipeline as @'+(xl.handle||xh)+' (added by the bot)':xl.looked?'No X account found by the bot':'',
         mark:()=>{if(!AK.canEdit())return;AK.leadSave(l.id,{fields:{...(l.fields||{}),x_dm:new Date().toISOString()},last_touch:new Date().toISOString()}).then(ok=>{if(ok){AK.leadNote(l.id,'message','Sent an X DM (shared lead from LinkedIn)');this.toast('Saved: messaged '+(l.name||'them')+' on X.');}});},
         open:()=>this.openLead(l.id)};});
     return{cards,has:cards.length>0,none:!cards.length,n:String(cards.length),todo:String(cards.filter(c=>!c.done).length)};}
@@ -2519,7 +2519,7 @@ class Component extends DCLogic {
     const cnt=v=>all.filter(l=>stOf(l)===v).length;
     const views=[['new','To review'],['approved','Added to outreach'],['trashed','Trashed']].map(([v,lab])=>{const on=view===v;return{label:lab,count:String(cnt(v)),go:()=>this.setState({sgView:v}),bg:on?'var(--ink)':'#fff',fg:on?'#fff':'var(--ink-2)',bd:on?'var(--ink)':'var(--hairline-strong)'};});
     const kinds=[['all','All'],['funding','💸 Raised'],['hiring','🧑‍💼 Hiring'],['launch','🚀 Launched']].map(([k,lab])=>{const on=kind===k;const n=all.filter(l=>stOf(l)===view&&(k==='all'||(LI(l).src)===k)).length;return{label:lab,count:String(n),go:()=>this.setState({sgKind:k}),bg:on?'#e8f1fb':'transparent',fg:on?'#0a66c2':'var(--ink-3)'};});
-    const run=(label,at,r,act,when)=>({label,last:at?'Last run '+this.since(at)+': '+((r||{}).found||0)+' found, '+((r||{}).added||0)+' added':'Not run yet',when,go:()=>{if(AK.canEdit())(act==='funding'?AK.liFunding():AK.liSignal(act));},btn:busy(act)?'Running…':'Run now'});
+    const run=(label,at,r,act,when)=>({label,last:at?'Last run '+this.since(at)+': '+((r||{}).error?'⚠ '+r.error:((r||{}).found||0)+' found, '+((r||{}).added||0)+' added'):'Not run yet',when,go:()=>{if(AK.canEdit())(act==='funding'?AK.liFunding():AK.liSignal(act));},btn:busy(act)?'Running…':'Run now'});
     const LI2=l=>(l.fields||{}).li||{};
     const row=(l,extra)=>{const sp=step(l);return{...avatar(l.name||'?'),name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),extra,step:sp[0],stepC:sp[1],when:this.since(l.created_at),open:()=>this.openLead(l.id),hasLi:!!l.linkedin,li:()=>window.open(l.linkedin,'_blank','noopener')};};
     const V=L.filter(l=>String(l.origin_key||'').startsWith('li-src:site:')||LI2(l).site_at);
@@ -4721,7 +4721,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <!-- X tab, Shared leads (11 Nov): LinkedIn leads scoring 6+ to reach on X too. Values from xSharedVals() in logic.js (xs). -->
 <sc-if value="{{ is.xShared }}">
 <div style="display:flex; flex-direction:column; gap:10px;">
-<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ xs.n }} LinkedIn leads scoring 6 or more · {{ xs.todo }} not messaged on X yet. Reaching them on both channels makes your name stick.</span>
+<span style="font-size:var(--fs-sm); color:var(--ink-2);">{{ xs.n }} LinkedIn leads scoring 6 or more. Nothing to do here by hand: every 15 minutes the bot finds their X handle and adds them to X › Pipeline, where their first DM waits for your OK.</span>
 <sc-if value="{{ xs.none }}"><span style="padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); font-size:var(--fs-sm); color:var(--ink-3); text-align:center;">No LinkedIn leads score 6+ yet.</span></sc-if>
 <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap:10px;">
 <sc-for list="{{ xs.cards }}" as="k">

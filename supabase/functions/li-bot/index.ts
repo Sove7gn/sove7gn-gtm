@@ -28,6 +28,7 @@ async function exaFetch(url: string, init: RequestInit): Promise<Response> {
   }
   if (!CMP_KEY_) return new Response(JSON.stringify({ error: "No Exa key with credits and no COMPOSIO_API_KEY" }), { status: 500 });
   const args = JSON.parse(String(init.body ?? "{}"));
+  if (/^linkedin profile$/i.test(String(args.category ?? ""))) args.category = "people";   // (15 Nov) Composio only takes "people"
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch("https://connect.composio.dev/mcp", { method: "POST",
@@ -42,6 +43,20 @@ async function exaFetch(url: string, init: RequestInit): Promise<Response> {
       const out = JSON.parse(j.result?.content?.[0]?.text ?? "{}");
       const one = out?.data?.results?.[0]?.response;
       if (!one?.successful) throw new Error("Exa via Composio: " + String(one?.error ?? out?.error ?? "no result").slice(0, 160));
+      // (15 Nov) A big result (a funding search with 25 articles) comes back only as a preview; the whole thing sits in a file in
+      // Composio's sandbox, which we read back with jq (just the parts our code uses).
+      const file = out?.data?.remote_file_info?.file_path;
+      if (!one.data && file) {
+        const jq = "jq -c '.results[0].response.data | {costDollars, output: {content: .output.content}, results: [(.results // [])[] | {url, title, text: ((.text // \"\")[0:300])}]}' " + file;
+        const r2 = await fetch("https://connect.composio.dev/mcp", { method: "POST",
+          headers: { "x-consumer-api-key": CMP_KEY_, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "COMPOSIO_REMOTE_BASH_TOOL", arguments: { command: jq } } }) });
+        const t2 = await r2.text(); const l2 = t2.match(/^data: (.*)$/m);
+        const o2 = JSON.parse(JSON.parse(l2 ? l2[1] : t2).result?.content?.[0]?.text ?? "{}");
+        const stdout = String(o2?.data?.stdout ?? "").trim();
+        if (!stdout) throw new Error("Exa via Composio: couldn't read the full result (" + String(o2?.data?.stderr ?? o2?.error ?? "").slice(0, 120) + ")");
+        return new Response(stdout, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify(one.data ?? {}), { status: 200, headers: { "Content-Type": "application/json" } });
     } catch (e) { if (attempt === 1) return new Response(JSON.stringify({ error: String((e as Error).message ?? e) }), { status: 502 }); }
   }
@@ -114,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding, magnets_check, launches, hiring, signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -289,11 +304,11 @@ async function funding(b: any) {
     company: { type: "string" }, what_it_does: { type: "string", description: "one line" }, sells_to_businesses: { type: "boolean", description: "true if B2B or B2B2C" },
     round: { type: "string", description: "Pre-seed, Seed, Series A, Series B or Series C" }, amount_usd: { type: "number" },
     founder_names: { type: "array", items: { type: "string" }, description: "founders or CEO named in the article" }, investors: { type: "string", description: "lead and other investors named" },
-    announced: { type: "string", description: "announcement date YYYY-MM-DD" }, use_of_funds: { type: "string", description: "what they say the money is for, one line" }, source_url: { type: "string" } } } } } };
+    source_url: { type: "string" } } } } } };   // (15 Nov) 10 fields at most through Composio: date and use of funds dropped
   const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: "startup announces seed or Series A or Series B funding round, founders quoted", category: "news", numResults: 25, startPublishedDate: since, outputSchema: schema,
       systemPrompt: "List each startup funding round announced in these results: company, what it does, whether it sells to businesses, the round, the amount in USD, the founders named, and the article URL. Only facts the results state." }) });
-  if (!res.ok) throw new Error("Exa answered " + res.status);
+  if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 200));
   const j = await res.json(); let cost = j.costDollars?.total ?? 0;
   const rounds = ((j.output?.content?.rounds ?? []) as any[]).filter((r) => r.company && r.sells_to_businesses !== false && /pre-?seed|seed|series [abc]\b/i.test(String(r.round ?? "")) && (r.founder_names ?? []).length);
   const { data: have } = await db.from("crm_leads").select("name,company,linkedin").eq("source", "LinkedIn").limit(5000);
@@ -318,7 +333,7 @@ async function funding(b: any) {
 //    Same path as funding: find the founder on LinkedIn, skip anyone known, add as a hot lead with the signal and its link.
 async function exaJson(body: any): Promise<{ out: any; cost: number }> {
   const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!res.ok) throw new Error("Exa answered " + res.status);
+  if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 200));
   const j = await res.json(); return { out: j, cost: j.costDollars?.total ?? 0 };
 }
 async function knownLeads() {
@@ -328,13 +343,24 @@ async function knownLeads() {
 }
 // One founder for a company: by name when the source names one, else the founder or CEO whose LinkedIn headline names the company.
 async function founderOf(company: string, name = ""): Promise<{ url: string; name: string; title: string; cost: number } | null> {
-  const { out, cost } = await exaJson({ query: (name ? name + " " : "") + company + " founder CEO", category: "linkedin profile", numResults: 5 });
+  const { out, cost } = await exaJson({ query: (name ? name + " " : "") + company + " founder CEO", category: "linkedin profile", numResults: 5, contents: { text: { maxCharacters: 600 } } });
   const first = name.split(/\s+/)[0], c = company.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(" ")[0];
   const hit = (out.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url ?? "") && (name ? new RegExp(first, "i").test(String(x.title ?? "") + " " + String(x.url ?? ""))
-    : (String(x.title ?? "").toLowerCase().includes(c) && /founder|ceo|co-founder|cofounder/i.test(String(x.title ?? "") + " " + String(x.text ?? "").slice(0, 300)))));
+    : ((String(x.title ?? "") + " " + String(x.text ?? "").slice(0, 600)).toLowerCase().includes(c) && /founder|ceo|co-founder|cofounder/i.test(String(x.title ?? "") + " " + String(x.text ?? "").slice(0, 600)))));
   if (!hit) return null;
   const t = String(hit.title ?? "");
-  return { url: String(hit.url).split("?")[0].replace(/\/+$/, ""), name: name || t.split(/ [-|–] /)[0].trim(), title: t.split(/ [-|–] /)[1]?.slice(0, 80) || "Founder", cost };
+  // People results (15 Nov) can carry only the name as title; the headline is the first plain line of the profile text.
+  const head = String(hit.text ?? "").split("\n").map((x: string) => x.trim()).find((x: string) => x && !x.startsWith("#")) ?? "";
+  return { url: String(hit.url).split("?")[0].replace(/\/+$/, ""), name: name || t.split(/ [-|–] /)[0].trim(), title: (t.split(/ [-|–] /)[1] || head).slice(0, 80) || "Founder", cost };
+}
+// (15 Nov) A LinkedIn member's headline by their profile id: role and company ("Founder @ Hyperspell | ..." / "CEO at X").
+async function headlineOf(pid: string, name: string): Promise<{ role: string; company: string } | null> {
+  const { out } = await exaJson({ query: name + " LinkedIn", category: "linkedin profile", numResults: 5, contents: { text: { maxCharacters: 500 } } });
+  const hit = (out.results ?? []).find((x: any) => String(x.url ?? "").toLowerCase().replace(/\/+$/, "").endsWith("/in/" + pid.toLowerCase()));
+  if (!hit) return null;
+  const t = String(hit.title ?? ""), head = (t.split(/ [-|–] /)[1] || String(hit.text ?? "").split("\n").map((x: string) => x.trim()).find((x: string) => x && !x.startsWith("#")) || "").trim();
+  const m = head.match(/^(.*?)\s+(?:@|at)\s+([^|,·]+)/i);
+  return { role: (m ? m[1] : head.split("|")[0]).trim().slice(0, 120), company: (m ? m[2] : "").trim().slice(0, 80) };
 }
 // guess: the founder was matched by company name only (Product Hunt's feed names the hunter, not the makers), so the lead comes
 // in Warm, for Reyansh to check on Leads > Signals, and the bot doesn't write them a request on its own.
@@ -359,7 +385,8 @@ const WHY: Record<string, string> = { funding: "Just raised: founders spend on G
   launch: "Just launched: they want distribution this week, and launch traffic fades fast without a system behind it." };
 async function addSignal(kind: string, it: { company: string; name?: string; what?: string; detail: string; url: string; guess?: boolean; extra?: Record<string, unknown> }, K: any) {
   if (!it.company || K.companies.has(K.co(it.company))) return null;
-  const f = await founderOf(it.company, it.name ?? "").catch(() => null); if (!f || !f.name) return null;
+  // A search that can't run at all (out of credits, Exa down) stops the whole run so the page says why; a person not found is just skipped.
+  const f = await founderOf(it.company, it.name ?? "").catch((e) => { if (/40[0-9]|50[0-9]|credit/i.test(String(e))) throw e; return null; }); if (!f || !f.name) return null;
   if (K.li.has(f.url.toLowerCase())) return null;
   const x = await findX(f.name, it.company);
   const { error } = await db.from("crm_leads").insert({ name: f.name, company: it.company, role: f.title, source: "LinkedIn", stage: "New", heat: "Warm", linkedin: f.url, x_handle: x ? "@" + x : "",
@@ -415,6 +442,13 @@ async function hiring(b: any) {
   return { found: jobs.length, added: people.length, people, cost };
 }
 // The daily job (cron li-bot-signals, 9:00 IST): launches, then hiring. Funding runs on its own at 8:30.
+// (15 Nov) Shown on Leads > Signals when a run can't search at all (e.g. Exa out of credits), instead of a silent "0 added".
+async function signalFail(kind: string, e: unknown) {
+  const msg = String((e as Error)?.message ?? e);
+  const why = /402|credit/i.test(msg) ? "Exa is out of credits: top up at dashboard.exa.ai" : "Search failed: " + clip(msg, 140);
+  await saveStatus({ ["last_" + kind]: now(), ["last_" + kind + "_result"]: { found: 0, added: 0, people: [], cost: 0, error: why } });
+  return { error: why };
+}
 async function signals_daily(b: any) {
   const a = await launches(b).catch((e) => ({ error: String(e) })), h = await hiring(b).catch((e) => ({ error: String(e) }));
   return { launches: a, hiring: h };
@@ -462,11 +496,12 @@ async function toXPipeline(l: any, opener = ""): Promise<string> {
   const used = (id: string) => P.filter((r: any) => r.row > hdr.row && r.cells?.[ix("Template")] === id).length;
   const tpl = live.sort((a: string, b: string) => used(a) - used(b))[0] ?? "";
   const next = Math.max(...P.map((r: any) => r.row)) + 1, sig = l.fields?.signal ?? {}, kind = sig.kind ?? l.fields?.li?.src ?? "";
-  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? "YC founder list" : "Launch";
-  const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : "Congrats on the launch.";
+  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? "YC founder list" : kind === "from_li" ? "From LinkedIn" : "Launch";
+  const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : kind === "launch" ? "Congrats on the launch." : "";
   const ist = new Date(Date.now() + IST_MS); const stamp = ist.getUTCDate() + " " + MON3[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + String(ist.getUTCHours()).padStart(2, "0") + ":" + String(ist.getUTCMinutes()).padStart(2, "0");
+  const via = kind === "from_li" ? "Added from LinkedIn (handle found by the bot) on " : "Added from Leads > Signals on ";
   const writes = [{ row: next, col: ix("Name") + 1, values: [[l.name, l.company || "Unknown", l.role || "Founder", "Reyansh", "X DM", "Cold", seg, "9", h, l.linkedin || "", "", clip(String(sig.headline ?? l.source_detail ?? ""), 180), sig.url || "", stamp, opener ? "" : tpl, opener, "To send"]] },
-    { row: next, col: ix("Notes") + 1, values: [["Added from Leads > Signals on " + stamp + ". " + (sig.why ?? "") + (sig.what ? " " + l.company + ": " + sig.what : "")]] },
+    { row: next, col: ix("Notes") + 1, values: [[via + stamp + ". " + (sig.why ?? "") + (sig.what ? " " + l.company + ": " + sig.what : "")]] },
     { row: next, col: ix("Funding stage") + 1, values: [[kind === "funding" ? [sig.round, sig.amount, sig.date].filter(Boolean).join(", ") : sig.stage || "", sig.url || "", hook]] }];
   const { error } = await db.rpc("crm_call", { body: { action: "rows", writes } });
   if (error) return "not added: " + error.message;
@@ -562,6 +597,38 @@ async function import_list(b: any) {
       if (/added/.test(w)) out.x++; }
   }
   return out;
+}
+
+// 3b. LinkedIn leads on X too (15 Nov). Every LinkedIn lead we're working with (fits the ICP, researched, not won or lost)
+// gets their X handle looked up (twitterapi.io, once each) and a row in the X DM Pipeline, which puts them in X > Pipeline > To
+// approve. The opener follows the same pattern as everywhere: offer the 3 ideas (follow-up 1 sends them, then the booking link,
+// then the VSL), never pitch first; anyone who already got the ideas on LinkedIn gets the call ask instead (x_plan rewrites it).
+async function x_from_li(b: any) {
+  const leads = await pool(await settings());
+  const live = leads.filter((l) => /^li-(person|src):/.test(String(l.origin_key ?? "")) && !/^(won|lost|cold lead)$/i.test(String(l.stage ?? "")) && !notFit(l) &&
+    l.fields?.li?.stop !== "skipped" && !["new", "trashed"].includes(String(l.fields?.li?.signal_status ?? "")) && (l.fields?.li_icp?.at || l.fields?.li?.src === "list") && !l.fields?.x_li?.done);
+  let looked = 0, added = 0, none = 0; const people: string[] = [];
+  for (const l of live) {
+    if (looked >= +(b.max ?? 12) && !l.x_handle) continue;
+    let h = String(l.x_handle ?? "").replace(/^@/, "");
+    if (!h) {
+      if (l.fields?.x_li?.looked) continue;
+      looked++;
+      h = await findX(l.name, l.company ?? "").catch(() => "");
+      l.fields = { ...(l.fields ?? {}), x_li: { looked: now(), found: h || "" } };
+      await db.from("crm_leads").update({ fields: l.fields, ...(h ? { x_handle: "@" + h } : {}) }).eq("id", l.id);
+      if (!h) { none++; continue; }
+    }
+    const first = firstName(l.name), co = l.company && !/^unknown$/i.test(l.company) ? l.company : "your company", li = l.fields?.li ?? {};
+    const onLi = li.acc || li.dm || li.req;
+    const opener = onLi ? "Hey " + first + ", we're connected on LinkedIn too. Have 3 quick ideas that could lift " + co + (/s$/i.test(co) ? "'" : "'s") + " inbound, want me to send them over?"
+      : "Hey " + first + ", came across what you're building at " + co + ". We got a YC company 100K+ views on X and multiple enterprise sales calls in 2 weeks, all organic. Have 3 quick ideas that could lift " + co + (/s$/i.test(co) ? "'" : "'s") + " inbound, want me to send them over?";
+    const w = await toXPipeline({ ...l, x_handle: "@" + h, fields: { ...(l.fields ?? {}), signal: { kind: "from_li", headline: "From LinkedIn: " + clip(String(l.source_detail ?? ""), 150), url: l.linkedin ?? "", why: "" } } }, opener).catch(() => "");
+    if (/added|already/.test(w)) { await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), x_li: { ...(l.fields?.x_li ?? {}), done: now(), handle: h } } }).eq("id", l.id); }
+    if (/added/.test(w)) { added++; people.push(l.name + " (@" + h + ")"); }
+  }
+  await saveStatus({ last_x_from_li: now(), last_x_from_li_result: { looked, added, none, people: people.slice(0, 12) } });
+  return { looked, added, none, people };
 }
 
 // 3. Website visitors (RB2B or any tool that posts JSON): li-bot?visitor=<VISITOR_KEY>. Each identified visitor becomes a hot lead
@@ -767,6 +834,23 @@ async function state(b: any) {
     await log(l.id, li.req ? "Accepted our LinkedIn request" : "Already connected with us on LinkedIn");
     accepted++;
   }
+  // (15 Nov) Recent connections the CRM doesn't know (requests Reyansh sent by hand before the bot, accepted now): added as leads,
+  // researched by the next runs, and only those who fit the ICP get the 3 ideas and the follow-ups (see plan).
+  const unknown = (b.connections ?? []).filter((c: any) => !find(c) && c.pid && c.name && (!c.at || Date.now() - Date.parse(c.at) < 30 * 864e5));
+  if (unknown.length) {
+    const { data: all } = await db.from("crm_leads").select("linkedin,fields").eq("source", "LinkedIn").limit(8000);
+    const seen = new Set<string>(); for (const l of all ?? []) { const x: any = l; for (const v of [x.fields?.li?.urn, x.fields?.li?.pid, String(x.linkedin ?? "").toLowerCase().replace(/\/+$/, "").split("/in/")[1]]) if (v) seen.add(String(v).toLowerCase()); }
+    for (const c of unknown.slice(0, 40)) {
+      if (seen.has(String(c.urn).toLowerCase()) || seen.has(String(c.pid).toLowerCase())) continue;
+      const url = "https://www.linkedin.com/in/" + c.pid;
+      const pr = await headlineOf(c.pid, c.name).catch(() => null);         // their headline: role and company, for the fit check
+      const { error } = await db.from("crm_leads").insert({ name: c.name, source: "LinkedIn", stage: "New", heat: "Hot", linkedin: url, direction: "Outbound",
+        role: pr?.role ?? "", company: pr?.company ?? "",
+        origin_key: "li-src:connection:" + url.toLowerCase(), source_detail: "Accepted your LinkedIn request " + (c.at ? String(c.at).slice(0, 10) : "") + " (sent before the bot)",
+        fields: { li: { src: "connection", acc: c.at || now(), urn: c.urn, pid: c.pid } } });
+      if (!error) { seen.add(String(c.pid).toLowerCase()); accepted++; }
+    }
+  }
   const asked = await magnetDMs(b.threads ?? []).catch(() => 0);
   for (const t of b.threads ?? []) {
     const l = find(t); if (!l || !t.them_at) continue;
@@ -869,6 +953,7 @@ async function plan(_b: any) {
     }
     // (14 Nov) End to end: Reyansh approves the connection request only. Whoever accepts gets their 3 ideas as the next message,
     // sent on its own (no approval); people promised them who got something else first get them next.
+    if (li.src === "connection" && !li.dm && (!l.fields?.li_icp?.at || notFit(l) || !/founder|\bceo\b|chief|owner|president|managing director/i.test(String(l.role ?? "")))) continue;
     if (li.acc && !tipsGot(l) && !twin(l, "dm") && (promised(l) || (!li.dm && (isOurs(l) || li.req)))) {
       const t = had("dm", li.dm ? 1 : 0);
       if (t?.status === "skipped" && /here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) {
@@ -1218,7 +1303,7 @@ async function enrich(b: any) {
   // (12 Nov) People waiting for Reyansh's approval go first, so their score is real before he decides; then people not yet contacted.
   const { data: rv } = await db.from("crm_li_tasks").select("lead_id").in("status", ["review", "ready"]).limit(1000);
   const waiting = new Set((rv ?? []).map((t: any) => t.lead_id));
-  const rank = (l: any) => (waiting.has(l.id) ? 0 : 2) + (l.fields?.li?.req ? 1 : 0);
+  const rank = (l: any) => (waiting.has(l.id) || l.fields?.li?.acc ? 0 : 2) + (l.fields?.li?.req ? 1 : 0);
   const todo = (data ?? []).filter(due).sort((a: any, c: any) => rank(a) - rank(c)).slice(0, limit);
   let done = 0, cost = 0;
   for (let i = 0; i < todo.length; i += 4) {
@@ -1301,7 +1386,7 @@ async function lookUp(l: any) {
     body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
       systemPrompt: "Research one startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
         "Find what their company builds and its most recent funding round. Only use facts the results state; never guess. If the results are about a different person or company, set about_this_company=false." }) });
-  if (!res.ok) throw new Error("Exa answered " + res.status);
+  if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 200));
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
 }
@@ -1321,7 +1406,7 @@ async function whereLookUp(l: any) {
     body: JSON.stringify({ query: q, numResults: 6, outputSchema: schema,
       systemPrompt: "One startup lead. Person: " + l.name + ". LinkedIn headline: \"" + (l.role ?? "") + "\". Company: " + (l.company || "unknown") + ". " +
         "Say where this person lives and where the company is based, only from what the results state (a LinkedIn profile location counts). Never guess from a name. Say if the company is a technology company." }) });
-  if (!res.ok) throw new Error("Exa answered " + res.status);
+  if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 200));
   const j = await res.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
 }
@@ -1510,7 +1595,7 @@ async function judgeP(p: { name: string; headline: string }, said: string, icp: 
     body: JSON.stringify({ query: (p.headline || p.name) + " company", numResults: 5, outputSchema: schema,
       systemPrompt: "You judge one person as a sales lead. Their LinkedIn headline is: \"" + p.headline + "\". Name: " + p.name + "." + (said ? " They wrote: \"" + said.slice(0, 300) + "\"." : "") +
         " Judge mainly from the headline; use the results only to learn about their company. Never say not a fit just because nothing was found. " + (icp || "Hot = a founder or senior decision maker at a startup that could buy from us.") }) });
-  if (!res.ok) throw new Error("Exa answered " + res.status);
+  if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 200));
   return (await res.json()).output?.content ?? {};
 }
 
@@ -1687,6 +1772,7 @@ async function briefs(b: any) {
   // The 15 minute job also writes the 3 tips for anyone who said yes to them.
   const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
   if (!b.force_id) await li_move({}).catch(() => ({}));
+  if (!b.force_id) await x_from_li({ max: 6 }).catch(() => ({}));       // (15 Nov) LinkedIn leads into the X pipeline, X handle found by the bot
   if (!b.force_id) await magnets_check({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
   return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
 }
@@ -1722,7 +1808,8 @@ async function tips(b: any) {
     // (14 Nov) Everyone whose connection note promised 3 ideas gets them written ahead: accepted first, then requests still out.
     const { data: prom } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields,source,website").eq("archived", false).eq("source", "LinkedIn")
       .is("fields->tips->>at", null).or("fields->li->>promised.eq.true,fields->li->>src.eq.list,fields->li->>acc.not.is.null,fields->li->>fu.eq.3").limit(300);
-    const pr = (prom ?? []).filter((l: any) => (l.fields?.li?.req || l.fields?.li?.acc) && !(l.fields?.li?.acc && l.fields?.li?.dm && !l.fields?.li?.promised && l.fields?.li?.src !== "list") && !l.fields?.li?.replied).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
+    const pr = (prom ?? []).filter((l: any) => !(l.fields?.li?.src === "connection" && (!l.fields?.li_icp?.at || notFit(l) || !/founder|\bceo\b|chief|owner|president|managing director/i.test(String(l.role ?? "")))))
+      .filter((l: any) => (l.fields?.li?.req || l.fields?.li?.acc) && !(l.fields?.li?.acc && l.fields?.li?.dm && !l.fields?.li?.promised && l.fields?.li?.src !== "list") && !l.fields?.li?.replied).sort((a: any, b2: any) => (b2.fields?.li?.acc ? 1 : 0) - (a.fields?.li?.acc ? 1 : 0));
     leads = [...pr.filter((l: any) => l.fields?.li?.acc), ...leads, ...pr.filter((l: any) => !l.fields?.li?.acc)].slice(0, +(b.limit ?? 4));
   }
   let made = 0;
