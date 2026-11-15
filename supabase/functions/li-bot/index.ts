@@ -1719,7 +1719,7 @@ async function x_inbox(b: any) {
   // (16 Nov) Rows read off the Messages page (new X chats are encrypted, so only the page shows them): a row whose last
   // message isn't ours ("You: ...") and that we haven't seen before counts as their reply, matched by @handle or chat link.
   const domRows = (b.dom ?? []).filter((d: any) => d && d.text);
-  const domHits: { handle: string; uid: string; text: string }[] = [];
+  const domHits: { handle: string; uid: string; name?: string; text: string }[] = [];
   for (const d of domRows) {
     const lines = String(d.text).split("\n").map((x: string) => x.trim()).filter(Boolean);
     const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase();
@@ -1727,8 +1727,9 @@ async function x_inbox(b: any) {
     const last = lines[lines.length - 1] || "";
     // the list shows a time ("2h", "Nov 13") as a line of its own; the last real line is the preview
     const prev = [...lines].reverse().find((x: string) => !/^(\d+[smhdw]|now|yesterday|\d{1,2}:\d{2}( ?[ap]m)?|[A-Z][a-z]{2} \d{1,2}(, \d{4})?)$/i.test(x)) || "";
-    if ((!handle && !uid) || /^(you|you sent|you:|you reacted)/i.test(prev)) continue;
-    domHits.push({ handle, uid, text: prev.slice(0, 400) });
+    const name = String(lines[0] ?? "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
+    if ((!handle && !uid && !name) || prev === lines[0] || /^(you|you sent|you:|you reacted)/i.test(prev)) continue;
+    domHits.push({ handle, uid, name, text: prev.slice(0, 400) } as any);
   }
   // our own last message to each person: if it's after their reply, Reyansh already answered by hand
   const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
@@ -1746,10 +1747,13 @@ async function x_inbox(b: any) {
   const { data: sv } = await db.from("crm_lead_settings").select("value").eq("key", "x_inbox").maybeSingle(); const seen: Record<string, any> = { ...((sv?.value as any) ?? {}) };
   // page rows become messages: matched to a pipeline row by chat id or @handle, ignored if it's one of our own sent texts or seen before
   const byHandle = new Map<string, any>(); for (const r of all) if (r.row > h.row) { const hh = String(obj(r)["X handle"] ?? "").replace(/^@/, "").toLowerCase(); if (hh) byHandle.set(hh, r); }
+  const nn = (x: string) => String(x ?? "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
+  const sentRows = new Set((xt ?? []).filter((t: any) => t.status === "sent").map((t: any) => t.row));
+  const byName = new Map<string, any>(); for (const r of all) if (r.row > h.row && sentRows.has(r.row)) { const n = nn(obj(r)["Name"]); if (n && n.length > 3) byName.set(n, r); }
   const { data: ours } = await db.from("crm_x_tasks").select("row,text").eq("status", "sent").limit(10000);
   const ourText = (row: number, t: string) => (ours ?? []).some((o: any) => o.row === row && String(o.text ?? "").replace(/\s+/g, " ").slice(0, 40).toLowerCase() === t.replace(/\s+/g, " ").slice(0, 40).toLowerCase());
   for (const d of domHits) {
-    const r = (d.uid && byUid.get(d.uid)) || (d.handle && byHandle.get(d.handle)); if (!r) continue;
+    const r = (d.uid && byUid.get(d.uid)) || (d.handle && byHandle.get(d.handle)) || (d.name && byName.get(d.name)); if (!r) continue;
     const uid = d.uid || String(obj(r)["X user ID"] ?? "") || [...byUid.entries()].find(([, v]) => v === r)?.[0] || "";
     if (!uid || ourText(r.row, d.text) || seen["dom:" + r.row] === d.text) continue;
     seen["dom:" + r.row] = d.text; items.push({ from: uid, to: me, text: d.text, at: Date.now(), via: "page" });

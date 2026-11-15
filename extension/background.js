@@ -544,26 +544,31 @@ async function xInboxTick() {
       const id = await xTab();
       await chrome.tabs.update(id, { url: "https://x.com/i/chat" }); await loaded(id); await sleep(rand(3000, 5000));
       // X's new chat (x.com/i/chat) loads its list a few seconds after the page; wait for it, then read each chat's link and last line.
-      let d = null;
-      for (let attempt = 0; attempt < 4 && !d; attempt++) {
+      // (16 Nov) X's new chat runs inside an embedded frame, so read every frame (and the chat app's shadow roots).
+      let frames = null;
+      for (let attempt = 0; attempt < 4 && !frames; attempt++) {
         if (attempt) { await sleep(4000); await loaded(id); }
-        d = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
-        const wait = (ms) => new Promise((r) => setTimeout(r, ms)); const out = new Map();
-        const links = () => [...document.querySelectorAll('a[href*="/i/chat/"], a[href*="/messages/"], [data-testid="conversation"]')];
-        for (let i = 0; i < 30 && links().length < 2; i++) await wait(1000);
-        const locked = /passcode|enter your pin|recover your|set up encryption|verify it.s you/i.test(document.body.innerText) && links().length < 2;
-        const grab = () => { for (const c of links()) { const a = c.matches("a") ? c : c.querySelector("a[href]"); const href = (a && a.getAttribute("href")) || "";
-          const text = String(c.innerText || "").trim().slice(0, 400); if (text && href && !/\/i\/chat\/?$/.test(href)) out.set(href, { href, text }); } };
-        grab();
-        const first = links()[0]; let sc = first && first.parentElement;
-        while (sc && sc !== document.body && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
-        for (let i = 0; i < 5; i++) { if (sc && sc !== document.body) sc.scrollBy(0, 1200); else window.scrollBy(0, 1200); await wait(1500); grab(); }
-        const ids = [...new Set([...document.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid")))].slice(0, 40);
-        return { cells: [...out.values()].slice(0, 150), url: location.href, locked, sample: out.size ? "" : document.body.innerText.slice(0, 1500), testids: ids };
-      } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
+        frames = await chrome.scripting.executeScript({ target: { tabId: id, allFrames: true }, world: "MAIN", func: async () => {
+          const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+          const deep = (root, sel, acc) => { root.querySelectorAll(sel).forEach((e) => acc.push(e)); root.querySelectorAll("*").forEach((e) => { if (e.shadowRoot) deep(e.shadowRoot, sel, acc); }); return acc; };
+          const SEL = 'a[href*="/i/chat/"], a[href*="/messages/"], [data-testid="conversation"], [data-testid*="onversation"], [data-testid*="chat-list"] [role="link"], [role="listitem"], [role="option"]';
+          const items = () => deep(document, SEL, []).filter((e) => { const t = String(e.innerText || "").trim(); return t.includes("\n") && t.length < 500; });
+          for (let i = 0; i < 20 && items().length < 2; i++) await wait(1000);
+          const out = new Map();
+          const grab = () => { for (const c of items()) { const a = c.matches("a") ? c : c.querySelector("a[href]"); const href = (a && a.getAttribute("href")) || c.getAttribute("data-testid") || "";
+            const text = String(c.innerText || "").trim().slice(0, 400); out.set(href + "|" + text.slice(0, 60), { href, text }); } };
+          grab();
+          const first = items()[0]; let sc = first && first.parentElement;
+          while (sc && sc.parentElement && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+          for (let i = 0; i < 5 && sc; i++) { sc.scrollBy(0, 1200); await wait(1500); grab(); }
+          const body = document.body ? String(document.body.innerText || "") : "";
+          return { url: location.href, cells: [...out.values()].slice(0, 150), locked: /passcode|enter your pin|recover your|set up encryption/i.test(body) && out.size < 2, sample: out.size ? "" : body.slice(0, 900) };
+        } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
       }
-      const res = (d && d[0] && d[0].result) || {}; dom = res.cells || []; convs.push({ page: res.url, cells: dom.length, locked: !!res.locked, sample: dom.length ? "" : String(res.sample || "").slice(0, 800), testids: dom.length ? [] : (res.testids || []) });
-      if (res.locked) await xReport("chat", false, "X chat is locked: open x.com/i/chat in Chrome once and enter your chat passcode, so the bot can read replies");
+      const fr = (frames || []).map((f) => f && f.result).filter(Boolean);
+      dom = fr.flatMap((f) => f.cells || []);
+      convs.push({ page: "chat", frames: fr.map((f) => ({ url: String(f.url).slice(0, 120), cells: (f.cells || []).length, sample: String(f.sample || "").slice(0, 500) })) });
+      if (fr.some((f) => f.locked)) await xReport("chat", false, "X chat is locked: open x.com/i/chat in Chrome once and enter your chat passcode, so the bot can read replies");
     } catch (e) { convs.push({ page: "error", error: String(e.message || e).slice(0, 160) }); }
     const out = await api("x_inbox", { me, items, dom, version: VERSION, debug: { pages: r.pages || [], convs } });
     await xReport("inbox", true, (r.items || []).length + " inbox messages, " + (convs.length - 1) + " chats opened, " + dom.length + " chats read on x.com/i/chat, " + ((out && out.replied) || 0) + " new replies");

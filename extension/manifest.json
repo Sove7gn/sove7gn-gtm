@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "SOVE7GN Outreach Bot",
-  "version": "1.6.5",
+  "version": "1.6.6",
   "description": "Outreach for the SOVE7GN CRM: LinkedIn requests, DMs and follow-ups, and approved X DMs, sent from your own signed-in Chrome.",
   "permissions": ["alarms", "storage", "scripting", "tabs"],
-  "host_permissions": ["https://www.linkedin.com/*", "https://x.com/*", "https://*.supabase.co/*"],
+  "host_permissions": ["https://www.linkedin.com/*", "https://x.com/*", "https://*.x.com/*", "https://*.supabase.co/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "SOVE7GN Outreach Bot" },
   "icons": { "128": "icon.png" }
