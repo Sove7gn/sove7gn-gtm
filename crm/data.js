@@ -1288,7 +1288,7 @@ async function xtLoad(){
     const [a,b,c,d]=await Promise.all([sb.from("crm_x_tasks").select("*").in("status",["ready","sending"]).limit(500),
       sb.from("crm_x_tasks").select("*").gte("created_at",since).order("created_at",{ascending:false}).limit(500),
       sb.from("crm_lead_settings").select("key,value").in("key",["x_bot","x_bot_status"]),
-      sb.from("crm_x_tasks").select("id,row,kind,status,sent_at,created_at").in("kind",["fu1","fu2","fu3","fu4","fu5","fu6","fu7"]).eq("status","sent").limit(3000)]);
+      sb.from("crm_x_tasks").select("id,row,kind,status,sent_at,created_at").in("kind",["dm","fu1","fu2","fu3","fu4","fu5","fu6","fu7"]).eq("status","sent").limit(4000)]);
     if(a.error)throw a.error;const m=new Map();for(const r of [...(d.data||[]),...(b.data||[]),...(a.data||[])])m.set(r.id,r);XT.rows=[...m.values()];
     XT.status={};for(const r of c.data||[])XT.status[r.key]=r.value;XT.loaded=true;emit()}
   catch(e){XT.loaded=true;emit()}

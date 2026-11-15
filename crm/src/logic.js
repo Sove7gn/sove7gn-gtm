@@ -1735,7 +1735,9 @@ class Component extends DCLogic {
   /* Daily brief scoreboard (15 Nov): one clean update. Overall, then LinkedIn and X the same way: numbers for today, yesterday
      and the last 7 days, where everyone is now, what waits on Reyansh, what goes out next, whether the bots are healthy, and a
      numbered list of next steps. Everything is live from what the CRM has loaded. */
-  scoreVals(){const s=this.state;const D=864e5;const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime(),Y0=T0-D,W0=T0-6*D;
+  scoreVals(){try{return this.scoreVals_();}catch(e){console.error('scoreboard',e);const none={rows:[],pipe:[],health:[{text:'Couldn’t build this part: '+String(e&&e.message||e),dot:'var(--bad)'}],wait:'',next:'',open:()=>{}};
+    return{overall:[],steps:[{n:'!',text:'The update couldn’t be built',why:String(e&&e.message||e),hasBtn:false}],left:[],li:none,x:none,updated:'',details:true,detailsLabel:'Hide details',toggleDetails:()=>{}};}}
+  scoreVals_(){const s=this.state;const D=864e5;const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime(),Y0=T0-D,W0=T0-6*D;
     const ms=x=>{const v=Date.parse(x||'');return isNaN(v)?0:v;};
     const win=at=>{const v=typeof at==='number'?at:ms(at);return{t:v>=T0,y:v>=Y0&&v<T0,w:v>=W0};};
     const cnt=(arr,atOf)=>{const o={t:0,y:0,w:0};for(const a of arr){const w=win(atOf(a));if(w.t)o.t++;if(w.y)o.y++;if(w.w)o.w++;}return o;};
@@ -1779,11 +1781,11 @@ class Component extends DCLogic {
     // ── overall
     const firstT=cnt([...sent(['invite','inmail']),...xsent(['dm'])],t=>t.sent_at);const goal=(+lset.daily_new||20)+(+xset.daily_new||10);
     const allReplies=cnt([...LL.filter(l=>LI(l).replied).map(l=>LI(l).replied),...rep.map(p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})],x=>x);
-    const callsUp=this.leadsAll().filter(l=>/^call booked$/i.test(l.stage)&&!l.archived).length;
-    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const won=this.leadsAll().filter(l=>/^won$/i.test(l.stage)&&ms(l.stage_at)>=m0.getTime()&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))).length;
+    const callsUp=this.leadsAll().filter(l=>/^call booked$/i.test(l.stage)&&!l.archived&&l.source!=='Instagram'&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))&&((l.fields||{}).call||{}).kind!=='clipping').length;
+    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const won=this.leadsAll().filter(l=>/^won$/i.test(l.stage)&&ms(l.stage_at)>=m0.getTime()&&l.source!=='Instagram'&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))).length;
     const overall=[{label:'New people reached today',v:firstT.t+' / '+goal,d:'Yesterday '+firstT.y+' · 7 days '+firstT.w,c:firstT.t>=goal?'var(--ok-ink)':'var(--ink)'},
       {label:'Replies (LinkedIn + X)',v:String(allReplies.t),d:'Yesterday '+allReplies.y+' · 7 days '+allReplies.w,c:'var(--ink)'},
-      {label:'Calls booked (GTM)',v:String(callsUp),d:'In Call booked now',c:'var(--ink)'},
+      {label:'GTM calls booked',v:String(callsUp),d:'Upcoming (not counting clipping calls)',c:'var(--ink)'},
       {label:'Clients won this month',v:String(won),d:won?'':'Goal: the first one',c:won?'var(--ok-ink)':'var(--bad)'}];
     // ── next steps, most important first
     const steps=[];const st=(text,why,btn,go)=>steps.push({n:String(steps.length+1),text,why,btn,go,hasBtn:!!btn});
@@ -1798,10 +1800,10 @@ class Component extends DCLogic {
     if(!steps.length)st('Nothing needs you right now','The bots are sending; new replies will show here.','',null);
     const left=[{k:'LinkedIn requests to approve',v:liReview},{k:'LinkedIn messages going out',v:q(['dm','accept'])+q(['followup'])},{k:'LinkedIn requests going out',v:q(['invite'])},
       {k:'X first DMs to approve',v:xApprove},{k:'X messages queued',v:xQ.length}].map(x=>({k:x.k,v:String(x.v)}));
-    const hl=h=>h.map(x=>({text:x.text,dot:x.ok?'var(--ok)':'var(--warn)'}));
+    const pl=(n,one,many)=>n+' '+(n===1?one:many);const hl=h=>h.map(x=>({text:x.text,dot:x.ok?'var(--ok)':'var(--warn)'}));
     return{overall,steps,left,
-      li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:liReview+' requests to approve · '+liAnswer+' replies to answer',next:q(['invite'])+' requests, '+q(['dm','accept'])+' first messages and '+q(['followup'])+' follow-ups queued',open:()=>jump('LinkedIn','liPipe')},
-      x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:xApprove+' first DMs to approve · '+L.rep.length+' replies to answer',next:xQ.filter(t=>t.kind==='dm').length+' first DMs and '+xQ.filter(t=>t.kind!=='dm').length+' follow-ups queued',open:()=>jump('X','pipeline')},
+      li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:pl(liReview,'request','requests')+' to approve · '+pl(liAnswer,'reply','replies')+' to answer',next:pl(q(['invite']),'request','requests')+', '+pl(q(['dm','accept']),'first message','first messages')+' and '+pl(q(['followup']),'follow-up','follow-ups')+' queued',open:()=>jump('LinkedIn','liPipe')},
+      x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:pl(xApprove,'first DM','first DMs')+' to approve · '+pl(L.rep.length,'reply','replies')+' to answer',next:pl(xQ.filter(t=>t.kind==='dm').length,'first DM','first DMs')+' and '+pl(xQ.filter(t=>t.kind!=='dm').length,'follow-up','follow-ups')+' queued',open:()=>jump('X','pipeline')},
       updated:'Live · '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),details:!!s.briefDetails,detailsLabel:s.briefDetails?'Hide details':'Show details: follow-up lists, everyone on LinkedIn, past briefs',toggleDetails:()=>this.setState(z=>({briefDetails:!z.briefDetails}))};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
     const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};

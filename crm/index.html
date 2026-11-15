@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=5e006926b6"></script>
+<script src="./data.js?v=ef6676f170"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -2152,7 +2152,9 @@ class Component extends DCLogic {
   /* Daily brief scoreboard (15 Nov): one clean update. Overall, then LinkedIn and X the same way: numbers for today, yesterday
      and the last 7 days, where everyone is now, what waits on Reyansh, what goes out next, whether the bots are healthy, and a
      numbered list of next steps. Everything is live from what the CRM has loaded. */
-  scoreVals(){const s=this.state;const D=864e5;const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime(),Y0=T0-D,W0=T0-6*D;
+  scoreVals(){try{return this.scoreVals_();}catch(e){console.error('scoreboard',e);const none={rows:[],pipe:[],health:[{text:'Couldn’t build this part: '+String(e&&e.message||e),dot:'var(--bad)'}],wait:'',next:'',open:()=>{}};
+    return{overall:[],steps:[{n:'!',text:'The update couldn’t be built',why:String(e&&e.message||e),hasBtn:false}],left:[],li:none,x:none,updated:'',details:true,detailsLabel:'Hide details',toggleDetails:()=>{}};}}
+  scoreVals_(){const s=this.state;const D=864e5;const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime(),Y0=T0-D,W0=T0-6*D;
     const ms=x=>{const v=Date.parse(x||'');return isNaN(v)?0:v;};
     const win=at=>{const v=typeof at==='number'?at:ms(at);return{t:v>=T0,y:v>=Y0&&v<T0,w:v>=W0};};
     const cnt=(arr,atOf)=>{const o={t:0,y:0,w:0};for(const a of arr){const w=win(atOf(a));if(w.t)o.t++;if(w.y)o.y++;if(w.w)o.w++;}return o;};
@@ -2196,11 +2198,11 @@ class Component extends DCLogic {
     // ── overall
     const firstT=cnt([...sent(['invite','inmail']),...xsent(['dm'])],t=>t.sent_at);const goal=(+lset.daily_new||20)+(+xset.daily_new||10);
     const allReplies=cnt([...LL.filter(l=>LI(l).replied).map(l=>LI(l).replied),...rep.map(p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})],x=>x);
-    const callsUp=this.leadsAll().filter(l=>/^call booked$/i.test(l.stage)&&!l.archived).length;
-    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const won=this.leadsAll().filter(l=>/^won$/i.test(l.stage)&&ms(l.stage_at)>=m0.getTime()&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))).length;
+    const callsUp=this.leadsAll().filter(l=>/^call booked$/i.test(l.stage)&&!l.archived&&l.source!=='Instagram'&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))&&((l.fields||{}).call||{}).kind!=='clipping').length;
+    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const won=this.leadsAll().filter(l=>/^won$/i.test(l.stage)&&ms(l.stage_at)>=m0.getTime()&&l.source!=='Instagram'&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))).length;
     const overall=[{label:'New people reached today',v:firstT.t+' / '+goal,d:'Yesterday '+firstT.y+' · 7 days '+firstT.w,c:firstT.t>=goal?'var(--ok-ink)':'var(--ink)'},
       {label:'Replies (LinkedIn + X)',v:String(allReplies.t),d:'Yesterday '+allReplies.y+' · 7 days '+allReplies.w,c:'var(--ink)'},
-      {label:'Calls booked (GTM)',v:String(callsUp),d:'In Call booked now',c:'var(--ink)'},
+      {label:'GTM calls booked',v:String(callsUp),d:'Upcoming (not counting clipping calls)',c:'var(--ink)'},
       {label:'Clients won this month',v:String(won),d:won?'':'Goal: the first one',c:won?'var(--ok-ink)':'var(--bad)'}];
     // ── next steps, most important first
     const steps=[];const st=(text,why,btn,go)=>steps.push({n:String(steps.length+1),text,why,btn,go,hasBtn:!!btn});
@@ -2215,10 +2217,10 @@ class Component extends DCLogic {
     if(!steps.length)st('Nothing needs you right now','The bots are sending; new replies will show here.','',null);
     const left=[{k:'LinkedIn requests to approve',v:liReview},{k:'LinkedIn messages going out',v:q(['dm','accept'])+q(['followup'])},{k:'LinkedIn requests going out',v:q(['invite'])},
       {k:'X first DMs to approve',v:xApprove},{k:'X messages queued',v:xQ.length}].map(x=>({k:x.k,v:String(x.v)}));
-    const hl=h=>h.map(x=>({text:x.text,dot:x.ok?'var(--ok)':'var(--warn)'}));
+    const pl=(n,one,many)=>n+' '+(n===1?one:many);const hl=h=>h.map(x=>({text:x.text,dot:x.ok?'var(--ok)':'var(--warn)'}));
     return{overall,steps,left,
-      li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:liReview+' requests to approve · '+liAnswer+' replies to answer',next:q(['invite'])+' requests, '+q(['dm','accept'])+' first messages and '+q(['followup'])+' follow-ups queued',open:()=>jump('LinkedIn','liPipe')},
-      x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:xApprove+' first DMs to approve · '+L.rep.length+' replies to answer',next:xQ.filter(t=>t.kind==='dm').length+' first DMs and '+xQ.filter(t=>t.kind!=='dm').length+' follow-ups queued',open:()=>jump('X','pipeline')},
+      li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:pl(liReview,'request','requests')+' to approve · '+pl(liAnswer,'reply','replies')+' to answer',next:pl(q(['invite']),'request','requests')+', '+pl(q(['dm','accept']),'first message','first messages')+' and '+pl(q(['followup']),'follow-up','follow-ups')+' queued',open:()=>jump('LinkedIn','liPipe')},
+      x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:pl(xApprove,'first DM','first DMs')+' to approve · '+pl(L.rep.length,'reply','replies')+' to answer',next:pl(xQ.filter(t=>t.kind==='dm').length,'first DM','first DMs')+' and '+pl(xQ.filter(t=>t.kind!=='dm').length,'follow-up','follow-ups')+' queued',open:()=>jump('X','pipeline')},
       updated:'Live · '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),details:!!s.briefDetails,detailsLabel:s.briefDetails?'Hide details':'Show details: follow-up lists, everyone on LinkedIn, past briefs',toggleDetails:()=>this.setState(z=>({briefDetails:!z.briefDetails}))};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
     const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};
@@ -4202,6 +4204,58 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 <!-- Leads > Daily brief (11 Nov): the 8:00 IST snapshot from the daily-brief job. Values from dailyVals() in logic.js (ld.db). -->
 <sc-if value="{{ is.leadBrief }}">
+<!-- Daily brief scoreboard (15 Nov): overall, LinkedIn and X the same way (today / yesterday / 7 days, pipeline now, waiting on
+     you, going out next, bot health), then the next steps. From scoreVals() in logic.js (ld.sc). The older sections sit under Details. -->
+<section style="display:flex; flex-direction:column; gap:14px;">
+<div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;"><span style="font-size:var(--fs-lg); font-weight:700;">Today’s update</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">{{ ld.sc.updated }}</span></div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap:10px;">
+<sc-for list="{{ ld.sc.overall }}" as="o"><div style="display:flex; flex-direction:column; gap:4px; padding:14px 16px; border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);">
+<span style="font-size:var(--fs-2xs); color:var(--ink-3); font-weight:600; text-transform:uppercase; letter-spacing:.03em;">{{ o.label }}</span>
+<span style="font-size:28px; font-weight:700; line-height:1.1; color:{{ o.c }};">{{ o.v }}</span>
+<span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ o.d }}</span>
+</div></sc-for>
+</div>
+
+<div style="display:flex; flex-direction:column; gap:8px; padding:var(--s-5); border-radius:var(--r-lg); background:#fffdf8; box-shadow:var(--shadow-sm), inset 0 0 0 1px #f5d9a8;">
+<span style="font-size:var(--fs-md); font-weight:700;">Next steps</span>
+<sc-for list="{{ ld.sc.steps }}" as="t"><div style="display:flex; align-items:center; gap:12px; padding:8px 10px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); flex-wrap:wrap;">
+<span style="width:24px; height:24px; flex:0 0 24px; border-radius:50%; display:grid; place-items:center; background:var(--ink); color:#fff; font-size:var(--fs-2xs); font-weight:700;">{{ t.n }}</span>
+<span style="flex:1 1 260px; min-width:0; display:flex; flex-direction:column; line-height:1.35;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ t.text }}</span><span style="font-size:var(--fs-2xs); color:var(--ink-3);">{{ t.why }}</span></span>
+<sc-if value="{{ t.hasBtn }}"><button onClick="{{ t.go }}" style="height:28px; padding:0 12px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-xs); font-weight:600; cursor:pointer;">{{ t.btn }} →</button></sc-if>
+</div></sc-for>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap:12px;">
+<!-- LinkedIn -->
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:22px; border-radius:6px; display:grid; place-items:center; background:#0a66c2; color:#fff; font-size:11px; font-weight:700;">in</span><span style="font-size:var(--fs-md); font-weight:700;">LinkedIn</span><button onClick="{{ ld.sc.li.open }}" style="margin-left:auto; height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2); cursor:pointer;">Open pipeline →</button></div>
+<div style="display:grid; grid-template-columns:minmax(0,1fr) 56px 64px 56px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden; font-size:var(--fs-xs);">
+<span style="padding:7px 12px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft);">Numbers</span><span style="padding:7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">Today</span><span style="padding:7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">Yesterday</span><span style="padding:7px 12px 7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">7 days</span>
+<sc-for list="{{ ld.sc.li.rows }}" as="r"><span style="padding:7px 12px; border-top:1px solid var(--hairline); color:var(--ink-2);">{{ r.label }}</span><b style="padding:7px 6px; border-top:1px solid var(--hairline); text-align:right; color:{{ r.tC }};">{{ r.t }}</b><span style="padding:7px 6px; border-top:1px solid var(--hairline); text-align:right; color:var(--ink-2);">{{ r.y }}</span><span style="padding:7px 12px 7px 6px; border-top:1px solid var(--hairline); text-align:right; color:var(--ink-2);">{{ r.w }}</span></sc-for>
+</div>
+<div style="display:flex; flex-direction:column; gap:6px;"><span style="font-size:var(--fs-2xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.03em;">Where everyone is now</span>
+<div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ ld.sc.li.pipe }}" as="k"><span style="display:inline-flex; align-items:baseline; gap:6px; padding:5px 10px; border-radius:999px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2);"><b style="font-size:var(--fs-sm); color:var(--ink);">{{ k.v }}</b>{{ k.k }}</span></sc-for></div></div>
+<div style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs);"><span><b>Waiting on you:</b> {{ ld.sc.li.wait }}</span><span><b>Going out next:</b> {{ ld.sc.li.next }}</span></div>
+<div style="display:flex; flex-direction:column; gap:4px;"><sc-for list="{{ ld.sc.li.health }}" as="h"><span style="display:flex; align-items:center; gap:7px; font-size:var(--fs-2xs); color:var(--ink-2);"><span style="width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:{{ h.dot }};"></span>{{ h.text }}</span></sc-for></div>
+</div>
+<!-- X -->
+<div style="display:flex; flex-direction:column; gap:12px; padding:var(--s-5); border-radius:var(--r-lg); background:var(--glass); box-shadow:var(--shadow-sm), var(--hi);">
+<div style="display:flex; align-items:center; gap:8px;"><span style="width:22px; height:22px; border-radius:6px; display:grid; place-items:center; background:#111; color:#fff; font-size:11px; font-weight:700;">𝕏</span><span style="font-size:var(--fs-md); font-weight:700;">X</span><button onClick="{{ ld.sc.x.open }}" style="margin-left:auto; height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2); cursor:pointer;">Open pipeline →</button></div>
+<div style="display:grid; grid-template-columns:minmax(0,1fr) 56px 64px 56px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); overflow:hidden; font-size:var(--fs-xs);">
+<span style="padding:7px 12px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft);">Numbers</span><span style="padding:7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">Today</span><span style="padding:7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">Yesterday</span><span style="padding:7px 12px 7px 6px; font-size:var(--fs-3xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; background:var(--n-soft); text-align:right;">7 days</span>
+<sc-for list="{{ ld.sc.x.rows }}" as="r"><span style="padding:7px 12px; border-top:1px solid var(--hairline); color:var(--ink-2);">{{ r.label }}</span><b style="padding:7px 6px; border-top:1px solid var(--hairline); text-align:right; color:{{ r.tC }};">{{ r.t }}</b><span style="padding:7px 6px; border-top:1px solid var(--hairline); text-align:right; color:var(--ink-2);">{{ r.y }}</span><span style="padding:7px 12px 7px 6px; border-top:1px solid var(--hairline); text-align:right; color:var(--ink-2);">{{ r.w }}</span></sc-for>
+</div>
+<div style="display:flex; flex-direction:column; gap:6px;"><span style="font-size:var(--fs-2xs); font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:.03em;">Where everyone is now</span>
+<div style="display:flex; flex-wrap:wrap; gap:6px;"><sc-for list="{{ ld.sc.x.pipe }}" as="k"><span style="display:inline-flex; align-items:baseline; gap:6px; padding:5px 10px; border-radius:999px; background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-2xs); color:var(--ink-2);"><b style="font-size:var(--fs-sm); color:var(--ink);">{{ k.v }}</b>{{ k.k }}</span></sc-for></div></div>
+<div style="display:flex; flex-direction:column; gap:4px; font-size:var(--fs-xs);"><span><b>Waiting on you:</b> {{ ld.sc.x.wait }}</span><span><b>Going out next:</b> {{ ld.sc.x.next }}</span></div>
+<div style="display:flex; flex-direction:column; gap:4px;"><sc-for list="{{ ld.sc.x.health }}" as="h"><span style="display:flex; align-items:center; gap:7px; font-size:var(--fs-2xs); color:var(--ink-2);"><span style="width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:{{ h.dot }};"></span>{{ h.text }}</span></sc-for></div>
+</div>
+</div>
+
+<button onClick="{{ ld.sc.toggleDetails }}" style="align-self:flex-start; height:30px; padding:0 14px; border:0; border-radius:var(--r-btn); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-xs); color:var(--ink-2); cursor:pointer;">{{ ld.sc.detailsLabel }}</button>
+</section>
+<sc-if value="{{ ld.sc.details }}">
 <section style="display:flex; flex-direction:column; gap:10px;">
 <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:var(--fs-lg); font-weight:600;">Right now</span><span style="font-size:var(--fs-xs); color:var(--ink-3);">live, updates as the bots send. Click a name to open them.</span></div>
 <div style="display:flex; flex-direction:column; gap:8px; padding:14px 16px; border-radius:var(--r-lg); background:#fff; box-shadow:var(--shadow-sm), inset 0 0 0 1px var(--hairline);">
@@ -4327,6 +4381,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 <sc-for list="{{ ld.db.calls.strays }}" as="c"><div style="display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:var(--r-md); background:#fff; box-shadow:inset 0 0 0 1px var(--hairline); flex-wrap:wrap;"><span style="width:28px; height:28px; flex:0 0 28px; border-radius:50%; display:grid; place-items:center; font-size:10px; font-weight:600; background:{{ c.avBg }}; color:{{ c.avFg }};">{{ c.ini }}</span>
 <span style="flex:1 1 260px; min-width:0; display:flex; flex-direction:column; line-height:1.35;"><span style="font-size:var(--fs-sm); font-weight:600;">{{ c.name }} <span style="font-weight:400; font-size:var(--fs-2xs); color:var(--ink-3);">{{ c.sub }}</span></span><span style="font-size:var(--fs-xs); color:var(--ink-2);">{{ c.when }}</span></span><span style="padding:2px 8px; border-radius:999px; font-size:var(--fs-3xs); font-weight:700; background:{{ c.kBg }}; color:{{ c.kFg }}; white-space:nowrap;">{{ c.kind }}</span><sc-if value="{{ c.canAdd }}"><button onClick="{{ c.add }}" title="Add them to Leads in Call booked, with this call on their card" style="height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); background:#fff; color:var(--ink-2); box-shadow:inset 0 0 0 1px var(--hairline); font-size:var(--fs-2xs); cursor:pointer;">+ Add to Leads</button></sc-if><sc-if value="{{ c.hasMeet }}"><button onClick="{{ c.openMeet }}" style="height:26px; padding:0 10px; border:0; border-radius:var(--r-btn); background:var(--ink); color:#fff; font-size:var(--fs-2xs); font-weight:600; cursor:pointer; background:#1a73e8;">Join Meet ↗</button></sc-if></div></sc-for></sc-if>
 </section>
+</sc-if>
 </sc-if>
 </sc-if>
 
