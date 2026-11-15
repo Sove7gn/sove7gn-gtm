@@ -8,6 +8,7 @@
 "use strict";
 const CFG=window.CRM_CONFIG||{};
 const BRAND=CFG.brand||"CRM";
+const TEAM_LOGIN=String(CFG.teamLogin||"").trim().toLowerCase();  // the shared account the passcode signs in to (16 Nov)
 const SB_URL=String(CFG.supabaseUrl||"").replace(/\/+$/,""),SB_KEY=String(CFG.supabaseAnonKey||"");
 const SHEET_ID="";
 const SERVER="Supabase";
@@ -1719,7 +1720,7 @@ function lastUpdate(){const t=Object.values(S.at).filter(Boolean);return t.lengt
 
 let cache=null;
 const esc=x=>String(x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const SIGNIN_CSS="#crm-signin{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:16px;background:rgba(246,246,248,.86);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);font-family:var(--font-sans,system-ui,sans-serif)}"
+const SIGNIN_CSS="#crm-signin{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:16px;background:rgba(255,255,255,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);font-family:var(--font-sans,system-ui,sans-serif)}"
   +"#crm-signin .c{width:min(380px,100%);background:#fff;border-radius:var(--r-lg,16px);box-shadow:var(--shadow-md,0 8px 30px rgba(0,0,0,.08)),inset 0 0 0 1px var(--hairline,#e6e6ea);padding:24px;display:grid;gap:12px;color:var(--ink,#131418)}"
   +"#crm-signin h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}#crm-signin p,#crm-signin .msg{margin:0;font-size:13px;color:var(--ink-3,#71737c)}"
   +"#crm-signin input{height:40px;padding:0 12px;border:0;border-radius:var(--r-btn,10px);box-shadow:inset 0 0 0 1px var(--hairline-strong,#d6d6dc);font:inherit;outline:none}"
@@ -1731,21 +1732,25 @@ function showSignIn(kind){
     if(!el){const st=document.createElement("style");st.textContent=SIGNIN_CSS;document.head.appendChild(st);el=document.createElement("div");el.id="crm-signin";document.body.appendChild(el)}
     el.hidden=false;
     if(kind==="notmember"){
-      const em=(session&&session.user&&session.user.email)||"This email";
-      el.innerHTML='<div class="c" role="dialog" aria-label="Not on the team list"><h1>'+esc(BRAND)+' CRM</h1><p class="msg">'+esc(em)+' isn\u2019t on the team list yet. Ask the owner to add it, then reload.</p><button type="button" id="crm-out">Use a different email</button></div>';
+      const em=(session&&session.user&&session.user.email)||"This account";
+      el.innerHTML='<div class="c" role="dialog" aria-label="Not on the team list"><h1>'+esc(BRAND)+' CRM</h1><p class="msg">'+esc(em)+' isn\u2019t on the team list yet. Ask the owner to add it, then reload.</p><button type="button" id="crm-out">Sign out</button></div>';
       el.querySelector("#crm-out").onclick=()=>sb.auth.signOut();return;
     }
-    el.innerHTML='<form class="c" aria-label="Sign in"><h1>'+esc(BRAND)+' CRM</h1><p>Sign in with your email. We send you a one-time link.</p>'
-      +'<label for="crm-email" style="position:absolute;left:-9999px">Email</label><input id="crm-email" type="email" required autocomplete="email" placeholder="you@company.com">'
-      +'<button type="submit">Email me a sign-in link</button><div class="msg" role="status"></div></form>';
+    // Passcode (16 Nov): one shared team account whose password is the passcode. Supabase checks it, so the passcode is never in
+    // this public page. Set or change it with `node scripts/set-passcode.mjs`. Team emails can still get a link with scripts/login.mjs.
+    el.innerHTML='<form class="c" aria-label="Sign in"><h1>'+esc(BRAND)+' CRM</h1><p>Enter the team passcode.</p>'
+      +'<label for="crm-pass" style="position:absolute;left:-9999px">Passcode</label><input id="crm-pass" type="password" required autocomplete="current-password" placeholder="Passcode">'
+      +'<button type="submit">Open the CRM</button><div class="msg" role="status"></div></form>';
     el.querySelector("form").onsubmit=async ev=>{
-      ev.preventDefault();const b=el.querySelector("button"),m=el.querySelector(".msg"),email=el.querySelector("#crm-email").value.trim();
-      b.disabled=true;m.className="msg";m.textContent="Sending\u2026";
-      const {error}=await sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}});
+      ev.preventDefault();const b=el.querySelector("button"),m=el.querySelector(".msg"),pass=el.querySelector("#crm-pass").value;
+      if(!TEAM_LOGIN){m.className="msg err";m.textContent="The team login isn\u2019t set up yet (teamLogin in crm/config.json).";return}
+      b.disabled=true;m.className="msg";m.textContent="Checking\u2026";
+      const {error}=await sb.auth.signInWithPassword({email:TEAM_LOGIN,password:pass});
       b.disabled=false;
-      if(error){m.className="msg err";m.textContent="Couldn\u2019t send the link: "+error.message}
-      else m.textContent="Check "+email+" for the sign-in link. You can close this tab.";
+      if(error){m.className="msg err";m.textContent=/invalid/i.test(error.message)?"That passcode isn\u2019t right.":"Couldn\u2019t sign in: "+error.message}
+      else{m.textContent="";el.querySelector("#crm-pass").value=""}
     };
+    setTimeout(()=>{const i=el.querySelector("#crm-pass");if(i)i.focus()},30);
   };
   if(document.body)go();else document.addEventListener("DOMContentLoaded",go,{once:true});
 }

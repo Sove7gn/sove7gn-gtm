@@ -404,3 +404,22 @@ for name in ("Aktoria", "Karan", "Shreenabh"):
 
 open(OUT, "w", encoding="utf-8", newline="\n").write(src)
 print("wrote", OUT, len(src), "bytes")
+
+# ---------- v2 (16 Nov): the redesign, built next to the current CRM at /v2/ (plan: _research/CRM_REDESIGN_PLAN.md) ----------
+# Same data layer (../data.js) and the same page logic (logic.js, gtm.js); only the screen is new (src/v2/v2.css, src/v2/v2.js).
+V2 = os.path.join(HERE, "v2")
+v2_css = open(os.path.join(V2, "v2.css"), encoding="utf-8").read()
+v2_js = open(os.path.join(V2, "v2.js"), encoding="utf-8").read()
+assert "</script" not in v2_js and "</style" not in v2_css
+v2 = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+      '<meta name="robots" content="noindex">\n<title>' + BRAND + ' CRM</title>\n'
+      '<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+      '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">\n'
+      '<style>\n' + v2_css + '\n</style>\n</head>\n<body>\n<div id="app"></div>\n'
+      '<script src="' + SUPABASE_JS + '"></script>\n<script>' + CONFIG_JS + '</script>\n'
+      '<script>\n' + gtm_js + '\n</script>\n<script src="../data.js?v=' + DATA_V + '"></script>\n<script>\n' + logic + '\n</script>\n'
+      '<script>\n' + v2_js + '\n</script>\n</body>\n</html>\n')
+os.makedirs(os.path.join(os.path.dirname(HERE), "v2"), exist_ok=True)
+V2_OUT = os.path.join(os.path.dirname(HERE), "v2", "index.html")
+open(V2_OUT, "w", encoding="utf-8", newline="\n").write(v2)
+print("wrote", V2_OUT, len(v2), "bytes")
