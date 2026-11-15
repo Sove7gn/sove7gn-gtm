@@ -458,18 +458,40 @@ const LEAD_QUERIES = [
   '("launching today" OR "we\'re live" OR "just launched") ("YC" OR "Y Combinator" OR "(F26)" OR "(W26)" OR "(S26)") -filter:replies min_faves:5',
   '("hiring" OR "we\'re hiring") ("founding GTM" OR "first GTM" OR "founding AE" OR "first marketer" OR "head of growth") -filter:replies',
   '("closed our" OR "raised a $" OR "led by") ("seed" OR "Series A") (B2B OR SaaS OR AI OR agents) -filter:replies min_faves:5',
+  '("YC F26" OR "YC S26" OR "YC W26" OR "(F26)" OR "(S26)") (founder OR "we\'re building" OR "we built" OR customers) -filter:replies',
+  '("pre-seed" OR "seed round") ("we\'re hiring" OR "our first customers" OR "founding team") (B2B OR SaaS OR AI) -filter:replies',
 ];
 async function icpHandles(): Promise<string[]> {
   const { data: pl } = await db.from("crm_sheet").select("cells").eq("tab", "DM Pipeline").gte("row", 4);
   const a = (pl ?? []).filter((r) => !/do not contact|not now|customer/i.test(String(r.cells?.[18] || ""))).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").trim());
-  const { data: xp } = await db.from("crm_x_people").select("handle").eq("fit", "hot").limit(500);
-  return [...new Set([...a, ...(xp ?? []).map((r) => r.handle)].map((h) => h.toLowerCase()).filter((h) => /^\w{2,15}$/.test(h) && h !== HANDLE.toLowerCase()))];
+  const { data: xp } = await db.from("crm_x_people").select("handle").eq("fit", "hot").limit(1000);
+  const { data: pe } = await db.from("crm_sheet").select("cells").eq("tab", "Post Engagers").gte("row", 4);
+  const eng = (pe ?? []).filter((r) => r.cells?.[12] === "Core buyer").map((r) => String(r.cells?.[5] || ""));
+  return [...new Set([...a, ...(xp ?? []).map((r) => r.handle), ...eng].map((h) => h.toLowerCase()).filter((h) => /^\w{2,15}$/.test(h) && h !== HANDLE.toLowerCase()))];
 }
 const searchUrl = (q: string) => "https://x.com/search?q=" + encodeURIComponent(q) + "&src=typed_query&f=live";
 async function readPlan(b: any) {
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_read").maybeSingle();
   const s: any = st?.value ?? {}; s.at = s.at ?? {}; const now = Date.now();
-  const due = (k: string) => now - (Date.parse(s.at[k] ?? "") || 0) > READ_EVERY[k] * 60e3;
+  // (16 Nov) 30 replies on ICP posts a day: compare what's posted + queued with the pace for this hour (IST day)
+  const ist = new Date(now + 330 * 60e3), dayStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 330 * 60e3).toISOString();
+  const hr = ist.getUTCHours() + ist.getUTCMinutes() / 60;
+  const { count: doneToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").eq("done_by", "x bot").gte("done_at", dayStart);
+  const { count: queued } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).in("status", ["approved", "sending"]);
+  const have = (doneToday ?? 0) + (queued ?? 0), pace = Math.ceil(30 * Math.min(1, (hr + 2) / 24));
+  const behind = have < pace;
+  const every: Record<string, number> = { ...READ_EVERY, ...(behind ? { replies: 10, leads: 90, follow_src: 30 } : {}) };
+  const due = (k: string) => now - (Date.parse(s.at[k] ?? "") || 0) > every[k] * 60e3;
+  if (hr >= 20) {   // after 20:00 IST: can we still reach 30? one reply per 15+ minutes until midnight
+    const canStill = (doneToday ?? 0) + Math.min(queued ?? 0, Math.floor((24 - hr) * 60 / 15));
+    const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+    const cool = Date.parse((xb?.value as any)?.cooldown_until ?? "") > now;
+    const reason = canStill >= 30 ? null : cool ? "X asked us to slow down (cooldown until " + String((xb?.value as any)?.cooldown_until).slice(0, 16).replace("T", " ") + " UTC), so replies are paused"
+      : (queued ?? 0) === 0 ? "Ran out of fresh posts by ICP founders today: " + (doneToday ?? 0) + " replies posted, nothing left to reply to. The reader is widening (more raise/launch and YC searches, followers of our client's founders)"
+      : "Not enough time left: " + (doneToday ?? 0) + " posted and " + (queued ?? 0) + " queued, but only " + Math.floor((24 - hr) * 60 / 15) + " more fit before midnight at 15+ minutes apart";
+    const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
+    await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((bs?.value as any) ?? {}), reply_short_reason: reason, reply_short_at: reason ? new Date().toISOString() : null } }, { onConflict: "key" });
+  }
   let job: any = null;
   if (due("replies")) {
     const hs = await icpHandles(); const per = 14, chunks = Math.max(1, Math.ceil(hs.length / per)); const i = (s.reply_turn ?? 0) % chunks;
