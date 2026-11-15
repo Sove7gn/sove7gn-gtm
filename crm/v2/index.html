@@ -536,6 +536,13 @@ body{background:#FCFCFD}
 .rule select{margin-bottom:4px}
 @media (max-width:860px){.tb-s{min-width:0;flex:1}.tb-s span,.tb-s kbd{display:none}.board2{height:auto}.bc{height:auto;max-height:70vh}}
 
+/* round 5 */
+.feed.act{padding:6px}
+.fe2{display:grid;grid-template-columns:70px 18px minmax(80px,auto) auto minmax(0,1fr);gap:8px;align-items:center;width:100%;border:0;background:none;padding:6px 8px;border-radius:8px;text-align:left;font-size:13px}
+.fe2:hover{background:var(--hover)}
+.fe2-t{font-size:11.5px}
+@media (max-width:860px){.fe2{grid-template-columns:18px minmax(0,1fr) auto}.fe2-t,.fe2 .meta{display:none}}
+
 </style>
 </head>
 <body>
@@ -4225,28 +4232,9 @@ function pgOutbound(){
     .map(r=>({...r,fit:r.l?fitN(r.l):r.c._fit,step:stepOf(r.l,r.c),t:r.l?ms(LIo(r.l).last||LIo(r.l).req||r.l.created_at):0})).sort((a,b)=>b.step-a.step||(b.fit||0)-(a.fit||0)||b.t-a.t);
   const right=canEdit()?btn('Find more on X',()=>AK.xRun('x-leads'),'sm')+btn('Check funding news',()=>AK.liFunding(),'sm ghost'):'';
   let h=head('Outbound',INFO.outbound)+strip([['People found',String(rows.length),(cnt.x||0)+' on X · '+(rows.length-(cnt.x||0))+' on LinkedIn','#2563EB'],['Reached',String(reached),pct(reached,rows.length)+' of them','#0EA5E9'],['Replied',String(replied),'Reply rate '+pct(replied,reached),'#8B5CF6'],['Calls booked',String(calls),'from outbound','#10B981'],['Waiting for your OK',String(waitOk),'first touches','#F59E0B']]);
-  h+=feed(rows.filter(r=>r.l).map(r=>r.l),'Latest on outbound')+chipsBar('out',opts,right);
+  h+=activityHtml('out',new Set(rows.map(r=>(r.l||leadForContact(r.c)||{}).id).filter(Boolean)),true)+chipsBar('out',opts,right);
   h+=table('out',COLS3,list.map(r=>{const name=r.l?r.l.name:r.c.Name,sub=r.l?[r.l.role,r.l.company].filter(Boolean).join(' · '):[r.c.Role,r.c.Company].filter(Boolean).join(' · ');
-    return{open:r.l?()=>L.openLead(r.l.id):()=>L.openC(r.c._key),cells:[pcell(name||'(no name)',sub,r.l?'LinkedIn':'X'),'<span class="meta">'+esc(lab(r))+'</span>',sbar(r.step),latestTxt(r.l,r.c),fitPill(r.fit)||'<span class="faint">–</span>']};}),'Nobody matches.');
-  return h;
-}
-function pgMidbound(){
-  const rows=[];for(const l of leadsOpen()){const s=srcOf(l);if(!MID_SRC[s])continue;rows.push({l,src:s,c:xOf(l)});}
-  for(const e of (AK.M.engagers||[]))if((e.Status||'To message')==='To message'&&!/^Skip/.test(String(e.Verdict||'')))rows.push({e,src:'x'});
-  const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
-  const opts=[['all','All',rows.length],...Object.keys(MID_SRC).map(k=>[k,MID_SRC[k],cnt[k]||0]),['x','Engaged on X',cnt.x||0]];const cur=V.f.mid||'all';
-  const ML=rows.filter(r=>r.l).map(r=>r.l);const newWk=ML.filter(l=>ms(l.created_at)>wk()).length+rows.filter(r=>r.e).length;
-  const mReached=ML.filter(liReached).length,mReplied=ML.filter(liReplied).length,mCalls=ML.filter(l=>isCallSt(l.stage)).length;
-  const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('mid',r.l?r.l.name:r.e.Name||r.e.Handle,r.l?r.l.company:'',r.e?r.e['What they said']:''))
-    .map(r=>({...r,step:r.l?stepOf(r.l,r.c):0,t:r.l?ms((lastEv().get(r.l.id)||{}).at||r.l.created_at):Date.now()})).sort((a,b)=>b.t-a.t);
-  let h=head('Midbound',INFO.midbound)+strip([['Engaged with us',String(rows.length),'good fits only','#7C3AED'],['New this week',String(newWk),'','#DB2777'],['We reached out',String(mReached),pct(mReached,ML.length)+' of them','#0EA5E9'],['Replied',String(mReplied),'Reply rate '+pct(mReplied,mReached),'#8B5CF6'],['Calls booked',String(mCalls),'from midbound','#10B981']]);
-  h+=feed(ML,'Latest on midbound')+chipsBar('mid',opts);
-  h+=table('mid',[['Who','minmax(0,1.7fr)'],['What they did','minmax(0,1.6fr)'],['Stage','170px'],['Latest update','minmax(0,1.8fr)'],['','auto']],list.map(r=>{
-    if(r.e){const e=r.e;const reply=e['Our reply']||'';
-      return{open:null,cells:[pcell(e.Name||e.Handle,'@'+String(e.Handle||'').replace(/^@/,'')+(e.Fit?' · '+e.Fit:''),'X'),ell(e['What they said']?'Said: '+e['What they said']:e.Why||'Engaged with our post','meta'),sbar(0),'<span class="meta">Reply and DM ready</span>',
-        ACTS(['Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');}],[canEdit()&&['Done',()=>AK.engagerToPipeline(e)],canEdit()&&['Skip',()=>AK.saveEngager(e,'Dismissed')]])]};}
-    const l=r.l;return{open:()=>L.openLead(l.id),cells:[pcell(l.name||'(no name)',[l.role,l.company].filter(Boolean).join(' · '),'LinkedIn'),ell(MID_SRC[r.src]+(l.source_detail?': '+l.source_detail:''),'meta'),sbar(r.step),latestTxt(l,r.c),fitPill(fitN(l))]};}),'Nobody yet.');
-  h+='<p class="note" style="margin-top:12px">People who engaged but don’t fit who we sell to are hidden. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','liPeople'))+'>See them in the current CRM ↗</button></p>';
+    return{open:r.l?()=>L.openLead(r.l.id):()=>L.openC(r.c._key),cells:[pcell(name||'(no name)',sub,r.l?'LinkedIn':'X'),'<span class="meta">'+esc(lab(r))+'</span>',sbar(r.step),latestTxt(r.l||leadForContact(r.c),r.c),fitPill(r.fit)||'<span class="faint">–</span>']};}),'Nobody matches.');
   return h;
 }
 function pgInbound(){
@@ -4255,7 +4243,7 @@ function pgInbound(){
   const iNew=rows.filter(l=>ms(l.created_at)>wk()).length,iTalk=rows.filter(l=>/in talks|replied|follow/i.test(l.stage||'')).length,iCalls=rows.filter(l=>isCallSt(l.stage)).length,iWon=rows.filter(l=>/^won$/i.test(l.stage||'')).length;
   const list=rows.filter(l=>(cur==='all'||P(l)===cur)&&matchQ('inb',l.name,l.company,l.instagram,l.source_detail)).sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at));
   let h=head('Inbound',INFO.inbound)+strip([['Came to us',String(rows.length),(cnt.Instagram||0)+' on Instagram','#059669'],['New this week',String(iNew),'','#DB2777'],['Talking',String(iTalk),'','#8B5CF6'],['Calls booked',String(iCalls),'','#10B981'],['Clients',String(iWon),'won from inbound','#047857']]);
-  h+=feed(rows,'Latest on inbound')+chipsBar('inb',[['all','All',rows.length],['LinkedIn','LinkedIn',cnt.LinkedIn||0],['Instagram','Instagram',cnt.Instagram||0],['X','X',cnt.X||0],['Other','Other',cnt.Other||0]]);
+  h+=activityHtml('inb',new Set(rows.map(l=>l.id)),false)+chipsBar('inb',[['all','All',rows.length],['LinkedIn','LinkedIn',cnt.LinkedIn||0],['Instagram','Instagram',cnt.Instagram||0],['X','X',cnt.X||0],['Other','Other',cnt.Other||0]]);
   h+=table('inb',[['Who','minmax(0,1.7fr)'],['How they came','minmax(0,1.5fr)'],['Stage','170px'],['Latest update','minmax(0,1.8fr)'],['Last touch','100px']],list.map(l=>({open:()=>L.openLead(l.id),
     cells:[pcell(l.name||l.instagram||'(no name)',[l.role,l.company].filter(Boolean).join(' · ')||(l.instagram?'@'+String(l.instagram).replace(/^@/,''):''),P(l)==='Other'?null:P(l)),ell(l.source_detail||l.source||'','meta'),sbar(stepOf(l,null)),latestTxt(l,null),'<span class="meta">'+esc(whenTxt(l.last_touch||l.created_at))+'</span>']})),'Nobody has come to us yet.');
   return h;
@@ -4352,14 +4340,6 @@ function pgResults(){
 /* take someone over by hand: the bots stop messaging them (LinkedIn: li.stop "by hand"; X: DM result "By hand") */
 const isHandLi=l=>LIo(l).stop==='by hand';
 const isHandX=c=>!!c&&/^by hand/i.test(c['DM result']||'');
-function handLi(l,on){if(!l||!canEdit())return;const x={...LIo(l)};if(on){x.prev_stop=x.stop||null;x.stop='by hand';x.hand_at=new Date().toISOString();}else{x.stop=x.prev_stop||undefined;delete x.prev_stop;delete x.hand_at;}
-  AK.leadSave(l.id,{fields:{...(l.fields||{}),li:x}}).then(ok=>{if(!ok)return;L.toast(on?'You’re handling '+(l.name||'them')+' by hand. The LinkedIn bot won’t message them.':'The LinkedIn bot can message '+(l.name||'them')+' again.');});
-  if(on){const ids=(AK.LBT.rows||[]).filter(t=>t.lead_id===l.id&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.lbtSet(ids,{status:'skipped'});}
-  AK.leadNote(l.id,'note',on?'Taken over by hand: the bots stopped.':'Handed back to the bots.');}
-function handX(c,on){if(!c||!canEdit())return;const cur=String(c['DM result']||'');const next=on?('By hand'+(cur&&!/^by hand/i.test(cur)?' · '+cur:'')):cur.replace(/^By hand( · )?/i,'');
-  AK.write(c,{'DM result':next},on?'Handling '+(c.Name||'them')+' by hand':'Back to the X bot',{quiet:true}).then(ok=>ok&&L.toast(on?'You’re handling '+(c.Name||'them')+' by hand. The X bot won’t message them.':'The X bot can message '+(c.Name||'them')+' again.'));
-  if(on){const ids=(AK.XT.rows||[]).filter(t=>t.row===c._row&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.xtSet(ids,{status:'skipped'});}}
-const handBtn=(on,fn,small)=>'<button type="button" class="hand'+(on?' on':'')+(small?' sm':'')+'" title="'+(on?'You’re handling them by hand. Click to give them back to the bots.':'Handle by hand: the bots stop messaging them')+'"'+act(fn)+'>✋'+(small?'':on?' By hand':' Handle by hand')+'</button>';
 const contactByKey=k=>(AK.M.contacts||[]).find(c=>c._key===k)||null;
 const leadById=id=>(AK.LD.rows||[]).find(l=>l.id===id)||null;
 function leadForContact(c){if(!c)return null;const h=String(c['X handle']||'').replace(/^@/,'').toLowerCase();return (AK.LD.rows||[]).find(l=>!l.archived&&h&&String(l.x_handle||((l.fields||{}).li_icp||{}).x||'').replace(/^@/,'').toLowerCase()===h)||null;}
@@ -4473,7 +4453,7 @@ function board(B,plat){
 function kcard(k,plat){
   const sc=parseFloat(k.score);const C=scoreC(sc);
   const l=plat==='li'||plat==='ig'?leadById(k.id):null,c=plat==='x'?contactByKey(k.id):null;const hand=l?isHandLi(l):c?isHandX(c):false;
-  const chips=[hand?'<span class="tg" style="color:#B45309;background:#FFFBEB;border-color:#FDE68A">✋ By hand</span>':'',k.fund?'<span class="tg" style="color:#1D4ED8;background:#EFF6FF;border-color:#BFDBFE">💰 '+esc(k.fund)+'</span>':'',k.acc?'<span class="tg" style="color:#C2410C;background:#FFF7ED;border-color:#FED7AA">'+esc(k.acc)+'</span>':'',
+  const chips=[hand?'<span class="tg" style="color:#B45309;background:#FFFBEB;border-color:#FDE68A">✋ You’re handling them</span>':'',k.fund?'<span class="tg" style="color:#1D4ED8;background:#EFF6FF;border-color:#BFDBFE">💰 '+esc(k.fund)+'</span>':'',k.acc?'<span class="tg" style="color:#C2410C;background:#FFF7ED;border-color:#FED7AA">'+esc(k.acc)+'</span>':'',
     k.loc?'<span class="tg">'+esc(k.loc)+'</span>':'',k.src?'<span class="tg" style="color:'+(k.bFg||'#475467')+';background:'+(k.bBg||'#F2F4F7')+'">'+esc(k.src)+'</span>':''].join('');
   return '<div class="k2'+(hand?' hand-on':'')+'"'+act(cb(k.open),false)+'><div class="k2-t"><b class="ell">'+esc(k.name)+'</b><span class="k2-r">'+(sc>0?'<span class="sc" style="color:'+C[0]+';background:'+C[1]+'" title="Fit out of 10">'+esc(String(k.score).replace('/10',''))+'</span>':'')
     +((l||c)&&plat!=='ig'?handBtn(hand,()=>l?handLi(l,!hand):handX(c,!hand),true):'')+'</span></div>'
@@ -4484,6 +4464,70 @@ function kcard(k,plat){
     +(k.isFailed&&canEdit()?'<div class="k2-a">'+btn('Try again',k.retry,'sm')+'</div>':'')
     +(k.hasDraft?'<div class="k2-a">'+btn('Copy reply',k.copyDraft,'sm')+'</div>':'')+(k.hasTips?'<div class="k2-a">'+btn('Copy 3 ideas',k.copyTips,'sm')+'</div>':'')
     +(k.hasInmail?'<div class="k2-a">'+btn('InMail',k.inmail,'sm ghost')+'</div>':'')+'</div>';
+}
+
+
+/* ================= round 5 (16 Nov): hands off means hands off, live activity, Midbound = engagement only ================= */
+const handBtn=(on,fn,small)=>'<button type="button" class="hand'+(on?' on':'')+(small?' sm':'')+'" title="'+(on?'You’re handling them. The bots won’t message them until you press Resume follow-ups.':'Take over by hand: the bots stop messaging them')+'"'+act(fn)+'>'+(small?(on?'▶':'✋'):on?'▶ Resume follow-ups':'✋ Take over by hand')+'</button>';
+function handLi(l,on){if(!l||!canEdit())return;const x={...LIo(l)};const extra={};
+  if(on){x.prev_stop=x.stop||null;x.stop='by hand';x.hand_at=new Date().toISOString();}
+  else{delete x.stop;delete x.prev_stop;delete x.hand_at;if(x.replied){x.prev_replied=x.replied_last||x.replied;delete x.replied;delete x.replied_last;delete x.answered;if(/^in talks$/i.test(l.stage||''))extra.stage='Follow up';}}
+  AK.leadSave(l.id,{fields:{...(l.fields||{}),li:x},...extra}).then(ok=>{if(!ok)return;L.toast(on?'You’re handling '+(l.name||'them')+'. The bots won’t message them.':'Follow-ups resumed for '+(l.name||'them')+'. The LinkedIn bot picks up where it left off.');});
+  if(on){const ids=(AK.LBT.rows||[]).filter(t=>t.lead_id===l.id&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.lbtSet(ids,{status:'skipped'});}
+  AK.leadNote(l.id,'note',on?'Taken over by hand: the bots stopped.':'Follow-ups resumed: handed back to the bots.');}
+function handX(c,on){if(!c||!canEdit())return;const cur=String(c['DM result']||'');const next=on?('By hand'+(cur&&!/^by hand/i.test(cur)?' · '+cur:'')):cur.replace(/^By hand( · you messaged them)?( · )?/i,'');
+  AK.write(c,{'DM result':next},on?'Handling '+(c.Name||'them')+' by hand':'Follow-ups resumed for '+(c.Name||'them'),{quiet:true}).then(ok=>ok&&L.toast(on?'You’re handling '+(c.Name||'them')+'. The X bot won’t message them.':'Follow-ups resumed for '+(c.Name||'them')+' on X.'));
+  if(on){const ids=(AK.XT.rows||[]).filter(t=>t.row===c._row&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.xtSet(ids,{status:'skipped'});}}
+
+/* live activity: every message the bots sent and every reply, newest first, for the people on this page */
+const ACT_KIND=[['all','Everything'],['reply','They replied'],['answer','We answered'],['fu','Follow-ups'],['first','First messages'],['req','Requests'],['hand','You took over']];
+const ACT_C={reply:['They replied','#7C3AED'],answer:['We answered','#059669'],fu:['Follow-up','#D97706'],first:['First message','#2563EB'],req:['Request','#0EA5E9'],hand:['You took over','#B45309'],other:['Sent','#6B7280']};
+function activityHtml(key,ids,withBots){
+  const out=[];const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));
+  for(const e of (AK.LD.events||[])){if(!ids.has(e.lead_id))continue;const t=String(e.text||'');let k=null;
+    if(/^Replied on (LinkedIn|X)/.test(t))k='reply';else if(/^(Answered on|Sent the closing)/.test(t))k='answer';else if(/messaged them yourself|Taken over by hand/.test(t))k='hand';
+    if(k){const l=byId.get(e.lead_id)||{};out.push({k,at:e.at,who:l.name||'Someone',plat:/on X|X\b/.test(t)?'X':l.source==='Instagram'?'Instagram':'LinkedIn',text:t.replace(/^[^:“]*[:“]\s*/,'').replace(/”$/,''),open:()=>L.openLead(l.id)});}}
+  if(withBots)for(const e of (AK.NT.items||[])){if(!e.ok||/^Repl/.test(e.what||''))continue;if(e.lead&&!ids.has(e.lead))continue;const w=String(e.what||'');
+    const k=/request/i.test(w)?'req':/follow/i.test(w)?'fu':/answer|closing/i.test(w)?'answer':/first|dm|message|ideas/i.test(w)?'first':'other';
+    out.push({k,at:e.at,who:e.who||'Someone',plat:e.chan==='X'?'X':'LinkedIn',text:e.text||e.sub||w,open:e.lead?()=>L.openLead(e.lead):null});}
+  out.sort((a,b)=>ms(b.at)-ms(a.at));
+  const cur=V.f['act:'+key]||'all';const list=out.filter(x=>cur==='all'||x.k===cur);const n=V.more['act:'+key]?60:8;
+  const cnt=k=>out.filter(x=>x.k===k&&ms(x.at)>Date.now()-D).length;
+  return '<div class="feed act"><div class="feed-h"><span class="live"></span>Live activity<span class="faint" style="font-weight:400">· last 24 hours: '+cnt('reply')+' replied, '+cnt('answer')+' answered, '+cnt('fu')+' follow-ups, '+cnt('first')+' first messages</span></div>'
+    +'<div class="chips" style="padding:2px 8px 6px">'+ACT_KIND.filter(([k])=>k==='all'||out.some(x=>x.k===k)).map(([k,l])=>'<button type="button" class="chip'+(cur===k?' on':'')+'"'+act(()=>{V.f['act:'+key]=k;schedule();})+'>'+esc(l)+'</button>').join('')+'</div>'
+    +(list.length?list.slice(0,n).map(x=>{const c=ACT_C[x.k]||ACT_C.other;return '<button type="button" class="fe2"'+(x.open?act(x.open):'')+'><span class="faint fe2-t">'+esc(since(x.at))+'</span>'+platMark(x.plat)+'<b class="ell">'+esc(x.who)+'</b>'+tagp(c[0],c[1])+'<span class="ell meta">'+esc(String(x.text).replace(/\s+/g,' ').slice(0,140))+'</span></button>';}).join('')
+      +(list.length>n?'<div style="padding:4px 8px">'+btn('Show more',()=>{V.more['act:'+key]=true;schedule();},'ghost sm')+'</div>':''):'<div class="empty" style="padding:12px">Nothing yet.</div>')+'</div>';
+}
+
+/* Midbound: only engagement. Who liked, commented, replied to or quoted our posts, followed, viewed, visited, or DMed us. */
+function pgMidbound(){
+  const rows=[];const nowT=Date.now();
+  for(const x of safe(()=>L.socPeople(),[])||[]){const p=x.p;if(!['hot','warm'].includes(p.fit))continue;const a=x.acts[0]||{};
+    rows.push({plat:'LinkedIn',kind:x.commented?'commented':'liked',name:p.name||'Someone',sub:p.headline||'',said:(x.acts.find(z=>z.kind==='commented'&&z.text)||{}).text||'',
+      what:[x.liked?x.liked+(x.liked===1?' like':' likes'):'',x.commented?x.commented+(x.commented===1?' comment':' comments'):''].filter(Boolean).join(' · '),post:(a.post||{}).text||'',at:x.last,fit:p.fit,lead:p.lead_id,url:p.profile_url||p.url||''});}
+  for(const l of leadsOpen()){const s=srcOf(l);if(!['viewed','site','magnet','inbound'].includes(s))continue;
+    rows.push({plat:'LinkedIn',kind:s==='inbound'?'dm':s,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),said:s==='inbound'?(LIo(l).reply_text||l.source_detail||''):'',what:{viewed:'Viewed our profile',site:'Visited our site',magnet:'Asked for a lead magnet',inbound:'DMed us'}[s],at:ms(l.created_at),lead:l.id,fitN:fitN(l)});}
+  for(const e of (AK.M.engagers||[])){const how=String(e.How||e['How they engaged']||e.Kind||'');const k=/quot/i.test(how)?'quoted':/follow/i.test(how)?'followed':/mention/i.test(how)?'mentioned':'xreplied';
+    const at=AK.cellDate&&e['When']?(AK.cellDate(e['When'])||new Date(0)).getTime():0;
+    rows.push({plat:'X',kind:k,name:e.Name||e.Handle,sub:'@'+String(e.Handle||'').replace(/^@/,'')+(e.Fit?' · '+e.Fit:''),said:e['What they said']||'',what:{quoted:'Quoted our post',followed:'Followed us',mentioned:'Mentioned us',xreplied:'Replied to our post'}[k],at,e,fitX:e.Fit});}
+  const K={liked:'Liked',commented:'Commented',xreplied:'Replied on X',quoted:'Quoted',followed:'Followed',mentioned:'Mentioned',dm:'DMed us',viewed:'Viewed profile',site:'Visited site',magnet:'Lead magnet'};
+  const KC={liked:'#DB2777',commented:'#7C3AED',xreplied:'#7C3AED',quoted:'#2563EB',followed:'#059669',mentioned:'#0EA5E9',dm:'#D97706',viewed:'#6B7280',site:'#6B7280',magnet:'#EA580C'};
+  const cnt={};for(const r of rows)cnt[r.kind]=(cnt[r.kind]||0)+1;const wkN=k=>rows.filter(r=>(!k||r.kind===k)&&r.at>nowT-7*D).length;
+  const cur=V.f.mid||'all';
+  const list=rows.filter(r=>(cur==='all'||r.kind===cur)&&matchQ('mid',r.name,r.sub,r.said)).sort((a,b)=>(b.at||0)-(a.at||0));
+  let h=head('Midbound','Everyone who engaged with us: liked, commented, replied to or quoted our posts, followed, viewed our profile, visited the site or DMed us. Good fits only.')
+    +strip([['Engaged this week',String(wkN()),rows.length+' in total','#7C3AED'],['Likes',String(cnt.liked||0),wkN('liked')+' this week','#DB2777'],['Comments',String(cnt.commented||0),wkN('commented')+' this week','#7C3AED'],
+      ['X replies and quotes',String((cnt.xreplied||0)+(cnt.quoted||0)),'','#2563EB'],['DMed us',String(cnt.dm||0),'','#D97706']]);
+  h+=chipsBar('mid',[['all','All',rows.length],...Object.keys(K).map(k=>[k,K[k],cnt[k]||0])]);
+  h+=table('mid',[['Who','minmax(0,1.6fr)'],['Engagement','minmax(0,1.1fr)'],['What they said','minmax(0,2fr)'],['When','90px'],['Fit','90px'],['','auto']],list.map(r=>{
+    const e=r.e;const reply=e&&e['Our reply']||'';
+    return{open:r.lead?()=>L.openLead(r.lead):null,cells:[pcell(r.name,r.sub,r.plat),tagp(K[r.kind],KC[r.kind])+(r.what&&!/^(Viewed|Visited|Asked|DMed|Quoted|Followed|Mentioned|Replied)/.test(r.what)?'<div class="meta">'+esc(r.what)+'</div>':''),
+      r.said?ell('“'+r.said+'”','meta'):r.post?ell('On: '+r.post,'meta faint'):'<span class="faint">–</span>','<span class="meta">'+esc(r.at?AK.ago(r.at):'–')+'</span>',
+      r.fitN?fitPill(r.fitN):r.fit?tagp(r.fit==='hot'?'Great fit':'Good fit',r.fit==='hot'?'#059669':'#2563EB'):r.fitX?tagp(r.fitX,'#6B7280'):'<span class="faint">–</span>',
+      e?ACTS(['Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');}],[canEdit()&&['Done',()=>AK.engagerToPipeline(e)],canEdit()&&['Skip',()=>AK.saveEngager(e,'Dismissed')]])
+        :r.url?ACTS(null,[['Profile',()=>window.open(r.url,'_blank','noopener')]]):'']};}),'Nobody yet.');
+  h+='<p class="note" style="margin-top:12px">Messages and follow-ups to these people show on Outbound and Pipelines. People who engaged but don’t fit are hidden. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','liPeople'))+'>See them ↗</button></p>';
+  return h;
 }
 
 /* ---------- person panel: one panel for every platform ---------- */

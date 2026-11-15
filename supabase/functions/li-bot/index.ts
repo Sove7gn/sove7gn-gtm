@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -814,6 +814,38 @@ async function saveLi(l: Lead, li: any, extra: Record<string, unknown> = {}) {
   if (error) throw error;
 }
 const log = (lead_id: string, text: string, kind = "message") => db.from("crm_lead_events").insert({ lead_id, kind, text, by_email: BY });
+async function botSentNear(leadId: string, at: string) {
+  const t = Date.parse(at); if (!t) return false;
+  const { count } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("lead_id", leadId).eq("status", "sent")
+    .gte("sent_at", new Date(t - 5 * 60e3).toISOString()).lte("sent_at", new Date(t + 5 * 60e3).toISOString());
+  return (count ?? 0) > 0;
+}
+// (16 Nov) Right before the extension sends a LinkedIn message it hands over that person's latest chat: if they wrote since the
+// bot's last message, the reply is handled now (sorted, stage, answer) and nothing goes out; if Reyansh wrote himself, they become
+// "by hand" and nothing goes out.
+async function guard(b: any) {
+  const { data: t } = await db.from("crm_li_tasks").select("id,lead_id,kind").eq("id", b.id).maybeSingle();
+  if (!t) return { stop: true, why: "task gone" };
+  const { data: l } = await db.from("crm_leads").select("id,name,company,role,linkedin,stage,heat,email,x_handle,fields,source_detail,origin_key").eq("id", t.lead_id).maybeSingle();
+  if (!l) return { stop: true, why: "lead gone" };
+  const li = (l as any).fields?.li ?? {}; const th = b.thread ?? {};
+  if (li.stop === "by hand") { await db.from("crm_li_tasks").update({ status: "skipped", error: "You're handling them by hand" }).eq("id", t.id); return { stop: true, why: "you're handling them by hand" }; }
+  const lastThem = Math.max(Date.parse(li.replied_last || li.replied || "") || 0, 0);
+  const lastBot = Date.parse(li.last || li.dm || li.req || "") || 0;
+  if (th.them_at && Date.parse(th.them_at) > lastThem + 1000 && Date.parse(th.them_at) > (Date.parse(li.req || "") || 0)) {
+    if (t.kind === "reply" || t.kind === "close") { /* answering is the point, unless they wrote again: re-sort below */ }
+    await state({ connections: [], threads: [{ ...th, urn: th.urn || li.urn }] });
+    await db.from("crm_li_tasks").update({ status: "skipped", error: "They just replied" }).eq("id", t.id).in("status", ["sending", "ready"]);
+    return { stop: true, why: "they just replied, so the reply is sorted and the answer is waiting for your OK" };
+  }
+  if (th.me_at && Date.parse(th.me_at) > lastBot + 3 * 60e3 && !(await botSentNear(l.id, th.me_at))) {
+    await saveLi(l as Lead, { ...li, prev_stop: li.stop ?? null, stop: "by hand", hand_at: th.me_at });
+    await stopTasks(l.id, "You messaged them yourself");
+    await log(l.id, "You messaged them yourself on LinkedIn, so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", "note");
+    return { stop: true, why: "you messaged them yourself, so they're yours now" };
+  }
+  return { stop: false };
+}
 async function stopTasks(leadId: string, why: string) {
   await db.from("crm_li_tasks").update({ status: "skipped", error: why }).eq("lead_id", leadId).neq("kind", "magnet").in("status", ["review", "ready", "sending"]);
 }
@@ -865,10 +897,12 @@ async function state(b: any) {
       await log(l.id, "You sent them the 3 ideas yourself on LinkedIn. If they don't reply in 24 hours, the follow-ups start (booking link, then the VSL).", "note");
       continue;
     }
-    if (!li.replied && !li.stop && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 10 * 60e3) {
-      await saveLi(l, { ...li, stop: "you messaged them" });
+    // (16 Nov, Reyansh's rule) A message he sent himself means he has taken this person over: the bots never message them again
+    // until he presses "Resume follow-ups" in the CRM. Bot-sent messages are told apart by a task sent within 5 minutes.
+    if (li.stop !== "by hand" && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 3 * 60e3 && !(await botSentNear(l.id, t.me_at))) {
+      await saveLi(l, { ...li, prev_stop: li.stop ?? null, stop: "by hand", hand_at: t.me_at, answered: li.replied ? t.me_at : li.answered });
       await stopTasks(l.id, "You messaged them yourself");
-      await log(l.id, "You messaged them yourself on LinkedIn, so the bot stopped its follow-ups.", "note");
+      await log(l.id, "You messaged them yourself on LinkedIn, so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", "note");
       continue;
     }
     // (16 Nov) Every reply, not only the first: a later reply is sorted again with a new draft; our own message after their
@@ -1734,7 +1768,7 @@ async function x_inbox(b: any) {
   // our own last message to each person: if it's after their reply, Reyansh already answered by hand
   const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
   await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length, inbox_ext: b.debug ?? null });
-  if (!items.length && !domHits.length) return { ok: true, replied: 0 };
+  if (!raw.length && !domRows.length) return { ok: true, replied: 0 };
   const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
   const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5); if (!h) return { ok: false };
   const obj = (r: any) => { const o: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
@@ -1760,6 +1794,30 @@ async function x_inbox(b: any) {
   }
   const { data: oa } = await db.from("crm_x_tasks").select("row").in("kind", ["reply", "close"]).in("status", ["review", "ready", "sending"]).limit(2000);
   const openAns = new Set((oa ?? []).map((t: any) => t.row));
+  // (16 Nov, Reyansh's rule) his own X messages the bot didn't send: the person is his now (DM result "By hand"), bot stops.
+  const norm = (x: string) => String(x ?? "").replace(/^you:\s*/i, "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 28);
+  const sentBy = new Map<number, string[]>(); for (const o of ours ?? []) { const a = sentBy.get(o.row) || []; a.push(norm(o.text)); sentBy.set(o.row, a); }
+  const isOurs = (row: number, text: string) => { const n = norm(text); return !n || (sentBy.get(row) || []).some((x) => x && (x.startsWith(n.slice(0, 20)) || n.startsWith(x.slice(0, 20)))); };
+  const manual = new Map<number, string>();
+  for (const m of raw) if (m.from === me && m.to) { const r = byUid.get(m.to); if (r && (firstSent.get(r.row) || 0) && m.at > (firstSent.get(r.row) || 0) && !isOurs(r.row, m.text)) manual.set(r.row, m.text); }
+  for (const d of domRows) {
+    const lines = String(d.text).split("\n").map((x: string) => x.trim()).filter(Boolean); const last = lines[lines.length - 1] || "";
+    if (!/^you:/i.test(last)) continue;
+    const ids = String(d.href ?? "").match(/(\d{5,})[-:](\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
+    const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase(); const nm = String(lines[0] ?? "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
+    const r = (uid && byUid.get(uid)) || (handle && byHandle.get(handle)) || (nm && byName.get(nm));
+    if (r && (firstSent.get(r.row) || 0) && !isOurs(r.row, last)) manual.set(r.row, last.replace(/^you:\s*/i, ""));
+  }
+  let handed = 0;
+  for (const [row, text] of manual) {
+    const r = all.find((x: any) => x.row === row); if (!r) continue; const c = obj(r);
+    if (/^by hand/i.test(c["DM result"] || "")) continue;
+    await db.rpc("crm_call", { body: { action: "pipeline", row, name: c["Name"], company: c["Company"], cells: { "DM result": "By hand · you messaged them" + (c["DM result"] ? " · " + c["DM result"] : "") } } });
+    await db.from("crm_x_tasks").update({ status: "skipped", error: "You messaged them yourself" }).eq("row", row).in("status", ["review", "ready", "sending"]);
+    const ld = await leadByHandle(String(c["X handle"] ?? "").replace(/^@/, ""));
+    if (ld) await db.from("crm_lead_events").insert({ lead_id: ld.id, kind: "note", text: "You messaged them yourself on X (“" + clip(text, 160) + "”), so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", by_email: "x" });
+    handed++;
+  }
   let replied = 0;
   for (const uid of [...new Set(items.map((m: any) => m.from))]) {
     const r = byUid.get(uid as string); if (!r) continue;
@@ -1789,6 +1847,7 @@ async function x_inbox(b: any) {
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
+  if (handed) await xStatus({ inbox_handed: handed, inbox_handed_at: new Date().toISOString() });
   await xStatus({ inbox_debug: { me, ext: b.debug ?? null, dom_rows: domRows.length, dom_hits: domHits.length, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
   return { ok: true, replied };
 }
@@ -2230,6 +2289,11 @@ async function x_claim(b: any) {
   if (!c || c["Name"] !== t.name) return await skip("Their row in the DM Pipeline moved or changed");
   if (/^by hand/i.test(c["DM result"] || "")) return await skip("You're handling them by hand");
   if (t.kind === "reply" || t.kind === "close") return { ok: true };
+  if (t.kind !== "dm") {
+    const { data: xs2 } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
+    const ia = Date.parse((xs2?.value as any)?.inbox_at ?? "") || 0;
+    if (Date.now() - ia > 20 * 60e3) { await db.from("crm_x_tasks").update({ status: "ready", claimed_at: null }).eq("id", t.id); return { ok: false, why: "waiting for a fresh inbox check first" }; }
+  }
   // (12 Nov) No "Hey Not," messages, no cold DM to someone we're already talking to, and nobody twice.
   if (/^(not specified|unknown|n\/?a|none|null|-)?$/i.test(String(t.name ?? "").trim()) || !/^[\p{L}]{2,}/u.test(String(t.name ?? "").trim())) return await skip("No real name on their row");
   const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase();

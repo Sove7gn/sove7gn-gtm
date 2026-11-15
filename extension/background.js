@@ -256,6 +256,15 @@ async function tick() {
     let urn = t.urn, pid = t.pid;
     if (!urn) { const L = await op("lookup", { urn, pid, profile: t.profile, want_email: false }); urn = L.urn; pid = L.pid; }
     if (!urn) { await api("done", { id: t.id, ok: false, error: "Couldn't find their LinkedIn id" }); return; }
+    // (16 Nov) Never message someone who just replied or whom you messaged yourself: read their chat first.
+    if (["dm", "followup", "reply", "close"].includes(t.kind)) {
+      try {
+        const { qid } = await store.get("qid");
+        const th = qid ? await op("threads", { me, qid }) : null;
+        const mine = th && (th.threads || []).find((x) => x.urn === urn);
+        if (mine) { const g = await api("guard", { id: t.id, thread: { ...mine, urn } }); if (g && g.stop) { await log("Didn't message " + t.name + ": " + g.why + "."); return; } }
+      } catch (e) { await log("Couldn't check " + t.name + "'s chat before sending, so it waits: " + (e.message || e), true); await api("done", { id: t.id, ok: false, error: "Couldn't check their chat first" }); return; }
+    }
     await sleep(rand(2000, 6000));
     if (t.warm) {                                                       // warm touch now, the request a few hours later
       await go("https://www.linkedin.com/in/" + (pid || urn) + "/"); await sleep(rand(4000, 9000));

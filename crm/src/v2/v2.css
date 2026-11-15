@@ -524,3 +524,10 @@ body{background:#FCFCFD}
 .rule-h b{color:var(--fc)}
 .rule select{margin-bottom:4px}
 @media (max-width:860px){.tb-s{min-width:0;flex:1}.tb-s span,.tb-s kbd{display:none}.board2{height:auto}.bc{height:auto;max-height:70vh}}
+
+/* round 5 */
+.feed.act{padding:6px}
+.fe2{display:grid;grid-template-columns:70px 18px minmax(80px,auto) auto minmax(0,1fr);gap:8px;align-items:center;width:100%;border:0;background:none;padding:6px 8px;border-radius:8px;text-align:left;font-size:13px}
+.fe2:hover{background:var(--hover)}
+.fe2-t{font-size:11.5px}
+@media (max-width:860px){.fe2{grid-template-columns:18px minmax(0,1fr) auto}.fe2-t,.fe2 .meta{display:none}}
