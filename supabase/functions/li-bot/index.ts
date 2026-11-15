@@ -1708,7 +1708,7 @@ async function x_inbox(b: any) {
   const items = raw.filter((m: any) => m.from !== me);
   // our own last message to each person: if it's after their reply, Reyansh already answered by hand
   const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
-  await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length });
+  await xStatus({ inbox_at: new Date().toISOString(), inbox_seen: items.length, inbox_ext: b.debug ?? null });
   if (!items.length) return { ok: true, replied: 0 };
   const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
   const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5); if (!h) return { ok: false };
@@ -1748,7 +1748,7 @@ async function x_inbox(b: any) {
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
-  await xStatus({ inbox_debug: { me, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
+  await xStatus({ inbox_debug: { me, ext: b.debug ?? null, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
   return { ok: true, replied };
 }
 

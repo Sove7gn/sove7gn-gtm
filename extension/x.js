@@ -50,10 +50,24 @@ export async function xOp(op, a = {}) {
     const r = await call("/i/api/1.1/dm/inbox_initial_state.json?" + q);
     if (!r.ok || !r.json) return { ok: false, error: errOf(r).message };
     const st = r.json.inbox_initial_state || {};
-    const items = (st.entries || []).map((e) => e.message).filter(Boolean).map((m) => ({ id: m.id, conv: m.conversation_id, at: +m.time || 0,
-      from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") }))
-      .filter((m) => m.text && Date.now() - m.at < 14 * 864e5);
-    return { ok: true, me: myId, items };
+    const pick = (entries) => (entries || []).map((e) => e.message).filter(Boolean).map((m) => ({ id: m.id, conv: m.conversation_id, at: +m.time || 0,
+      from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") }));
+    let items = pick(st.entries); const pages = [];
+    // (16 Nov) The first answer only covers the last few hours: page back through both inboxes (trusted and requests) up to 14 days.
+    for (const box of ["trusted", "untrusted"]) {
+      let maxId = ((st.inbox_timelines || {})[box] || {}).min_entry_id;
+      for (let i = 0; i < 12 && maxId; i++) {
+        const p = await call("/i/api/1.1/dm/inbox_timeline/" + box + ".json?max_id=" + maxId + "&" + q);
+        const tl = (p.json && p.json.inbox_timeline) || null;
+        if (!p.ok || !tl) { pages.push(box + ":" + p.status); break; }
+        const got = pick(tl.entries); items = items.concat(got); pages.push(box + ":" + got.length);
+        const oldest = Math.min(...got.map((m) => m.at).filter(Boolean), Date.now());
+        if (tl.status !== "HAS_MORE" || Date.now() - oldest > 14 * 864e5) break;
+        maxId = tl.min_entry_id;
+      }
+    }
+    items = items.filter((m) => m.text && Date.now() - m.at < 14 * 864e5);
+    return { ok: true, me: myId, items, pages };
   }
   // (16 Nov) One chat's messages (the inbox call only returns the last few hours): the same call X makes when you open a chat.
   if (op === "conv") {
@@ -61,7 +75,7 @@ export async function xOp(op, a = {}) {
     const [x, y] = [BigInt(myId), BigInt(a.user_id)];
     const conv = x < y ? x + "-" + y : y + "-" + x;
     const r = await call("/i/api/1.1/dm/conversation/" + conv + ".json?context=FETCH_DM_CONVERSATION&include_profile_interstitial_type=1&dm_users=false&include_groups=true&include_inbox_timelines=true&supports_reactions=true&include_conversation_info=true&count=40");
-    if (!r.ok || !r.json) return { ok: false, error: errOf(r).message };
+    if (!r.ok || !r.json) return { ok: false, error: r.status + " " + errOf(r).message };
     const tl = r.json.conversation_timeline || {};
     const items = (tl.entries || []).map((e) => e.message).filter(Boolean).map((m) => ({ id: m.id, conv: m.conversation_id, at: +m.time || 0,
       from: String((m.message_data || {}).sender_id || ""), to: String((m.message_data || {}).recipient_id || ""), text: String((m.message_data || {}).text || "") })).filter((m) => m.text);

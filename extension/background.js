@@ -522,12 +522,14 @@ async function xInboxTick() {
     // (16 Nov) The inbox only holds the last few hours, so also open the chats of people we DMed lately (15 a run, oldest checked first).
     const items = [...(r.items || [])];
     const tg = await api("x_inbox_targets", {}).catch(() => ({ user_ids: [] }));
+    const convs = [];
     for (const uid of (tg.user_ids || []).slice(0, 15)) {
-      const c = await xop("conv", { user_id: uid }).catch(() => null);
+      const c = await xop("conv", { user_id: uid }).catch((e) => ({ ok: false, error: String(e.message || e) }));
       if (c && c.ok) items.push(...c.items);
+      convs.push({ uid, ok: !!(c && c.ok), n: c && c.items ? c.items.length : 0, error: c && c.error ? String(c.error).slice(0, 120) : "" });
       await sleep(rand(1500, 3500));
     }
-    const out = await api("x_inbox", { me, items, version: VERSION });
+    const out = await api("x_inbox", { me, items, version: VERSION, debug: { pages: r.pages || [], convs } });
     if (out && out.replied) await log("X: " + out.replied + " new " + (out.replied === 1 ? "reply" : "replies") + " to our DMs, sorted with an answer ready in the CRM.");
   } catch (e) { await log("X inbox: " + (e.message || e), true); }
   finally { xbusy = false; clearInterval(ka); }
