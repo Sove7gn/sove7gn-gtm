@@ -1239,6 +1239,12 @@ async function xgSet(url,status){
   if(error){XG.rows=before;emit();toast("Couldn't save: "+error.message,true);return false}
   return true;
 }
+async function xgDraft(url,draft){   // (16 Nov) edit a reply draft before approving it
+  const before=XG.rows;XG.rows=XG.rows.map(r=>r.url===url?{...r,draft}:r);emit();
+  const {error}=await sb.from("crm_x_reply").update({draft}).eq("url",url);
+  if(error){XG.rows=before;emit();toast("Couldn't save the draft: "+error.message,true);return false}
+  return true;
+}
 async function xgRun(){
   if(!sb||XG.running)return;XG.running=true;emit();
   try{const {data,error}=await sb.functions.invoke("x-grow",{body:{replies:true}});
@@ -1727,7 +1733,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

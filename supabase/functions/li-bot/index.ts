@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -2018,6 +2018,60 @@ async function x_plan(b: any) {
   return { tasks, paused: false, in_hours: true, left, sent_today: sentToday ?? 0, auto_followups: autoFu };
 }
 // Right before sending: is this message still the right one? (no reply, not sent by hand, row still theirs)
+// ───────── X replies by the extension (16 Nov) ─────────
+// Reyansh approves reply drafts on X > Outbound > Replies; the extension posts them from his own X tab: opens the post, likes it,
+// opens X's reply box with the draft filled in and presses Post. At most x_bot.reply_cap a day (default 30), one every
+// x_bot.reply_gap_min minutes or more (default 15, plus a random 0 to 10), only in his sending hours, and never while X's
+// "looks automated" cooldown is on (the same cooldown the DMs use). Posts older than 20 hours are dropped: a late reply looks odd.
+async function xr_plan(b: any) {
+  const xs = await xSettings(), now = Date.now();
+  const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+  const v: any = xb?.value ?? {};
+  const cap = Math.max(0, Math.min(60, +(v.reply_cap ?? 30))), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
+  await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("status", "sending").lt("claimed_at", new Date(now - 30 * 60e3).toISOString());
+  await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("status", "approved").lt("posted_at", new Date(now - 20 * 3600e3).toISOString());
+  const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
+  const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
+  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "posted").gte("done_at", dayStart);
+  const { count: waiting } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "approved");
+  const base = { posted_today: postedToday ?? 0, cap, waiting: waiting ?? 0, paused: xs.paused || !!v.replies_paused };
+  if (!b.me?.signed_in || xs.paused || v.replies_paused || !cap || (postedToday ?? 0) >= cap) return { ...base, tasks: [] };
+  if (!(hr >= xs.from && hr < xs.to)) return { ...base, tasks: [], in_hours: false };
+  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "posted").order("done_at", { ascending: false }).limit(1);
+  const since = now - (Date.parse(last?.[0]?.done_at ?? "") || 0);
+  const wait = (gap + Math.random() * 10) * 60e3;
+  if (since < wait) return { ...base, tasks: [], wait_min: Math.ceil((wait - since) / 60e3) };
+  // newest post first (a reply in the first hour is worth most), leads before creators when equally fresh
+  const { data: ready } = await db.from("crm_x_reply").select("url,author,name,draft,kind,posted_at").eq("status", "approved").neq("draft", "")
+    .gte("posted_at", new Date(now - 20 * 3600e3).toISOString()).order("posted_at", { ascending: false }).limit(5);
+  const t = (ready ?? []).sort((a: any, c: any) => (c.kind === "lead" ? 1 : 0) - (a.kind === "lead" ? 1 : 0))[0];
+  if (!t) return { ...base, tasks: [] };
+  const { data: got } = await db.from("crm_x_reply").update({ status: "sending", claimed_at: new Date().toISOString() }).eq("url", t.url).eq("status", "approved").select("url");
+  if (!got?.length) return { ...base, tasks: [] };
+  const id = (String(t.url).match(/status\/(\d+)/) || [])[1] || "";
+  return { ...base, tasks: [{ url: t.url, id, text: t.draft, name: t.name || t.author, author: t.author }] };
+}
+async function xr_done(b: any) {
+  const url = String(b.url ?? ""); if (!url) return { error: "No url" };
+  const now = new Date().toISOString();
+  if (b.ok) {
+    await db.from("crm_x_reply").update({ status: "posted", done_at: now, done_by: "x bot", error: b.liked === false ? "Posted (the like didn't go through)" : "" }).eq("url", url);
+    await xStatus({ last_reply_at: now });
+    return { ok: true };
+  }
+  const err = clip(String(b.error ?? "Failed"), 300);
+  if (b.limit || /automated|spam|rate limit|try again later|over capacity/i.test(err)) {   // X pushed back: same 24-hour cooldown as the DMs
+    const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+    const cur: any = xb?.value ?? {}, until = new Date(Date.now() + 24 * 3600e3).toISOString();
+    await db.from("crm_lead_settings").upsert({ key: "x_bot", value: { ...cur, cooldown_until: until, cooldown_why: "Replies: " + err } });
+    await db.from("crm_x_reply").update({ status: "approved", claimed_at: null, error: "X asked us to slow down; trying again after a 24 hour pause" }).eq("url", url);
+    await xStatus({ last_error: "X pushed back on a reply, so the bot paused DMs and replies for 24 hours: " + err, last_error_at: now });
+    return { ok: true, cooldown: until };
+  }
+  await db.from("crm_x_reply").update({ status: "failed", done_at: now, error: err }).eq("url", url);
+  return { ok: true };
+}
+
 async function x_claim(b: any) {
   const { data: t } = await db.from("crm_x_tasks").select("*").eq("id", b.id).maybeSingle();
   if (!t || !["sending", "ready"].includes(t.status)) return { ok: false };

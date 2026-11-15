@@ -2,6 +2,7 @@
 // Every 20 minutes (sync): checks who engaged with our posts, who accepted, who replied, and asks the CRM what to send.
 // Every 2 minutes (tick): sends at most one approved LinkedIn request or message, with random gaps, so it looks like a person.
 // Every 2 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
+// Every 5 minutes (xrtick, 16 Nov): posts at most one approved reply (X > Outbound > Replies), 30 a day, 15+ minutes apart.
 import { liOp } from "./linkedin.js";
 import { xOp } from "./x.js";
 
@@ -18,12 +19,14 @@ function setup() {
   chrome.alarms.create("sync", { periodInMinutes: 20, delayInMinutes: 1 });
   chrome.alarms.create("tick", { periodInMinutes: 2, delayInMinutes: 2 });
   chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 });
+  chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : tick()));
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
+chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -403,4 +406,72 @@ async function xTick() {
     }
   } catch (e) { await log("X: " + (e.message || e), true); }
   finally { clearInterval(ka); xbusy = false; }
+}
+
+// ═════════ X replies (16 Nov) ═════════
+// Every 5 minutes (xrtick): asks the CRM for the next reply Reyansh approved on X > Outbound > Replies (the CRM keeps it to 30 a day,
+// 15+ minutes apart, in his hours, and holds off while X's cooldown is on). In the bot's own X tab it opens the post, likes it,
+// opens X's reply box with the reply filled in and presses Post: the same clicks he would make, done by X's own page.
+async function xReplyTick() {
+  if (xbusy) return;
+  const { key } = await store.get("key"); if (!key) return;
+  xbusy = true; const ka = keepAlive();
+  let task = null;
+  try {
+    const me = await xop("me");
+    if (!me.signed_in) return;
+    const p = await api("xr_plan", { me, version: VERSION });
+    await store.set({ xrlast: { at: new Date().toISOString(), posted_today: p.posted_today, cap: p.cap, waiting: p.waiting, paused: p.paused, wait_min: p.wait_min } });
+    task = (p.tasks || [])[0]; if (!task) return;
+    const id = await xTab();
+    await chrome.tabs.update(id, { url: task.url }); await loaded(id); await sleep(rand(5000, 9000));
+    const lk = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", args: [task.id], func: async (tid) => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < 20; i++) {
+        const arts = [...document.querySelectorAll('article[data-testid="tweet"]')];
+        const art = arts.find((a) => a.querySelector('a[href$="/status/' + tid + '"] time')) || arts[0];
+        if (art) {
+          if (art.querySelector('[data-testid="unlike"]')) return { liked: true, already: true };
+          const b = art.querySelector('[data-testid="like"]');
+          if (b) { b.click(); await wait(1200); return { liked: !!art.querySelector('[data-testid="unlike"]') }; }
+        }
+        if (/this post (is unavailable|was deleted)|hmm\.\.\.this page doesn.t exist/i.test(document.body.innerText)) return { liked: false, gone: true };
+        await wait(500);
+      }
+      return { liked: false };
+    } });
+    const like = (lk && lk[0] && lk[0].result) || {};
+    if (like.gone) { await api("xr_done", { url: task.url, ok: false, error: "The post is gone (deleted or hidden)" }); await log("X: " + task.name + "'s post is gone, reply skipped."); return; }
+    await sleep(rand(2500, 6000));
+    await chrome.tabs.update(id, { url: "https://x.com/intent/post?in_reply_to=" + task.id + "&text=" + encodeURIComponent(task.text) }); await loaded(id); await sleep(rand(5000, 8000));
+    const res = await chrome.scripting.executeScript({ target: { tabId: id }, world: "MAIN", func: async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const alertText = () => [...document.querySelectorAll('[role="alert"], [data-testid="toast"]')].map((e) => e.innerText).join(" ");
+      let btn = null;
+      for (let i = 0; i < 24; i++) {
+        btn = document.querySelector('[data-testid="tweetButton"]');
+        const box = document.querySelector('[data-testid="tweetTextarea_0"]');
+        if (btn && btn.getAttribute("aria-disabled") !== "true" && box && box.innerText.trim().length > 2) break;
+        btn = null; await wait(500);
+      }
+      if (!btn) return { ok: false, error: "X's reply box didn't open with the text (signed out, or X changed the page)" };
+      btn.click();
+      for (let i = 0; i < 24; i++) {
+        await wait(500);
+        const a = alertText();
+        if (/automated|try again later|rate limit|over capacity|temporarily/i.test(a)) return { ok: false, limit: true, error: "X: " + a.slice(0, 200) };
+        if (/already said that|something went wrong|can.t reply|isn.t available|restricted who can reply/i.test(a)) return { ok: false, error: "X: " + a.slice(0, 200) };
+        if (!document.querySelector('[data-testid="tweetButton"]') || !/\/intent\//.test(location.pathname) || /your post was sent|reply was sent/i.test(a)) return { ok: true };
+      }
+      return { ok: false, error: "Pressed Post but X didn't confirm within 12 seconds" };
+    } });
+    const r = (res && res[0] && res[0].result) || { ok: false, error: "X tab didn't answer" };
+    await api("xr_done", { url: task.url, ok: r.ok, error: r.error, limit: r.limit, liked: like.liked });
+    if (r.ok) await log("X: replied to " + task.name + (like.liked ? " (and liked the post)." : "."));
+    else await log("X: couldn't reply to " + task.name + ": " + r.error, true);
+    await chrome.tabs.update(id, { url: "https://x.com/messages" }).catch(() => {});
+  } catch (e) {
+    await log("X replies: " + (e.message || e), true);
+    if (task) { try { await api("xr_done", { url: task.url, ok: false, error: String(e.message || e) }); } catch (_) {} }
+  } finally { clearInterval(ka); xbusy = false; }
 }

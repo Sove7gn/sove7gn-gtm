@@ -452,7 +452,7 @@ class Component extends DCLogic {
       else{const today=this.ownPosts().filter(p=>p.status!=='Later'&&p.o._date&&AK.sameDay(p.o._date,new Date()));
         h=ts.length&&!AK.dmsPaused()?{...h,next:'No replies waiting. '+ts.length+' DMs are ready to send, and '+today.length+(today.length===1?' post is':' posts are')+' planned for today (goal: 3).',cta:'Go to Send today',go:()=>this.go('send')}
           :{...h,next:'No replies waiting. '+(AK.dmsPaused()?'DMs are paused for now, so today':'Today')+' is about posts: '+today.length+' of 3 planned for today.',cta:'Open Calendar',go:()=>this.go('calendar')};}}
-    if(page==='replies'){h.title='Replies';const n=AK.XG.rows.filter(r=>r.status==='new').length;h.next=n?n+' fresh posts from creators and founders in your pipeline. Press Reply: X opens with the reply typed in. Tweak a word, post. Leads first: a reply before the DM makes it warm.':'All caught up. New posts come in every hour in US daytime.';}
+    if(page==='replies'){h.title='Replies';const n=AK.XG.rows.filter(r=>r.status==='new').length;h.next=n?n+' fresh posts from creators and founders in your pipeline. Read the draft, change a word if you like, press Approve: the bot likes the post and replies for you. Leads first: a reply before the DM makes it warm.':'All caught up. New posts come in every hour in US daytime.';}
     if(page==='send'&&AK.dmsPaused()){h.title='Send today';h.next='DMs are paused. Press Resume DMs when you want to start again.';}
     else if(page==='send'){h.title='Send today';h.next=fu.length?fu.length+' follow-ups are due. Send those first, then '+ts.length+' first messages.':ts.length+' first messages are ready, best fit first.';h.cta=fu.length?'Start with '+fu[0].first:'';h.go=fu[0]?()=>this.openC(fu[0].id):null;}
     if(page==='pipeline'&&s.pipeTab==='Scripts'){h.next='Each new lead gets the next script in turn. Edit one here and every unsent message uses the new text.';}
@@ -756,27 +756,37 @@ class Component extends DCLogic {
       hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,grow:lim+12}})),
       runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'Last check '+this.since(lr.started_at)+(lr.ok===false?' (failed: '+clip(lr.error||'',90)+')':''):'',
       pipe,pipeTip,kit,kw,week:G.week.map(([d,t])=>({d,t}))};}
-  // Replies (15 Nov): one slim row per fresh post to reply to. Reply copies the draft, opens X with it typed in and marks the row
-  // replied, so it drops to "Replied today". Values for replies.html (rp).
+  // Replies (15 Nov, bot 16 Nov): one slim row per fresh post. Approve hands the draft to the Chrome extension, which likes the post
+  // and posts the reply from Reyansh's X tab (30 a day max, 15+ minutes apart, paused during X's cooldown). Reply myself opens X with
+  // the draft typed in and ticks it off. Values for replies.html (rp).
   repliesVals(){const s=this.state;const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
-    const all=AK.XG.rows;const open=all.filter(r=>r.status==='new').sort((a,b)=>{const fa=Date.now()-new Date(a.posted_at||a.created_at)<45*6e4,fb=Date.now()-new Date(b.posted_at||b.created_at)<45*6e4;
-      return (fb-fa)||((b.kind==='lead')-(a.kind==='lead'))||(new Date(b.posted_at||b.created_at)-new Date(a.posted_at||a.created_at));});
-    const doneToday=all.filter(r=>r.status!=='new'&&r.done_at&&sameDay(new Date(r.done_at))).sort((a,b)=>new Date(b.done_at)-new Date(a.done_at));
-    const repliedN=doneToday.filter(r=>r.status==='done').length;const lim=s.more.rp||15;
-    const go=(r,draft)=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];if(draft){try{navigator.clipboard.writeText(draft);}catch(e){}}
+    const all=AK.XG.rows;const ts=r=>new Date(r.posted_at||r.created_at).getTime();const fresh=r=>Date.now()-ts(r)<45*6e4;
+    const open=all.filter(r=>r.status==='new').sort((a,b)=>(fresh(b)-fresh(a))||((b.kind==='lead')-(a.kind==='lead'))||(ts(b)-ts(a)));
+    const queued=all.filter(r=>r.status==='approved'||r.status==='sending').sort((a,b)=>ts(b)-ts(a));
+    const doneToday=all.filter(r=>/^(done|posted|skipped|failed)$/.test(r.status)&&r.done_at&&sameDay(new Date(r.done_at))).sort((a,b)=>new Date(b.done_at)-new Date(a.done_at));
+    const postedN=doneToday.filter(r=>r.status==='posted').length,mineN=doneToday.filter(r=>r.status==='done').length,repliedN=postedN+mineN;const lim=s.more.rp||15;
+    const mine=(r,draft)=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];if(draft){try{navigator.clipboard.writeText(draft);}catch(e){}}
       window.open(id&&draft?'https://x.com/intent/post?in_reply_to='+id+'&text='+encodeURIComponent(draft):r.url,'_blank','noopener');AK.xgSet(r.url,'done');
       this.toast((repliedN+1)+' of 30 today. Make it sound like you before you post.');};
-    const rows=open.slice(0,lim).map(r=>{const t=r.posted_at?new Date(r.posted_at).getTime():0;const fresh=t&&Date.now()-t<45*6e4;const d=String(r.draft||'').trim();
+    const shown=open.slice(0,lim);
+    const rows=shown.map(r=>{const t=ts(r);const d=String(r.draft||'').trim();
       return{who:r.name||r.author,sub:'@'+r.author+(r.followers!=null?' · '+fmtK(r.followers):''),kind:r.kind==='lead'?pill('Lead','out'):pill('Creator','in'),
-        age:fresh?pill('Fresh','ok'):pill(t?AK.ago(t):'Earlier','neutral'),text:clip(r.post_text,260),full:String(r.post_text||'').slice(0,600),
-        draft:d||'No draft (nothing natural to say, or still writing). Open it and react in your own words.',dBg:d?'var(--mid-soft)':'var(--n-soft)',dFg:d?'var(--ink)':'var(--ink-3)',
-        cta:d?'Reply ↗':'Open ↗',reply:()=>go(r,d),skip:()=>AK.xgSet(r.url,'skipped')};});
+        age:fresh(r)?pill('Fresh','ok'):pill(t?AK.ago(t):'Earlier','neutral'),text:clip(r.post_text,260),full:String(r.post_text||'').slice(0,600),
+        draft:d,hasDraft:!!d,noDraft:!d,setDraft:e=>AK.xgDraft(r.url,e.target.value),
+        approve:()=>{if(!d){this.toast('Write a reply first, then approve.',true);return;}AK.xgSet(r.url,'approved');this.toast('Queued. The bot likes the post and replies within the hour (15+ min apart).');},
+        mine:()=>mine(r,d),mineLabel:d?'Reply myself ↗':'Open ↗',skip:()=>AK.xgSet(r.url,'skipped')};});
+    const withDraft=shown.filter(r=>String(r.draft||'').trim());
     const lr=AK.XG.runs[0];
     return{rows,hasRows:rows.length>0,noRows:!rows.length,noRowsText:AK.XG.loaded?'All caught up. New posts come in every hour from 5:40 PM to 7:40 AM IST (US daytime).':'Loading…',
-      doneN:String(repliedN),pct:Math.min(100,repliedN/30*100)+'%',openN:String(open.length),hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,rp:lim+15}})),
-      runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'checked '+this.since(lr.started_at):'',
-      hasDone:doneToday.length>0,showDone:!!s.rpDone,toggleDone:()=>this.setState({rpDone:!s.rpDone}),doneLabel:(s.rpDone?'Hide':'Show')+' replied today ('+doneToday.length+')',
-      done:doneToday.map(r=>({who:r.name||r.author,text:clip(String(r.post_text||'').replace(/\s+/g,' '),120),st:r.status==='done'?'replied':'skipped',open:()=>window.open(r.url,'_blank','noopener'),undo:()=>AK.xgSet(r.url,'new')}))};}
+      doneN:String(repliedN),pct:Math.min(100,repliedN/30*100)+'%',openN:String(open.length),botLine:postedN+' by the bot · '+mineN+' by you · '+queued.length+' queued',
+      approveAll:()=>{withDraft.forEach(r=>AK.xgSet(r.url,'approved'));this.toast(withDraft.length+' replies queued for the bot.');},approveAllLabel:'Approve all '+withDraft.length,hasApproveAll:withDraft.length>1,
+      hasMore:open.length>lim,moreN:String(open.length-lim),more:()=>this.setState(st=>({more:{...st.more,rp:lim+15}})),
+      runLabel:AK.XG.running?'Checking X…':'Check X now',run:()=>AK.xgRun(),lastRun:lr?'checked '+this.since(lr.started_at)+(lr.ok===false?' (failed)':''):'',
+      hasQueued:queued.length>0,queuedLabel:'Queued for the bot ('+queued.length+')',
+      queued:queued.map(r=>({who:r.name||r.author,text:clip(String(r.draft||'').replace(/\s+/g,' '),140),st:r.status==='sending'?'posting now':'waiting',undo:()=>AK.xgSet(r.url,'new')})),
+      hasDone:doneToday.length>0,showDone:!!s.rpDone,toggleDone:()=>this.setState({rpDone:!s.rpDone}),doneLabel:(s.rpDone?'Hide':'Show')+' done today ('+doneToday.length+')',
+      done:doneToday.map(r=>({who:r.name||r.author,text:clip(String(r.status==='failed'?(r.error||'failed'):(r.draft||r.post_text)||'').replace(/\s+/g,' '),120),
+        st:{posted:'posted by the bot',done:'replied by you',skipped:'skipped',failed:'bot failed'}[r.status]||r.status,open:()=>window.open(r.url,'_blank','noopener'),undo:()=>AK.xgSet(r.url,'new')}))};}
   engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
     const VO={'DM + reply':0,'Reply only':1};
     const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));
