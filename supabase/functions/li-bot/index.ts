@@ -1723,10 +1723,12 @@ async function x_inbox(b: any) {
   for (const d of domRows) {
     const lines = String(d.text).split("\n").map((x: string) => x.trim()).filter(Boolean);
     const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase();
-    const ids = String(d.href ?? "").match(/(\d{5,})-(\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
+    const ids = String(d.href ?? "").match(/(\d{5,})-(\d{5,})/) || String(d.href ?? "").match(/(\d{5,}):(\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
     const last = lines[lines.length - 1] || "";
-    if ((!handle && !uid) || /^(you|you sent|you:)/i.test(last) || /^you:/i.test(last)) continue;
-    domHits.push({ handle, uid, text: last.slice(0, 400) });
+    // the list shows a time ("2h", "Nov 13") as a line of its own; the last real line is the preview
+    const prev = [...lines].reverse().find((x: string) => !/^(\d+[smhdw]|now|yesterday|\d{1,2}:\d{2}( ?[ap]m)?|[A-Z][a-z]{2} \d{1,2}(, \d{4})?)$/i.test(x)) || "";
+    if ((!handle && !uid) || /^(you|you sent|you:|you reacted)/i.test(prev)) continue;
+    domHits.push({ handle, uid, text: prev.slice(0, 400) });
   }
   // our own last message to each person: if it's after their reply, Reyansh already answered by hand
   const myLast = new Map<string, number>(); for (const m of raw) if (m.from === me && m.to) myLast.set(m.to, Math.max(myLast.get(m.to) || 0, m.at));
