@@ -29,7 +29,7 @@ Object.assign(L.state,{plat:'Leads',lch:'',owner:'Everyone'});
 const PAGES_KEY='v2-page';
 const hashPage=()=>{const m=location.hash.match(/^#\/([a-z]+)$/i);return m?m[1]:'';};
 const V={page:(()=>{const h=hashPage();if(h)return h;try{return localStorage.getItem(PAGES_KEY)||'today';}catch(e){return 'today';}})(),
-  ptab:'next',pal:false,palQ:'',palSel:0,menu:false,brief:false,more:{},rpQueued:false,f:{},q:{},nums:false,calEd:null};
+  ptab:'next',pal:false,palQ:'',palSel:0,menu:false,brief:false,more:{},rpQueued:false,f:{},q:{},nums:false,calEd:null,calOpen:{},dragging:null,anim:true};
 
 // Where the old pages live now. Pages not built yet open as a short note with links to the current CRM.
 const GO_MAP={home:'today',leads:'today',leadBrief:'today',notifs:'bots',leadSignals:'needs',gtmNow:'outbound',liPipe:'pipeline',pipeline:'pipeline',leadBoard:'pipeline',leadList:'pipeline',
@@ -48,6 +48,7 @@ L.load=()=>{L.state.loading=false;L.state.entered=true;schedule();};
 const NAV=[
   {g:'',items:[['today','Home','⌂'],['needs','Needs you','✓'],['calendar','Calendar','▦'],['results','Post metrics','↗']]},
   {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['ideas','Post ideas','✦'],['bots','Bots','⚙'],['messages','Messages','✉'],['settings','Settings','⚒']]}];
+const NAV_C={today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
 const PAGE=Object.fromEntries(NAV.flatMap(g=>g.items.map(([id,label,ic,phase])=>[id,{id,label,ic,phase:phase||1,grp:g.g}])));
 if(!PAGE[V.page])V.page='today';
 const INFO={results:'How our posts do on LinkedIn and X.',ideas:'Drafts, posts to copy next and comment-a-word DMs.',today:'Your numbers against today’s goals, the calls coming up and whether the bots are running, on LinkedIn, X and Instagram together.',
@@ -70,7 +71,7 @@ const OLD={outbound:[['X','send','X › Send today'],['Leads','leadSignals','Lea
   messages:[['X','pipeline','X › Pipeline › Scripts'],['LinkedIn','liOut','LinkedIn › Bot and outreach']],settings:[['Leads','leadSetup','Leads › Setup'],['Leads','leadAdd','Leads › Add people']]};
 function openOld(plat,page){try{localStorage.setItem('ak-crm-plat',JSON.stringify(plat));localStorage.setItem('ak-crm-page',page);}catch(e){}window.open('../','_blank','noopener');}
 
-function nav(page,quiet){if(!PAGE[page])page='today';if(page!==V.page)V.more={};V.page=page;V.menu=false;try{localStorage.setItem(PAGES_KEY,page);}catch(e){}
+function nav(page,quiet){if(!PAGE[page])page='today';if(page!==V.page){V.more={};V.anim=true;}V.page=page;V.menu=false;try{localStorage.setItem(PAGES_KEY,page);}catch(e){}
   if(location.hash!=='#/'+page)history.replaceState(null,'','#/'+page);L.state.lid=null;L.state.cid=null;const m=document.getElementById('main');if(m)m.scrollTop=0;if(!quiet)schedule();else schedule();}
 window.addEventListener('hashchange',()=>{const h=hashPage();if(h&&h!==V.page)nav(h);});
 
@@ -148,7 +149,7 @@ function mount(){
   L.mainRef.current=document.getElementById('main');
 }
 function render(){
-  if(editing()){pending=true;return;}
+  if(editing()||V.dragging){pending=true;return;}
   pending=false;A=[];RC={};
   L.viewOnlyRole=false;L.founder=!AK.canEdit();
   const keep={};document.querySelectorAll('[data-keep]').forEach(el=>{keep[el.dataset.keep]=el.scrollTop;});
@@ -156,7 +157,7 @@ function render(){
   document.getElementById('rail').className='rail'+(V.menu?' open':'');
   document.getElementById('rail').innerHTML=railHtml(g);
   document.getElementById('top').innerHTML='<button type="button" class="btn sm"'+act(()=>{V.menu=!V.menu;schedule();})+'>☰</button><b>'+esc(PAGE[V.page].label)+'</b><span class="sp"></span><button type="button" class="btn sm"'+act(openSearch)+'>Search</button>';
-  document.getElementById('col').innerHTML=pageHtml(g);
+  const col=document.getElementById('col');col.innerHTML=pageHtml(g);col.classList.toggle('anim',!!V.anim);V.anim=false;
   document.getElementById('ov').innerHTML=(g?'':panelHtml()+briefHtml()+calEditHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':'');
   document.querySelectorAll('[data-keep]').forEach(el=>{if(keep[el.dataset.keep]!=null)el.scrollTop=keep[el.dataset.keep];});
   document.title=PAGE[V.page].label+' · '+(AK.BRAND||'SOVE7GN')+' CRM';
@@ -166,7 +167,7 @@ function railHtml(g){
   let h='<div class="brand"><div class="logo">'+esc((AK.BRAND||'S')[0])+'</div>'+esc(AK.BRAND||'SOVE7GN')+'</div><nav class="nav">';
   for(const grp of NAV){if(grp.g)h+='<div class="grp"><span>'+esc(grp.g)+'</span></div>';
     for(const [id,label,ic,phase] of grp.items){const badge=id==='needs'&&tot?'<span class="badge">'+(tot>99?'99+':tot)+'</span>':phase>1?'<span class="soon">soon</span>':'';
-      h+='<button type="button" class="'+(V.page===id?'on':'')+'"'+act(()=>nav(id))+' title="'+esc(INFO[id]||'')+'"><span class="ic">'+ic+'</span>'+esc(label)+badge+'</button>';}}
+      h+='<button type="button" class="'+(V.page===id?'on':'')+'"'+act(()=>nav(id))+' title="'+esc(INFO[id]||'')+'"><span class="ic" style="--ic:'+(NAV_C[id]||'#6B7280')+'">'+ic+'</span>'+esc(label)+badge+'</button>';}}
   h+='</nav><div class="rail-foot"><button type="button"'+act(openSearch)+'>⌕ Search<kbd>Ctrl K</kbd></button>'
     +'<button type="button"'+act(()=>{AK.refresh();L.toast('Getting the latest numbers, replies and leads.');})+'>↻ Refresh'+(AK.lastUpdate()?'<span style="margin-left:auto;font-size:11px;color:var(--faint)">'+esc(AK.ago(AK.lastUpdate()))+'</span>':'')+'</button>'
     +'<button type="button"'+act(()=>window.open('../','_blank','noopener'))+'>⧉ Open the current CRM</button>'
@@ -182,7 +183,7 @@ function pageHtml(g){
   if(f)return safe(f,'<div class="errline">This page couldn’t be drawn. Open the current CRM while it’s fixed.</div>');
   return pgSoon(V.page);
 }
-function head(title,info,right){return '<div class="ph"><div><h1>'+esc(title)+'</h1><p>'+esc(info||'')+'</p></div><span class="sp"></span>'+(right?'<div class="right">'+right+'</div>':'')+'</div>';}
+function head(title,info,right){const pg=PAGE[V.page]||{};return '<div class="ph"><div><h1><span class="hic" style="--ic:'+(NAV_C[V.page]||'#6B7280')+'">'+(pg.ic||'')+'</span>'+esc(title)+'</h1><p>'+esc(info||'')+'</p></div><span class="sp"></span>'+(right?'<div class="right">'+right+'</div>':'')+'</div>';}
 function pgSoon(id){const p=PAGE[id];
   return head(p.label,INFO[id])+'<div class="soonbox"><h2>Coming in phase '+p.phase+' of the redesign</h2><div>Until then, everything on this page is in the current CRM:</div><div class="chips">'
     +(OLD[id]||[]).map(([pl,pg,label])=>'<button type="button" class="chip"'+act(()=>openOld(pl,pg))+'>'+esc(label)+' ↗</button>').join('')+'</div></div>';}
@@ -303,112 +304,10 @@ function pgNeeds(){
 }
 
 /* ---------- Outbound ---------- */
-function pgOutbound(){
-  const rows=[];const usedX=new Set();
-  for(const l of leadsOpen()){const s=srcOf(l);if(!OUT_SRC[s]||l.source!=='LinkedIn')continue;const c=xOf(l);if(c)usedX.add(c._key);rows.push({l,c,src:s});}
-  for(const c of (AK.M.contacts||[]))if(!usedX.has(c._key))rows.push({c,src:'x'});
-  const lab=r=>r.src==='x'?'Found on X':OUT_SRC[r.src];
-  const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
-  const opts=[['all','All',rows.length],...Object.keys(OUT_SRC).map(k=>[k,OUT_SRC[k],cnt[k]||0]),['x','Found on X',cnt.x||0]];
-  const cur=V.f.out||'all';
-  const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('out',r.l?r.l.name:'',r.l?r.l.company:'',r.c?r.c.Name:'',r.c?r.c.Company:''))
-    .map(r=>({...r,fit:r.l?fitN(r.l):r.c._fit,t:r.l?ms(LIo(r.l).last||LIo(r.l).req||r.l.created_at):0})).sort((a,b)=>(b.fit||0)-(a.fit||0)||b.t-a.t);
-  const right=canEdit()?btn('Find more on X',()=>AK.xRun('x-leads'),'sm')+btn('Check funding news',()=>AK.liFunding(),'sm ghost'):'';
-  const reached=rows.filter(r=>(r.l&&liReached(r.l))||xReached(r.c)).length,replied=rows.filter(r=>(r.l&&liReplied(r.l))||xReplied(r.c)).length;
-  const calls=rows.filter(r=>(r.l&&isCallSt(r.l.stage))||(r.c&&r.c._status==='Call booked')).length,waitOk=rows.filter(r=>(r.l&&(IX().task.get(r.l.id)||{}).status==='review')||(r.c&&r.c._status==='To send')).length;
-  let h=head('Outbound',INFO.outbound)+strip([['People found',String(rows.length),(cnt.x||0)+' on X · '+(rows.length-(cnt.x||0))+' on LinkedIn'],['Reached',String(reached),'got a request or a DM'],['Replied',String(replied),'Reply rate '+pct(replied,reached)],['Calls booked',String(calls),'from outbound'],['Waiting for your OK',String(waitOk),'first touches']])+chipsBar('out',opts,right);
-  h+=table('out',[['Who','minmax(0,2fr)'],['Found by','minmax(0,1.1fr)'],['LinkedIn','minmax(0,1fr)'],['X','minmax(0,1fr)'],['Fit','90px']],list.map(r=>{
-    const name=r.l?r.l.name:r.c.Name,sub=r.l?[r.l.role,r.l.company].filter(Boolean).join(' · '):[r.c.Role,r.c.Company].filter(Boolean).join(' · ');
-    return{open:r.l?()=>L.openLead(r.l.id):()=>L.openC(r.c._key),cells:[pcell(name||'(no name)',sub,r.l?'LinkedIn':'X'),'<span class="meta">'+esc(lab(r))+'</span>',stPill(r.l?liShort(r.l):'–'),stPill(r.c?xShort(r.c):'–'),fitPill(r.fit)||'<span class="faint">–</span>']};}),'Nobody matches.');
-  return h;
-}
-
 /* ---------- Midbound ---------- */
-function pgMidbound(){
-  const rows=[];
-  for(const l of leadsOpen()){const s=srcOf(l);if(!MID_SRC[s])continue;rows.push({l,src:s,c:xOf(l)});}
-  for(const e of (AK.M.engagers||[]))if((e.Status||'To message')==='To message'&&!/^Skip/.test(String(e.Verdict||'')))rows.push({e,src:'x'});
-  const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
-  const opts=[['all','All',rows.length],...Object.keys(MID_SRC).map(k=>[k,MID_SRC[k],cnt[k]||0]),['x','Engaged on X',cnt.x||0]];
-  const cur=V.f.mid||'all';
-  const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('mid',r.l?r.l.name:r.e.Name||r.e.Handle,r.l?r.l.company:'',r.e?r.e['What they said']:''))
-    .map(r=>({...r,t:r.l?ms(r.l.created_at):0})).sort((a,b)=>b.t-a.t);
-  const ML=rows.filter(r=>r.l).map(r=>r.l);const newWk=ML.filter(l=>ms(l.created_at)>wk()).length+rows.filter(r=>r.e).length;
-  const mReached=ML.filter(liReached).length,mReplied=ML.filter(liReplied).length,mCalls=ML.filter(l=>isCallSt(l.stage)).length;
-  let h=head('Midbound',INFO.midbound)+strip([['Engaged with us',String(rows.length),'good fits only'],['New this week',String(newWk),''],['We reached out',String(mReached),pct(mReached,ML.length)+' of them'],['Replied',String(mReplied),'Reply rate '+pct(mReplied,mReached)],['Calls booked',String(mCalls),'from midbound']])+chipsBar('mid',opts);
-  h+=table('mid',[['Who','minmax(0,1.8fr)'],['What they did','minmax(0,2fr)'],['LinkedIn','minmax(0,1fr)'],['X','minmax(0,1fr)'],['','auto']],list.map(r=>{
-    if(r.e){const e=r.e;const reply=e['Our reply']||'';
-      return{open:null,cells:[pcell(e.Name||e.Handle,'@'+String(e.Handle||'').replace(/^@/,'')+(e.Fit?' · '+e.Fit:''),'X'),ell((e['What they said']?'Said: '+e['What they said']:e.Why||'Engaged with our post'),'meta'),'<span class="faint">–</span>',stPill('To reply'),
-        ACTS(['Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');}],[canEdit()&&['Done',()=>AK.engagerToPipeline(e)],canEdit()&&['Skip',()=>AK.saveEngager(e,'Dismissed')]])]};}
-    const l=r.l;return{open:()=>L.openLead(l.id),cells:[pcell(l.name||'(no name)',[l.role,l.company].filter(Boolean).join(' · '),'LinkedIn'),ell(MID_SRC[r.src]+(l.source_detail?': '+l.source_detail:'')+' · '+since(l.created_at),'meta'),stPill(liShort(l)),stPill(r.c?xShort(r.c):'–'),fitPill(fitN(l))]};}),'Nobody yet.');
-  h+='<p class="note" style="margin-top:12px">People who engaged but don’t fit who we sell to are hidden. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','liPeople'))+'>See them in the current CRM ↗</button></p>';
-  return h;
-}
-
 /* ---------- Inbound ---------- */
-function pgInbound(){
-  const rows=leadsOpen().filter(l=>{const k=srcOf(l);if(MID_SRC[k]||OUT_SRC[k])return false;return k==='inbound'||l.direction==='Inbound'||l.source==='Instagram';});
-  const P=l=>l.source==='Instagram'?'Instagram':l.source==='LinkedIn'?'LinkedIn':l.source==='X'?'X':'Other';
-  const cnt={};for(const l of rows)cnt[P(l)]=(cnt[P(l)]||0)+1;
-  const cur=V.f.inb||'all';
-  const list=rows.filter(l=>(cur==='all'||P(l)===cur)&&matchQ('inb',l.name,l.company,l.instagram,l.source_detail)).sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at));
-  const iNew=rows.filter(l=>ms(l.created_at)>wk()).length,iTalk=rows.filter(l=>/in talks|replied|follow/i.test(l.stage||'')).length,iCalls=rows.filter(l=>isCallSt(l.stage)).length,iWon=rows.filter(l=>/^won$/i.test(l.stage||'')).length;
-  let h=head('Inbound',INFO.inbound)+strip([['Came to us',String(rows.length),(cnt.Instagram||0)+' on Instagram'],['New this week',String(iNew),''],['Talking',String(iTalk),''],['Calls booked',String(iCalls),''],['Clients',String(iWon),'won from inbound']])+chipsBar('inb',[['all','All',rows.length],['LinkedIn','LinkedIn',cnt.LinkedIn||0],['Instagram','Instagram',cnt.Instagram||0],['X','X',cnt.X||0],['Other','Other',cnt.Other||0]]);
-  h+=table('inb',[['Who','minmax(0,1.8fr)'],['How they came','minmax(0,2fr)'],['Stage','minmax(0,1fr)'],['Last touch','110px']],list.map(l=>({open:()=>L.openLead(l.id),
-    cells:[pcell(l.name||l.instagram||'(no name)',[l.role,l.company].filter(Boolean).join(' · ')||(l.instagram?'@'+String(l.instagram).replace(/^@/,''):''),P(l)==='Other'?null:P(l)),ell(l.source_detail||l.source||'',"meta"),stPill(plainWords(l.stage||'')),'<span class="meta">'+esc(whenTxt(l.last_touch||l.created_at))+'</span>']})),'Nobody has come to us yet.');
-  return h;
-}
-
 /* ---------- Reply to their posts ---------- */
-function pgReplies(){
-  const rp=safe(()=>L.repliesVals(),{rows:[]});const li=safe(()=>L.lisVals(),{cards:[]});
-  const cur=V.f.rep||'x';
-  let h=head('Reply to their posts',INFO.replies);
-  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
-  if(cur==='x'){
-    const right=(rp.hasApproveAll&&canEdit()?btn(rp.approveAllLabel,rp.approveAll,'sm'):'')+btn(rp.runLabel||'Check X now',rp.run,'sm ghost');
-    h+='<div class="bar" style="margin-top:12px"><div class="goal"><b>'+esc(rp.doneN||0)+'</b> of 30 today<div class="bar1"><i style="width:'+esc(rp.pct||'0%')+'"></i></div></div><span class="note">'+esc(rp.botLine||'')+'</span><span class="sp"></span>'+right+'</div>';
-    h+='<div class="posts">'+((rp.rows||[]).map(r=>'<div class="post">'+'<div class="post-h">'+avatar(r.who,'X')+'<div><b>'+esc(r.who)+'</b> <span class="meta">'+esc(r.sub)+'</span></div><span class="sp"></span>'+pill(r.age&&r.age.label,/Fresh/.test((r.age||{}).label)?'ok':'')+'</div>'
-      +'<div class="post-t">'+esc(r.text)+'</div>'+ta(r.draft,null,null,2,chg(e=>r.setDraft(e))+' placeholder="Our reply"')
-      +'<div class="post-a">'+(canEdit()?btn('Approve',r.approve,'pri sm'):'')+btn(r.mineLabel,r.mine,'sm')+(canEdit()?btn('Skip',r.skip,'sm ghost'):'')+'</div></div>').join('')||'<div class="tb"><div class="empty">'+esc(rp.noRowsText||'All caught up.')+'</div></div>')+'</div>'
-      +(rp.hasMore?'<div style="margin-top:10px">'+btn('Show '+rp.moreN+' more',rp.more,'ghost sm')+'</div>':'')
-      +(rp.hasQueued?'<p class="note" style="margin-top:14px">'+esc(rp.queuedLabel)+': the bot posts them 15+ minutes apart.</p>':'');
-  }else{
-    h+='<div class="bar" style="margin-top:12px"><span class="note">'+esc(li.done+' of '+li.total+' done '+(li.dayLabel||''))+'</span><span class="sp"></span>'+(canEdit()?btn(li.running?'Finding posts…':'Find posts now',li.run,'sm ghost'):'')+'</div>';
-    h+='<div class="posts">'+((li.cards||[]).map(c=>'<div class="post" style="opacity:'+c.op+'"><div class="post-h">'+avatar(c.author,'LinkedIn')+'<div><b>'+esc(c.author)+'</b> <span class="meta">'+esc(c.headline)+(c.when?' · '+esc(c.when):'')+'</span></div></div>'
-      +'<div class="post-t">'+esc(c.post)+'</div>'+ta(c.comment,c.onComment,c.saveComment,3)
-      +'<div class="post-a">'+(c.isNew?btn('Copy + open post',c.copy,'pri sm')+(canEdit()?btn('Done',c.done,'sm')+btn('Skip',c.skip,'sm ghost'):''):pill(c.isDone?'Commented':'Skipped','')+btn('Undo',c.undo,'sm ghost'))+'</div></div>').join('')||'<div class="tb"><div class="empty">'+esc(li.noneText)+'</div></div>')+'</div>'
-      +'<p class="note" style="margin-top:14px">Comments on posts by people already in your pipeline are still in the current CRM. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','gtmEngage'))+'>Open ↗</button></p>';
-  }
-  return h;
-}
-
 /* ---------- Pipeline: LinkedIn and X keep their own boards ---------- */
-function board(B,plat){
-  const cols=(B.cols||[]);
-  return '<div class="board">'+cols.map(c=>'<div class="bcol"><div class="bcol-h"><span class="dotc" style="background:'+esc(c.dot||'var(--faint)')+'"></span>'+esc(plainWords(c.name))+'<span class="c">'+esc(c.n)+'</span>'
-    +(c.hasAll&&canEdit()?'<span class="sp"></span><button type="button" class="btn ghost sm"'+act(cb(c.all))+'>Approve all</button>':'')+'</div><div class="bcol-b">'
-    +(c.cards||[]).slice(0,V.more['b:'+plat+c.id]?400:20).map(k=>'<div class="kc"'+act(cb(k.open),false)+'><div class="kc-t"><b class="ell">'+esc(k.name)+'</b>'+fitPill(k.score)+'</div>'+(k.sub?ell(k.sub,'meta'):'')
-      +(k.one?ell(k.one,'kc-one'):'')+(k.hasMsg&&canEdit()?'<div class="kc-a">'+btn('Approve',k.approve,'pri sm')+btn('Skip',k.skip,'sm ghost')+'</div>':k.status?ell(plainWords(k.status),'meta'):'')+'</div>').join('')
-    +((c.cards||[]).length>20&&!V.more['b:'+plat+c.id]?'<button type="button" class="btn ghost sm"'+act(()=>{V.more['b:'+plat+c.id]=true;schedule();})+'>Show '+((c.cards||[]).length-20)+' more</button>':'')
-    +(!(c.cards||[]).length?'<div class="kc-empty">Nobody here</div>':'')+'</div></div>').join('')+'</div>';
-}
-function pgPipeline(){
-  const cur=V.f.pipe||'LinkedIn';const P=L.allPeople();
-  let h=head('Pipeline',INFO.pipeline,cur==='Table'&&canEdit()?btn('Export CSV',()=>exportCsv(),'sm'):'');
-  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email'],['Table','Everyone (table)']]);
-  if(cur==='LinkedIn'){const B=withState({lpExp:'',lpQ:V.q.pipe||'',lpMin:0,lpOut:false,lpLim:{found:400,req:400,dm:400,fu1:400,fu2:400,fu3:400,fu4:400,fu5:400,fu6:400,fu7:400,talks:400,booked:400,won:400,lost:400}},()=>safe(()=>L.liPipeVals(),{cols:[]}));
-    h+='<div class="bar" style="margin-top:12px"><span class="note">'+esc(B.total+' people · '+(B.bot||''))+'</span><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>'+board(B,'li');}
-  else if(cur==='X'){const B=withState({xpExp:'',xpQ:V.q.pipe||'',xpMin:0,xpLim:{review:400,dm:400,fu1:400,fu2:400,fu3:400,fu4:400,fu5:400,fu6:400,fu7:400,talks:400,booked:400,won:400,lost:400}},()=>safe(()=>L.xPipeVals(P),{cols:[]}));
-    h+='<div class="bar" style="margin-top:12px"><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>'+board(B,'x');}
-  else if(cur==='Instagram'){h+='<div class="bar" style="margin-top:12px"><span class="note">Instagram DMs, read every hour</span><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>'+board(igBoard(),'ig');}
-  else if(cur==='Email')h+='<div class="soonbox" style="margin-top:16px"><h2>Email isn’t set up yet</h2><div>Its own pipeline shows here once email outreach starts.</div></div>';
-  else{const L2=leadsOpen().filter(l=>matchQ('tbl',l.name,l.company,l.source,l.stage));
-    h+='<div class="bar" style="margin-top:12px"><span class="note">'+L2.length+' people</span><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.tbl||'')+'"'+inp(e=>{V.q.tbl=e.target.value;})+chg(()=>schedule())+'></div>';
-    h+=table('tbl',[['Who','minmax(0,2fr)'],['Platform','100px'],['Stage','minmax(0,1fr)'],['Next step','minmax(0,1.4fr)'],['Last touch','110px']],
-      L2.sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at)).map(l=>({open:()=>L.openLead(l.id),cells:[pcell(l.name||'(no name)',[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),'<span class="meta">'+esc(l.source||'')+'</span>',stPill(plainWords(l.stage||'')),ell(l.next_step||'','meta'),'<span class="meta">'+esc(whenTxt(l.last_touch||l.created_at))+'</span>']})),'Nobody matches.',60);}
-  return h;
-}
 function exportCsv(){const L2=leadsOpen();const cols=['name','company','role','source','stage','email','linkedin','x_handle','instagram','next_step','last_touch','created_at'];
   const q=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';const csv=[cols.join(','),...L2.map(l=>cols.map(c=>q(l[c])).join(','))].join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='sove7gn-leads.csv';a.click();}
@@ -456,7 +355,7 @@ function followItem(it){
 
 
 /* ---------- small number strip at the top of Outbound / Midbound / Inbound (Drona-style micro dashboard) ---------- */
-const strip=cells=>'<div class="stats strip">'+cells.map(([l,v,d])=>'<div class="stat"><div class="l">'+esc(l)+'</div><div class="v">'+esc(v)+'</div>'+(d?'<div class="d">'+esc(d)+'</div>':'')+'</div>').join('')+'</div>';
+const strip=cells=>'<div class="stats strip">'+cells.map(([l,v,d,c])=>'<div class="stat" style="--c:'+(c||'var(--fg)')+'"><div class="l"><i class="sd"></i>'+esc(l)+'</div><div class="v">'+esc(v)+'</div>'+(d?'<div class="d">'+esc(d)+'</div>':'')+'</div>').join('')+'</div>';
 const pct=(a,b)=>b?Math.round(a/b*100)+'%':'–';
 const isCallSt=st=>/^(call booked|proposal sent)$/i.test(st||'');
 const liReached=l=>{const x=LIo(l);return !!(x.req||x.dm||x.acc||x.replied);};
@@ -478,70 +377,8 @@ function calData(plat){return memo('cal'+plat,()=>withState({plat},()=>safe(()=>
 function calCards(C,i){const out=[];for(const b of ((C||{}).boards||[]))for(const it of (((b.cols||[])[i]||{}).cards||[]))out.push(it);return out;}
 function calFind(id){for(const plat of ['X','LinkedIn']){const C=calData(plat);for(let i=0;i<7;i++)for(const c of calCards(C,i))if(c.isCard&&c.id===id)return{c,plat};}return null;}
 const ST_TONE=st=>st==='Posted'?'ok':st==='Scheduled'?'blue':st==='Ready to post'?'warn':'';
-function pgCalendar(){
-  const X=calData('X'),LI=calData('LinkedIn');const base=X||LI;if(!base)return head('Calendar','')+'<div class="empty">Loading…</div>';
-  const cur=V.f.cal||'all';const days=((base.boards||[])[0]||{}).cols||[];
-  let n=0;const cols=days.map((d,i)=>{const cards=[...(cur!=='LinkedIn'?calCards(X,i).map(c=>({...c,_p:'X'})):[]),...(cur!=='X'?calCards(LI,i).map(c=>({...c,_p:'LinkedIn'})):[])];n+=cards.filter(c=>c.isCard).length;return{d,cards,xcol:(((X||{}).boards||[])[0]||{cols:[]}).cols[i]};});
-  let h=head('Calendar','Every post for the week, LinkedIn and X together. Click a post to edit it.',
-    btn('←',base.prev,'sm')+'<span class="wk"><b>'+esc(base.weekName)+'</b> <span class="meta">'+esc(base.label)+'</span></span>'+btn('→',base.next,'sm')+(base.weekName!=='This week'?btn('Today',base.now,'sm ghost'):''));
-  h+='<div class="bar"><div class="chips">'+[['all','All'],['LinkedIn','LinkedIn'],['X','X']].map(([k,l])=>'<button type="button" class="chip'+(cur===k?' on':'')+'"'+act(()=>{V.f.cal=k;schedule();})+'>'+(k!=='all'?platMark(k)+' ':'')+esc(l)+'</button>').join('')+'</div><span class="sp"></span><span class="note">'+n+' posts this week</span></div>';
-  h+='<div class="week">'+cols.map(({d,cards,xcol})=>'<div class="day'+(d.today?' today':'')+'"><div class="day-h"><b>'+esc(d.dow)+'</b> <span class="meta">'+esc(d.date)+'</span></div><div class="day-b">'
-    +cards.map(c=>c.isCard?'<div class="cc"'+act(()=>{V.calEd=c.id;schedule();},false)+'><div class="cc-t">'+platMark(c._p)+'<span class="meta">'+esc(c.time||'')+'</span><span class="sp"></span>'+pill(c.st==='Posted'?'Posted':c.st,ST_TONE(c.st))+'</div>'
-        +'<div class="cc-x">'+esc(c.short||c.text||'(empty)')+'</div>'+(c.hasMedia?'<div class="meta" style="margin-top:4px">📎 image</div>':'')+'</div>'
-      :c.isSlot&&canEdit()&&c._p==='X'?'<button type="button" class="cs"'+act(cb(c.slotNew))+'>+ '+esc(c.slotLabel||'Post')+'</button>':'').join('')
-    +(xcol&&xcol.canAdd&&canEdit()&&cur!=='LinkedIn'?'<button type="button" class="cs"'+act(cb(xcol.add))+'>+ Add X post</button>':'')+'</div></div>').join('')+'</div>';
-  return h;
-}
-function calEditHtml(){
-  if(!V.calEd)return '';const f=calFind(V.calEd);if(!f){V.calEd=null;return '';}const c=f.c;const close=()=>{V.calEd=null;schedule();};const ro=!canEdit();
-  let b='<div class="kv">'
-    +(c.canDate?'<label>Day</label><input class="in" type="date" value="'+esc(c.dateIso)+'"'+chg(cb(c.setDate))+(ro?' disabled':'')+'>':'')
-    +(c.notLi!==false?'<label>Time (IST)</label><input class="in" value="'+esc(c.time||'')+'" placeholder="7:30 PM"'+inp(cb(c.setTime))+blur(cb(c.saveTime))+(ro?' disabled':'')+'>':'')
-    +'<label>Status</label><select class="in"'+chg(cb(c.setStatus))+(ro?' disabled':'')+'>'+(c.stOpts||[]).map(o=>'<option'+(o.v===c.status?' selected':'')+'>'+esc(o.v)+'</option>').join('')+'</select></div>';
-  b+='<div class="blk" style="margin-top:14px"><h3>Post</h3>'+ta(c.text,c.setText,c.saveText,10,c.txtRo?' readonly':'')+'</div>';
-  if(c.canLink)b+='<div class="blk"><h3>Live link</h3><div class="bar"><input class="in" style="flex:1" placeholder="'+esc(c.linkPh||'Paste the post link')+'" value="'+esc(c.linkVal||'')+'"'+inp(cb(c.setLinkVal))+'>'+btn('Save link',c.saveLink,'sm')+'</div></div>';
-  const acts=[btn(c.copyLabel||'Copy',c.copy,'pri sm'),c.canTick?btn(c.st==='Posted'?'Posted ✓ (undo)':'Mark as posted',c.tick,'sm'):'',c.canSched?btn(c.schedLabel,c.toggleSched,'sm'):'',
-    c.canUp?'<label class="btn sm">'+esc(c.upLabel||'Add image')+'<input type="file" accept="image/*,video/*" hidden'+chg(cb(c.upload))+'></label>':'',c.hasLink?btn('Open live post',c.openLink,'sm ghost'):'',canEdit()&&c.remove?btn('Take off the calendar',()=>{c.remove();close();},'sm ghost'):''].join('');
-  return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh">'+platMark(f.plat)+'<h2>'+esc(c.dateLabel||'Post')+'</h2>'+pill(c.st,ST_TONE(c.st))+'<span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb">'+b+'<div class="under">'+acts+'</div></div></div></div>';
-}
-
 /* ---------- Post metrics ---------- */
-function pgResults(){
-  const xs=safe(()=>AK.trackedPosts(),[])||[],ls=safe(()=>AK.liTracked(),[])||[];const gr=safe(()=>L.growthVals(L.allPeople()),null);
-  const all=[...xs.map(t=>({...t,plat:'X'})),...ls.map(t=>({...t,plat:'LinkedIn'}))].sort((a,b)=>(b.first||0)-(a.first||0));
-  const week=all.filter(t=>(t.first||0)>=wk());const sum=(a,k)=>a.reduce((s,t)=>s+(+t[k]||0),0);
-  const best=week.slice().sort((a,b)=>(b.eng||0)-(a.eng||0))[0];
-  let h=head('Post metrics','How our posts do on LinkedIn and X. Click a post to open it.');
-  h+=strip([['Posts this week',String(week.length),week.filter(t=>t.plat==='X').length+' on X · '+week.filter(t=>t.plat==='LinkedIn').length+' on LinkedIn'],
-    ['X views this week',AK.fmtK(sum(week.filter(t=>t.plat==='X'),'views')),'All time '+AK.fmtK(sum(xs,'views'))],['Engagement this week',AK.fmtK(sum(week,'eng')),'Likes, replies, reposts'],
-    ['X followers',gr?gr.now+' / '+gr.goal:'–',gr?gr.daysLeft+' days left · line says '+gr.onTrack:''],['Best this week',best?AK.fmtK(best.eng||0)+' engagement':'–',best?String(best.text||'').replace(/\s+/g,' ').slice(0,60):'']]);
-  if(gr&&(gr.mix||[]).length){const NM={Reach:'Get seen',Trust:'Build trust',Convert:'Book calls'};
-    h+='<div class="bar" style="margin-top:14px"><span class="note">This week’s mix:</span>'+gr.mix.map(m=>'<span class="pill line">'+esc(NM[m.k]||m.k)+' <b>'+esc(m.n)+' / '+esc(m.tgt)+'</b></span>').join('')+'</div>';}
-  const cur=V.f.res||'all';h+=tabsBar('res',[['all','All',all.length],['LinkedIn','LinkedIn',ls.length],['X','X',xs.length]]);
-  const list=all.filter(t=>cur==='all'||t.plat===cur);
-  h+='<div style="margin-top:12px">'+table('res',[['Post','minmax(0,3fr)'],['Posted','120px'],['Views','80px'],['Engagement','100px'],['Per 1K views','100px']],list.map(t=>({open:t.link?()=>window.open(t.link,'_blank','noopener'):null,
-    cells:['<div class="pc">'+platMark(t.plat)+ell(String(t.text||'').replace(/\s+/g,' ')||'(post)')+'</div>','<span class="meta">'+esc(t.first?AK.dayWord(new Date(t.first)):'–')+'</span>',
-      '<span class="num">'+esc(t.views!=null?AK.fmtK(t.views):'–')+'</span>','<span class="num">'+esc(t.eng!=null?String(t.eng):'–')+'</span>','<span class="num">'+esc(t.rate!=null?String(Math.round(t.rate*10)/10):'–')+'</span>']})),'No posts tracked yet.')+'</div>';
-  return h;
-}
-
 /* ---------- Post ideas ---------- */
-function pgIdeas(){
-  const gr=safe(()=>L.growthVals(L.allPeople()),{})||{};
-  const drafts=(AK.M.ours||[]).filter(p=>p['Our version']&&!/posted/i.test(p.Status||''));const next=safe(()=>AK.copyNext(15),[])||[];const asks=safe(()=>AK.founderAsks(),[])||[];
-  const cur=V.f.ideas||'drafts';
-  let h=head('Post ideas','Drafts next to the posts they copy, what to copy next, and the words people comment to get something.');
-  h+=tabsBar('ideas',[['drafts','Drafts',drafts.length],['next','To copy next',next.length],['asks','Questions for the founders',asks.length],['kw','Comment-a-word DMs',(gr.kw||[]).length],['kit','Profile kit',(gr.kit||[]).length]]);
-  h+='<div style="margin-top:12px">';
-  if(cur==='drafts')h+=table('dr',[['Our draft','minmax(0,2.4fr)'],['Copies','minmax(0,1.6fr)'],['When','110px'],['','auto']],drafts.map(p=>{const o=safe(()=>AK.originalFor(p),null);return{open:null,cells:[ell(String(p['Our version']).replace(/\s+/g,' ')),
-    o?ell((o.Competitor||'')+': '+String(o['Full text']||'').replace(/\s+/g,' '),'meta'):'<span class="faint">–</span>','<span class="meta">'+esc(p.Date||'')+'</span>',ACTS(['Copy',()=>L.copy(p['Our version'],'d'+p._row,'Draft copied.')],[o&&o.Link&&['Original',()=>window.open(o.Link,'_blank','noopener')]])]};}),'No drafts waiting.');
-  if(cur==='next')h+=table('nx',[['Post','minmax(0,3fr)'],['By','minmax(0,1fr)'],['Views','90px'],['','auto']],next.map(t=>({open:t.Link?()=>window.open(t.Link,'_blank','noopener'):null,cells:[ell(String(t['Full text']||'').replace(/\s+/g,' ')),'<span class="meta">'+esc(t.Competitor||'')+'</span>','<span class="num">'+esc(AK.fmtK(safe(()=>AK.viewsOf(t),0)||0))+'</span>',ACTS(['Copy',()=>L.copy(t['Full text'],'n'+t._row,'Post copied.')])]})),'Nothing to copy right now.');
-  if(cur==='asks')h+=table('as',[['Question','minmax(0,3fr)'],['For the post','minmax(0,2fr)'],['','auto']],asks.map(a=>({open:null,cells:[ell(a.p['Founder question']),ell(String(a.p['Our version']||'').replace(/\s+/g,' '),'meta'),ACTS(['Copy',()=>L.copy(a.p['Founder question'],'q'+a.p._row,'Question copied.')])]})),'No questions waiting.');
-  if(cur==='kw')h+=table('kw',[['When they comment','minmax(0,1.2fr)'],['DM them','minmax(0,3fr)'],['','auto']],(gr.kw||[]).map(k=>({open:null,cells:['<b>'+esc(k.word)+'</b><div class="meta ell">'+esc(k.label)+'</div>',ell(String(k.text).replace(/\s+/g,' '),'meta'),ACTS(['Copy DM',k.copy])]})),'None set.');
-  if(cur==='kit')h+=table('kit',[['What','160px'],['Text','minmax(0,3fr)'],['','auto']],(gr.kit||[]).map(k=>({open:null,cells:['<b>'+esc(k.label)+'</b>',ell(k.text,'meta'),ACTS(['Copy',k.copy])]})),'');
-  return h+'</div>';
-}
-
 /* ---------- Bots ---------- */
 function pgBots(){
   const S=AK.LD.settings||{};const li=S.li_bot||{},lst=S.li_bot_status||{};const xs=(AK.XT.status||{}).x_bot||{},xst=(AK.XT.status||{}).x_bot_status||{};
@@ -610,6 +447,276 @@ function pgSettings(){
     +(canEdit()?'<label class="btn sm">Upload Connections.csv<input type="file" accept=".csv,text/csv" hidden'+chg(e=>{const f=e.target.files&&e.target.files[0];if(!f)return;f.text().then(t=>AK.importLiConnections(t));e.target.value='';})+'></label>':'')+'</div>';
   h+='<h2 class="h2">Sign-in</h2><div class="card sec-b" style="margin:0"><p class="note" style="margin:0">Everyone signs in with the team passcode. To change it, run <code>node scripts/set-passcode.mjs</code> in the GTM.SOVE7GN.ORG folder.</p></div>';
   h+='<p class="note" style="margin-top:20px">Stages, groups, your own fields and the fit scoring weights are still edited in the current CRM. <button type="button" class="btn ghost sm"'+act(()=>openOld('Leads','leadSetup'))+'>Open ↗</button></p>';
+  return h;
+}
+
+
+/* ================= round 3 (16 Nov): colour, charts, the rich calendar and pipeline cards back from the old CRM ================= */
+
+/* stage bar: where someone is, from found to client, on every platform together */
+const STEPS=['Found','Reached','Connected','Messaged','Following up','Replied','Call booked','Client'];
+const STEP_C=['#9AA0AA','#3B82F6','#0EA5E9','#6366F1','#F59E0B','#8B5CF6','#10B981','#059669'];
+function stepOf(l,c){let i=0;
+  if(l){const x=LIo(l),g=String(l.stage||'').toLowerCase();i=g==='won'?7:/call booked|proposal/.test(g)?6:(x.replied||g==='in talks')?5:+x.fu>0?4:x.dm?3:x.acc?2:x.req?1:0;
+    if(l.source==='Instagram')i=Math.max(i,g==='won'?7:/call/.test(g)?6:/talk|repl|follow/.test(g)?5:3);}
+  if(c){const s=c._status||'';const T=(IX().xt.get(c._row)||[]).filter(t=>t.status==='sent');const fu=T.some(t=>/^fu/.test(t.kind));
+    const j=s==='Customer'?7:s==='Call booked'?6:s==='Replied'?5:(/FU/.test(s)||fu)?4:s==='Sent'||T.length?3:0;i=Math.max(i,j);}
+  return i;}
+const sbar=i=>'<div class="sb" title="'+esc(STEPS[i])+'"><div class="sb-t">'+STEPS.map((_,k)=>'<i style="background:'+(k<=i?STEP_C[i]:'var(--line)')+'"></i>').join('')+'</div><span style="color:'+STEP_C[i]+'">'+esc(STEPS[i])+'</span></div>';
+
+/* latest update per person (events from every platform) */
+function lastEv(){return memo('lastev',()=>{const m=new Map();for(const e of (AK.LD.events||[])){const p=m.get(e.lead_id);if(!p||ms(e.at)>ms(p.at))m.set(e.lead_id,e);}return m;});}
+const EV_ICON={message:'✉',note:'✎',call:'☏',email:'@',meeting:'◷',stage:'→',created:'+',engaged:'♥'};
+function latestTxt(l,c){const e=l?lastEv().get(l.id):null;
+  let t=e?String(e.text||'').split('\n')[0].replace(/\s+/g,' '):'',at=e?e.at:'';
+  if(c){const s=(IX().xt.get(c._row)||[]).filter(x=>x.status==='sent').sort((a,b)=>ms(b.sent_at)-ms(a.sent_at))[0];if(s&&ms(s.sent_at)>ms(at)){t=(s.kind==='dm'?'First DM sent on X':'X follow-up '+String(s.kind).replace('fu','')+' sent');at=s.sent_at;}}
+  return t?'<div class="lt"><span>'+esc(t.slice(0,90))+'</span><span class="faint"> · '+esc(since(at))+'</span></div>':'<span class="faint">–</span>';}
+function feed(leads,title){
+  const ids=new Set(leads.map(l=>l.id));const E=(AK.LD.events||[]).filter(e=>ids.has(e.lead_id)&&e.kind!=='created').sort((a,b)=>ms(b.at)-ms(a.at)).slice(0,6);if(!E.length)return '';
+  const byId=new Map(leads.map(l=>[l.id,l]));
+  return '<div class="feed"><div class="feed-h"><span class="live"></span>'+esc(title||'Latest updates')+'</div>'+E.map(e=>{const l=byId.get(e.lead_id)||{};
+    return '<button type="button" class="fe"'+act(()=>L.openLead(l.id))+'><span class="fe-i">'+(EV_ICON[e.kind]||'•')+'</span><b>'+esc(l.name||'Someone')+'</b><span class="ell meta">'+esc(String(e.text||'').split('\n')[0])+'</span><span class="faint">'+esc(since(e.at))+'</span></button>';}).join('')+'</div>';}
+
+/* small charts, drawn as SVG */
+function barChart(series,labels,h){h=h||120;const n=labels.length;const max=Math.max(1,...series.flatMap(s=>s.data));const W=100/n;
+  return '<div class="chart"><svg viewBox="0 0 100 '+h+'" preserveAspectRatio="none" style="height:'+h+'px">'+labels.map((_,i)=>series.map((s,k)=>{const bw=W*0.7/series.length,x=i*W+W*0.15+k*bw,v=s.data[i]||0,bh=v/max*(h-6);
+    return '<rect x="'+x.toFixed(2)+'" y="'+(h-bh).toFixed(2)+'" width="'+(bw*0.9).toFixed(2)+'" height="'+bh.toFixed(2)+'" rx="0.6" fill="'+s.c+'"><title>'+esc(labels[i]+': '+s.n+' '+v)+'</title></rect>';}).join('')).join('')
+    +'</svg><div class="chart-x">'+labels.map((l,i)=>'<span>'+(i%2===0?esc(l):'')+'</span>').join('')+'</div><div class="legend">'+series.map(s=>'<span><i style="background:'+s.c+'"></i>'+esc(s.n)+'</span>').join('')+'</div></div>';}
+const hbars=(rows,c)=>{const max=Math.max(1,...rows.map(r=>r.v));return '<div class="hb">'+rows.map(r=>'<div class="hb-r"'+(r.go?act(r.go):'')+'><div class="hb-l ell">'+r.l+'</div><div class="hb-b"><i style="width:'+(r.v/max*100).toFixed(1)+'%;background:'+(r.c||c)+'"></i></div><div class="hb-v">'+esc(r.vl||r.v)+'</div></div>').join('')+'</div>';};
+const ring=(p,c,label)=>{const r=16,C=2*Math.PI*r,o=C*(1-Math.min(1,p));return '<svg class="ring" viewBox="0 0 40 40"><circle cx="20" cy="20" r="'+r+'" fill="none" stroke="var(--line)" stroke-width="5"/><circle cx="20" cy="20" r="'+r+'" fill="none" stroke="'+c+'" stroke-width="5" stroke-linecap="round" stroke-dasharray="'+C.toFixed(1)+'" stroke-dashoffset="'+o.toFixed(1)+'" transform="rotate(-90 20 20)"/><text x="20" y="23" text-anchor="middle" font-size="9" font-weight="600" fill="var(--fg)">'+esc(label)+'</text></svg>';};
+
+/* colours for post tags */
+const SLOT_C={'Account tag':'#DB2777','Founder':'#2563EB','Data & product':'#0D9488','AI tool':'#7C3AED','News':'#D97706','Article':'#475569','Shoutout':'#E11D48','Other':'#6B7280'};
+const FUN={Reach:['TOFU','Get seen','#059669'],Trust:['MOFU','Build trust','#7C3AED'],Convert:['BOFU','Book calls','#EA580C']};
+const tagp=(t,c)=>t?'<span class="tg" style="color:'+c+';background:'+c+'14;border-color:'+c+'33">'+esc(t)+'</span>':'';
+const stp=st=>{const m={Posted:['#059669','Posted'],Scheduled:['#2563EB','Scheduled'],'Ready to post':['#D97706','Ready'],Draft:['#6B7280','Draft']}[st]||['#6B7280',st||'Draft'];return tagp(m[1],m[0]);};
+
+/* ---------- Calendar: the full posts again, every platform on one week, drag a post to another day ---------- */
+function pgCalendar(){
+  const X=calData('X'),LI=calData('LinkedIn');const base=X||LI;if(!base)return head('Calendar','')+'<div class="empty">Loading…</div>';
+  const cur=V.f.cal||'all';const days=((base.boards||[])[0]||{}).cols||[];
+  const all=[];const cols=days.map((d,i)=>{const cards=[...(cur!=='LinkedIn'?calCards(X,i).map(c=>({...c,_p:'X'})):[]),...(cur!=='X'?calCards(LI,i).map(c=>({...c,_p:'LinkedIn'})):[])];cards.filter(c=>c.isCard).forEach(c=>all.push(c));return{d,i,cards,xcol:(((X||{}).boards||[])[0]||{cols:[]}).cols[i]};});
+  const cnt=s=>all.filter(c=>c.st===s).length;
+  let h=head('Calendar','Your posts for the week, LinkedIn and X together. Drag a post to another day; click Edit to change it.',
+    btn('←',base.prev,'sm')+'<span class="wk"><b>'+esc(base.weekName)+'</b> <span class="meta">'+esc(base.label)+'</span></span>'+btn('→',base.next,'sm')+(base.weekName!=='This week'?btn('Today',base.now,'sm ghost'):''));
+  h+='<div class="bar"><div class="chips">'+[['all','All'],['LinkedIn','LinkedIn'],['X','X']].map(([k,l])=>'<button type="button" class="chip'+(cur===k?' on':'')+'"'+act(()=>{V.f.cal=k;schedule();})+'>'+(k!=='all'?platMark(k)+' ':'')+esc(l)+'</button>').join('')+'</div><span class="sp"></span>'
+    +'<span class="wsum">'+stp('Posted')+' '+cnt('Posted')+' &nbsp;'+stp('Scheduled')+' '+cnt('Scheduled')+' &nbsp;'+stp('Ready to post')+' '+cnt('Ready to post')+' &nbsp;'+stp('Draft')+' '+cnt('Draft')+'</span></div>';
+  h+='<div class="week2">'+cols.map(({d,i,cards,xcol})=>'<div class="day2'+(d.today?' today':'')+'" data-drop="'+i+'"><div class="day2-h"><b>'+esc(d.dow)+'</b><span>'+esc(d.date)+'</span>'+(d.today?'<span class="tg" style="color:#fff;background:var(--fg);border-color:var(--fg)">Today</span>':'')+'<span class="sp"></span><span class="faint">'+cards.filter(c=>c.isCard).length+'</span></div><div class="day2-b">'
+    +cards.map(c=>c.isCard?calCardHtml(c):c.isSlot&&canEdit()&&c._p==='X'?'<button type="button" class="cs"'+act(cb(c.slotNew))+'>+ '+esc(c.slotLabel||'Post')+(c.slotHint?' <span class="faint">'+esc(c.slotHint)+'</span>':'')+'</button>':'').join('')
+    +(xcol&&xcol.canAdd&&canEdit()&&cur!=='LinkedIn'?'<button type="button" class="cs"'+act(cb(xcol.add))+'>+ Add a post</button>':'')+'</div></div>').join('')+'</div>';
+  return h;
+}
+function calCardHtml(c){
+  const open=!!(V.calOpen||{})[c.id];const f=FUN[c.funnel]||null;const tiles=((c.stats||{}).tiles||[]).filter(t=>t.n&&t.n!=='–');
+  const img=(c.media||[])[0];
+  return '<div class="pc2'+(c.st==='Posted'?' done':'')+'"'+(c.drag==='true'&&canEdit()?' draggable="true" data-ds="'+esc(c.id)+'" data-dp="'+c._p+'"':'')+'>'
+    +'<div class="pc2-t">'+platMark(c._p)+'<b>'+esc(c.time||'')+'</b>'+stp(c.st)+'<span class="sp"></span>'
+    +(c.canTick?'<button type="button" class="tick'+(c.st==='Posted'?' on':'')+'" title="'+esc(c.tickTitle||'Mark as posted')+'"'+act(cb(c.tick))+'>✓</button>':'')+'</div>'
+    +'<div class="pc2-tags">'+tagp(c.slot,SLOT_C[c.slot]||'#6B7280')+(f?'<span title="'+esc(f[1])+'">'+tagp(f[0]+' · '+f[1],f[2])+'</span>':'')+'</div>'
+    +(img&&img.src?'<img class="pc2-img" src="'+esc(img.src)+'" alt="" loading="lazy"'+act(cb(img.open))+'>':'')
+    +'<div class="pc2-x'+(open?' open':'')+'">'+esc(c.text||'(empty)')+'</div>'
+    +(String(c.text||'').length>220?'<button type="button" class="more"'+act(()=>{V.calOpen={...(V.calOpen||{}),[c.id]:!open};schedule();})+'>'+(open?'Show less':'Read more')+'</button>':'')
+    +(c.hasLink?'<div class="pc2-live"><span class="live"></span>'+(tiles.length?tiles.map(t=>'<span><b>'+esc(t.n)+'</b> '+esc(t.l)+'</span>').join(''):'<span>Live</span>')+'<button type="button" class="more"'+act(cb(c.openLink))+'>Open ↗</button></div>':'')
+    +'<div class="pc2-a">'+btn(c.copyLabel||'Copy',c.copy,'sm')+btn('Edit',()=>{V.calEd=c.id;schedule();},'sm ghost')+'</div></div>';
+}
+function calEditHtml(){
+  if(!V.calEd)return '';const f=calFind(V.calEd);if(!f){V.calEd=null;return '';}const c=f.c;const close=()=>{V.calEd=null;schedule();};const ro=!canEdit();
+  const sel=(val,opts,fn)=>'<select class="in"'+chg(cb(fn))+(ro?' disabled':'')+'>'+opts.map(([v,l])=>'<option value="'+esc(v)+'"'+(String(v)===String(val||'')?' selected':'')+'>'+esc(l)+'</option>').join('')+'</select>';
+  let b='<div class="kv">'
+    +(c.canDate?'<label>Day</label><input class="in" type="date" value="'+esc(c.dateIso)+'"'+chg(cb(c.setDate))+(ro?' disabled':'')+'>':'')
+    +'<label>Time (IST)</label><input class="in" value="'+esc(c.time||'')+'" placeholder="7:30 PM"'+inp(cb(c.setTime))+blur(cb(c.saveTime))+(ro?' disabled':'')+'>'
+    +'<label>Status</label>'+sel(c.status,(c.stOpts||[]).map(o=>[o.v,o.v]),c.setStatus)
+    +(c.setSlot?'<label>Type</label>'+sel(c.slot,['',...Object.keys(SLOT_C)].map(v=>[v,v||'–']),c.setSlot):'')
+    +(c.setFunnel?'<label>Funnel</label>'+sel(c.funnel,[['','–'],['Reach','TOFU · Get seen'],['Trust','MOFU · Build trust'],['Convert','BOFU · Book calls']],c.setFunnel):'')+'</div>';
+  b+='<div class="blk" style="margin-top:14px"><h3>Post</h3>'+ta(c.text,c.setText,c.saveText,12,c.txtRo?' readonly':'')+'</div>';
+  if((c.media||[]).length)b+='<div class="blk"><h3>Media</h3><div class="chips">'+c.media.map(m=>'<img class="thumb" src="'+esc(m.src)+'" alt=""'+act(cb(m.open))+'>').join('')+'</div></div>';
+  if(c.hasSug)b+='<div class="blk"><h3>Suggested image</h3><div class="bar"><img class="thumb" src="'+esc(c.sugThumb)+'" alt=""><span class="note">'+esc(c.sugName)+' · '+esc(c.sugWhy||'')+'</span>'+btn('Use it',c.useSug,'sm')+'</div></div>';
+  if(c.canLink)b+='<div class="blk"><h3>Live link</h3><div class="bar"><input class="in" style="flex:1" placeholder="'+esc(c.linkPh||'Paste the post link')+'" value="'+esc(c.linkVal||'')+'"'+inp(cb(c.setLinkVal))+'>'+btn('Save link',c.saveLink,'sm')+'</div></div>';
+  const acts=[btn(c.copyLabel||'Copy',c.copy,'pri sm'),c.canTick?btn(c.st==='Posted'?'Posted ✓ (undo)':'Mark as posted',c.tick,'sm'):'',c.canSched?btn(c.schedLabel,c.toggleSched,'sm'):'',
+    c.canUp?'<label class="btn sm">'+esc(c.upLabel||'Add image')+'<input type="file" accept="image/*,video/*" hidden'+chg(cb(c.upload))+'></label>':'',c.hasLink?btn('Open live post',c.openLink,'sm ghost'):'',canEdit()&&c.remove?btn('Take off the calendar',()=>{c.remove();close();},'sm ghost'):''].join('');
+  return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh">'+platMark(f.plat)+'<h2>'+esc(c.dateLabel||'Post')+'</h2>'+stp(c.st)+'<span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb">'+b+'<div class="under">'+acts+'</div></div></div></div>';
+}
+/* drag a post to another day: the shared calendar logic does the move */
+document.addEventListener('dragstart',e=>{const t=e.target.closest&&e.target.closest('[data-ds]');if(!t)return;const f=calFind(t.dataset.ds);if(!f)return;V.dragging={id:t.dataset.ds,plat:t.dataset.dp};safe(()=>f.c.dragStart(e));t.classList.add('dragging');});
+document.addEventListener('dragend',e=>{const t=e.target.closest&&e.target.closest('[data-ds]');const f=V.dragging&&calFind(V.dragging.id);if(f)safe(()=>f.c.dragEnd(e));if(t)t.classList.remove('dragging');V.dragging=null;document.querySelectorAll('.day2.over').forEach(x=>x.classList.remove('over'));setTimeout(render,30);});
+document.addEventListener('dragover',e=>{const d=e.target.closest&&e.target.closest('[data-drop]');if(!d||!V.dragging)return;e.preventDefault();document.querySelectorAll('.day2.over').forEach(x=>{if(x!==d)x.classList.remove('over');});d.classList.add('over');});
+document.addEventListener('drop',e=>{const d=e.target.closest&&e.target.closest('[data-drop]');if(!d||!V.dragging)return;e.preventDefault();d.classList.remove('over');
+  const C=calData(V.dragging.plat);const col=(((C||{}).boards||[])[0]||{cols:[]}).cols[+d.dataset.drop];if(col&&col.drop)safe(()=>col.drop(e));});
+
+/* ---------- Pipelines: compact cards with what matters ---------- */
+const scoreC=n=>{n=parseFloat(n);return n>=8?['#047857','#D1FAE5']:n>=5?['#B45309','#FEF3C7']:['#6B7280','#F3F4F6'];};
+function board(B,plat){
+  const cols=(B.cols||[]);
+  return '<div class="board2">'+cols.map(c=>'<div class="bc"><div class="bc-h" style="border-top-color:'+esc(c.dot||'var(--faint)')+'"><b>'+esc(plainWords(c.name))+'</b><span class="cnt">'+esc(c.n)+'</span><span class="sp"></span>'
+    +(c.hasBulk&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.bulk))+'>'+esc(c.bulkLabel)+'</button>':c.hasAll&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.all))+'>Approve all</button>':'')+'</div>'
+    +(c.hint?'<div class="bc-hint">'+esc(plainWords(c.hint))+'</div>':'')+'<div class="bc-b">'
+    +(c.cards||[]).slice(0,V.more['b:'+plat+c.id]?400:25).map(k=>kcard(k)).join('')
+    +((c.cards||[]).length>25&&!V.more['b:'+plat+c.id]?'<button type="button" class="lnk"'+act(()=>{V.more['b:'+plat+c.id]=true;schedule();})+'>Show '+((c.cards||[]).length-25)+' more</button>':'')
+    +(!(c.cards||[]).length?'<div class="kc-empty">Nobody here</div>':'')+'</div></div>').join('')+'</div>';
+}
+function kcard(k){
+  const sc=parseFloat(k.score);const C=scoreC(sc);
+  const chips=[k.fund?'<span class="tg" style="color:#1D4ED8;background:#EFF6FF;border-color:#BFDBFE">💰 '+esc(k.fund)+'</span>':'',k.acc?'<span class="tg" style="color:#C2410C;background:#FFF7ED;border-color:#FED7AA">'+esc(k.acc)+'</span>':'',
+    k.loc?'<span class="tg">'+esc(String(k.loc).replace(/^📍 /,'📍 '))+'</span>':'',k.src?'<span class="tg" style="color:'+(k.bFg||'#475467')+';background:'+(k.bBg||'#F2F4F7')+'">'+esc(k.src)+'</span>':''].join('');
+  return '<div class="k2"'+act(cb(k.open),false)+'><div class="k2-t"><b class="ell">'+esc(k.name)+'</b>'+(sc>0?'<span class="sc" style="color:'+C[0]+';background:'+C[1]+'" title="Fit out of 10">'+esc(String(k.score).replace('/10',''))+'</span>':'')+'</div>'
+    +(k.sub?'<div class="ell k2-s">'+esc(k.sub)+'</div>':'')+(k.one?'<div class="k2-o">'+esc(k.one)+'</div>':'')+(chips?'<div class="k2-c">'+chips+'</div>':'')
+    +(k.status?'<div class="k2-st" style="color:'+(k.stC&&/bad|0a66c2/.test(k.stC)?(/bad/.test(k.stC)?'var(--bad)':'#0A66C2'):'var(--muted)')+'">'+esc(plainWords(k.status))+'</div>':'')
+    +(k.hasMsg&&canEdit()?'<div class="k2-a">'+btn('Approve',k.approve,'pri sm')+btn('Skip',k.skip,'sm ghost')+'</div>':'')
+    +(k.isFailed&&canEdit()?'<div class="k2-a">'+btn('Try again',k.retry,'sm')+'</div>':'')
+    +(k.hasDraft?'<div class="k2-a">'+btn('Copy reply',k.copyDraft,'sm')+'</div>':'')+(k.hasTips?'<div class="k2-a">'+btn('Copy 3 ideas',k.copyTips,'sm')+'</div>':'')
+    +(k.hasInmail?'<div class="k2-a">'+btn('InMail',k.inmail,'sm ghost')+'</div>':'')+'</div>';
+}
+function pgPipeline(){
+  const cur=V.f.pipe||'LinkedIn';const P=L.allPeople();const min=+(V.f.min||0);
+  let h=head('Pipelines','Every channel has its own board. Approve right on the cards; click a card for everything about them.',cur==='Table'&&canEdit()?btn('Export CSV',()=>exportCsv(),'sm'):'');
+  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email'],['Table','Everyone (table)']]);
+  const fbar=(note)=>'<div class="bar" style="margin-top:12px"><span class="note">'+esc(note||'')+'</span><span class="sp"></span>'
+    +(cur!=='Instagram'?'<div class="chips">'+[[0,'Any fit'],[5,'5+'],[7,'7+'],[8,'8+']].map(([v,l])=>'<button type="button" class="chip'+(min===v?' on':'')+'"'+act(()=>{V.f.min=v;schedule();})+'>'+l+'</button>').join('')+'</div>':'')
+    +'<input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>';
+  const LIM={};['found','req','dm','fu1','fu2','fu3','fu4','fu5','fu6','fu7','talks','booked','won','lost','review'].forEach(k=>LIM[k]=400);
+  if(cur==='LinkedIn'){const B=withState({lpExp:'',lpQ:V.q.pipe||'',lpMin:min,lpOut:false,lpLim:LIM},()=>safe(()=>L.liPipeVals(),{cols:[]}));h+=fbar(B.total+' people · '+(B.bot||''))+board(B,'li');}
+  else if(cur==='X'){const B=withState({xpExp:'',xpQ:V.q.pipe||'',xpMin:min,xpLim:LIM},()=>safe(()=>L.xPipeVals(P),{cols:[]}));h+=fbar('First DMs wait in To approve; follow-ups go out on their own')+board(B,'x');}
+  else if(cur==='Instagram')h+=fbar('Instagram DMs, read every hour')+board(igBoard(),'ig');
+  else if(cur==='Email')h+='<div class="soonbox" style="margin-top:16px"><h2>Email isn’t set up yet</h2><div>Its own pipeline shows here once email outreach starts.</div></div>';
+  else{const L2=leadsOpen().filter(l=>matchQ('tbl',l.name,l.company,l.source,l.stage));
+    h+='<div class="bar" style="margin-top:12px"><span class="note">'+L2.length+' people</span><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.tbl||'')+'"'+inp(e=>{V.q.tbl=e.target.value;})+chg(()=>schedule())+'></div>';
+    h+=table('tbl',[['Who','minmax(0,2fr)'],['Stage','170px'],['Latest','minmax(0,2fr)'],['Last touch','100px']],
+      L2.sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at)).map(l=>({open:()=>L.openLead(l.id),cells:[pcell(l.name||'(no name)',[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),sbar(stepOf(l,xOf(l))),latestTxt(l,null),'<span class="meta">'+esc(whenTxt(l.last_touch||l.created_at))+'</span>']})),'Nobody matches.',60);}
+  return h;
+}
+
+/* ---------- Outbound / Midbound / Inbound: stage bar + latest update on every person ---------- */
+const COLS3=[['Who','minmax(0,1.7fr)'],['Found by','minmax(0,1fr)'],['Stage','170px'],['Latest update','minmax(0,2fr)'],['Fit','92px']];
+function pgOutbound(){
+  const rows=[];const usedX=new Set();
+  for(const l of leadsOpen()){const s=srcOf(l);if(!OUT_SRC[s]||l.source!=='LinkedIn')continue;const c=xOf(l);if(c)usedX.add(c._key);rows.push({l,c,src:s});}
+  for(const c of (AK.M.contacts||[]))if(!usedX.has(c._key))rows.push({c,src:'x'});
+  const lab=r=>r.src==='x'?'Found on X':OUT_SRC[r.src];const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
+  const opts=[['all','All',rows.length],...Object.keys(OUT_SRC).map(k=>[k,OUT_SRC[k],cnt[k]||0]),['x','Found on X',cnt.x||0]];const cur=V.f.out||'all';
+  const reached=rows.filter(r=>(r.l&&liReached(r.l))||xReached(r.c)).length,replied=rows.filter(r=>(r.l&&liReplied(r.l))||xReplied(r.c)).length;
+  const calls=rows.filter(r=>(r.l&&isCallSt(r.l.stage))||(r.c&&r.c._status==='Call booked')).length,waitOk=rows.filter(r=>(r.l&&(IX().task.get(r.l.id)||{}).status==='review')||(r.c&&r.c._status==='To send')).length;
+  const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('out',r.l?r.l.name:'',r.l?r.l.company:'',r.c?r.c.Name:'',r.c?r.c.Company:''))
+    .map(r=>({...r,fit:r.l?fitN(r.l):r.c._fit,step:stepOf(r.l,r.c),t:r.l?ms(LIo(r.l).last||LIo(r.l).req||r.l.created_at):0})).sort((a,b)=>b.step-a.step||(b.fit||0)-(a.fit||0)||b.t-a.t);
+  const right=canEdit()?btn('Find more on X',()=>AK.xRun('x-leads'),'sm')+btn('Check funding news',()=>AK.liFunding(),'sm ghost'):'';
+  let h=head('Outbound',INFO.outbound)+strip([['People found',String(rows.length),(cnt.x||0)+' on X · '+(rows.length-(cnt.x||0))+' on LinkedIn','#2563EB'],['Reached',String(reached),pct(reached,rows.length)+' of them','#0EA5E9'],['Replied',String(replied),'Reply rate '+pct(replied,reached),'#8B5CF6'],['Calls booked',String(calls),'from outbound','#10B981'],['Waiting for your OK',String(waitOk),'first touches','#F59E0B']]);
+  h+=feed(rows.filter(r=>r.l).map(r=>r.l),'Latest on outbound')+chipsBar('out',opts,right);
+  h+=table('out',COLS3,list.map(r=>{const name=r.l?r.l.name:r.c.Name,sub=r.l?[r.l.role,r.l.company].filter(Boolean).join(' · '):[r.c.Role,r.c.Company].filter(Boolean).join(' · ');
+    return{open:r.l?()=>L.openLead(r.l.id):()=>L.openC(r.c._key),cells:[pcell(name||'(no name)',sub,r.l?'LinkedIn':'X'),'<span class="meta">'+esc(lab(r))+'</span>',sbar(r.step),latestTxt(r.l,r.c),fitPill(r.fit)||'<span class="faint">–</span>']};}),'Nobody matches.');
+  return h;
+}
+function pgMidbound(){
+  const rows=[];for(const l of leadsOpen()){const s=srcOf(l);if(!MID_SRC[s])continue;rows.push({l,src:s,c:xOf(l)});}
+  for(const e of (AK.M.engagers||[]))if((e.Status||'To message')==='To message'&&!/^Skip/.test(String(e.Verdict||'')))rows.push({e,src:'x'});
+  const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
+  const opts=[['all','All',rows.length],...Object.keys(MID_SRC).map(k=>[k,MID_SRC[k],cnt[k]||0]),['x','Engaged on X',cnt.x||0]];const cur=V.f.mid||'all';
+  const ML=rows.filter(r=>r.l).map(r=>r.l);const newWk=ML.filter(l=>ms(l.created_at)>wk()).length+rows.filter(r=>r.e).length;
+  const mReached=ML.filter(liReached).length,mReplied=ML.filter(liReplied).length,mCalls=ML.filter(l=>isCallSt(l.stage)).length;
+  const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('mid',r.l?r.l.name:r.e.Name||r.e.Handle,r.l?r.l.company:'',r.e?r.e['What they said']:''))
+    .map(r=>({...r,step:r.l?stepOf(r.l,r.c):0,t:r.l?ms((lastEv().get(r.l.id)||{}).at||r.l.created_at):Date.now()})).sort((a,b)=>b.t-a.t);
+  let h=head('Midbound',INFO.midbound)+strip([['Engaged with us',String(rows.length),'good fits only','#7C3AED'],['New this week',String(newWk),'','#DB2777'],['We reached out',String(mReached),pct(mReached,ML.length)+' of them','#0EA5E9'],['Replied',String(mReplied),'Reply rate '+pct(mReplied,mReached),'#8B5CF6'],['Calls booked',String(mCalls),'from midbound','#10B981']]);
+  h+=feed(ML,'Latest on midbound')+chipsBar('mid',opts);
+  h+=table('mid',[['Who','minmax(0,1.7fr)'],['What they did','minmax(0,1.6fr)'],['Stage','170px'],['Latest update','minmax(0,1.8fr)'],['','auto']],list.map(r=>{
+    if(r.e){const e=r.e;const reply=e['Our reply']||'';
+      return{open:null,cells:[pcell(e.Name||e.Handle,'@'+String(e.Handle||'').replace(/^@/,'')+(e.Fit?' · '+e.Fit:''),'X'),ell(e['What they said']?'Said: '+e['What they said']:e.Why||'Engaged with our post','meta'),sbar(0),'<span class="meta">Reply and DM ready</span>',
+        ACTS(['Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');}],[canEdit()&&['Done',()=>AK.engagerToPipeline(e)],canEdit()&&['Skip',()=>AK.saveEngager(e,'Dismissed')]])]};}
+    const l=r.l;return{open:()=>L.openLead(l.id),cells:[pcell(l.name||'(no name)',[l.role,l.company].filter(Boolean).join(' · '),'LinkedIn'),ell(MID_SRC[r.src]+(l.source_detail?': '+l.source_detail:''),'meta'),sbar(r.step),latestTxt(l,r.c),fitPill(fitN(l))]};}),'Nobody yet.');
+  h+='<p class="note" style="margin-top:12px">People who engaged but don’t fit who we sell to are hidden. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','liPeople'))+'>See them in the current CRM ↗</button></p>';
+  return h;
+}
+function pgInbound(){
+  const rows=leadsOpen().filter(l=>{const k=srcOf(l);if(MID_SRC[k]||OUT_SRC[k])return false;return k==='inbound'||l.direction==='Inbound'||l.source==='Instagram';});
+  const P=l=>l.source==='Instagram'?'Instagram':l.source==='LinkedIn'?'LinkedIn':l.source==='X'?'X':'Other';const cnt={};for(const l of rows)cnt[P(l)]=(cnt[P(l)]||0)+1;const cur=V.f.inb||'all';
+  const iNew=rows.filter(l=>ms(l.created_at)>wk()).length,iTalk=rows.filter(l=>/in talks|replied|follow/i.test(l.stage||'')).length,iCalls=rows.filter(l=>isCallSt(l.stage)).length,iWon=rows.filter(l=>/^won$/i.test(l.stage||'')).length;
+  const list=rows.filter(l=>(cur==='all'||P(l)===cur)&&matchQ('inb',l.name,l.company,l.instagram,l.source_detail)).sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at));
+  let h=head('Inbound',INFO.inbound)+strip([['Came to us',String(rows.length),(cnt.Instagram||0)+' on Instagram','#059669'],['New this week',String(iNew),'','#DB2777'],['Talking',String(iTalk),'','#8B5CF6'],['Calls booked',String(iCalls),'','#10B981'],['Clients',String(iWon),'won from inbound','#047857']]);
+  h+=feed(rows,'Latest on inbound')+chipsBar('inb',[['all','All',rows.length],['LinkedIn','LinkedIn',cnt.LinkedIn||0],['Instagram','Instagram',cnt.Instagram||0],['X','X',cnt.X||0],['Other','Other',cnt.Other||0]]);
+  h+=table('inb',[['Who','minmax(0,1.7fr)'],['How they came','minmax(0,1.5fr)'],['Stage','170px'],['Latest update','minmax(0,1.8fr)'],['Last touch','100px']],list.map(l=>({open:()=>L.openLead(l.id),
+    cells:[pcell(l.name||l.instagram||'(no name)',[l.role,l.company].filter(Boolean).join(' · ')||(l.instagram?'@'+String(l.instagram).replace(/^@/,''):''),P(l)==='Other'?null:P(l)),ell(l.source_detail||l.source||'','meta'),sbar(stepOf(l,null)),latestTxt(l,null),'<span class="meta">'+esc(whenTxt(l.last_touch||l.created_at))+'</span>']})),'Nobody has come to us yet.');
+  return h;
+}
+
+/* ---------- Reply to their posts: skimmable cards with who they are ---------- */
+function pgReplies(){
+  const rp=safe(()=>L.repliesVals(),{rows:[]});const li=safe(()=>L.lisVals(),{cards:[]});const cur=V.f.rep||'x';
+  let h=head('Reply to their posts','Show up under the posts of the people we sell to. Approve and the X bot likes the post and replies (30 a day, 15+ min apart).');
+  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
+  if(cur==='x'){const done=+(rp.doneN||0);
+    h+='<div class="rp-top">'+ring(done/30,'#7C3AED',done+'/30')+'<div><b>'+done+' of 30 replies today</b><div class="note">'+esc(rp.botLine||'')+(rp.lastRun?' · '+esc(rp.lastRun):'')+'</div></div><span class="sp"></span>'
+      +(rp.hasApproveAll&&canEdit()?btn(rp.approveAllLabel,rp.approveAll,'pri sm'):'')+btn(rp.runLabel||'Check X now',rp.run,'sm ghost')+'</div>';
+    const rows=(rp.rows||[]);
+    h+='<div class="rgrid">'+(rows.map(r=>{const hd=(String(r.sub).match(/@([A-Za-z0-9_]+)/)||[])[1]||'';const c=hd?IX().byH.get(hd.toLowerCase()):null;const isLead=/Lead/.test((r.kind||{}).label||'');
+      const ctx=c?[c.Role,c.Company,c['Funding stage']?String(c['Funding stage']).split(/\s+[·–-]\s+/)[0]:'',xShort(c)!=='–'?'X: '+xShort(c):''].filter(Boolean).join(' · '):'';
+      return '<div class="rc"><div class="rc-h">'+avatar(r.who,'X')+'<div class="rc-w"><b class="ell">'+esc(r.who)+'</b><span class="meta ell">'+esc(r.sub)+'</span></div><span class="sp"></span>'
+        +tagp(isLead?'In our pipeline':'Creator',isLead?'#2563EB':'#7C3AED')+tagp(r.age&&r.age.label,/Fresh/.test((r.age||{}).label)?'#059669':'#6B7280')+'</div>'
+        +(ctx?'<div class="rc-ctx">'+esc(ctx)+'</div>':'')+'<div class="rc-p">'+esc(r.text)+'</div>'
+        +'<div class="rc-r"><span class="rc-l">Our reply</span>'+ta(r.draft,null,null,2,chg(e=>r.setDraft(e)))+'</div>'
+        +'<div class="rc-a">'+(canEdit()?btn('Approve',r.approve,'pri sm'):'')+btn(r.mineLabel,r.mine,'sm')+(canEdit()?btn('Skip',r.skip,'sm ghost'):'')+'</div></div>';}).join('')||'<div class="tb"><div class="empty">'+esc(rp.noRowsText||'All caught up.')+'</div></div>')+'</div>'
+      +(rp.hasMore?'<div style="margin-top:12px">'+btn('Show '+rp.moreN+' more',rp.more,'ghost sm')+'</div>':'');
+  }else{
+    h+='<div class="rp-top">'+ring((+li.done||0)/Math.max(1,+li.total||0),'#0A66C2',(li.done||0)+'/'+(li.total||0))+'<div><b>LinkedIn founder posts '+esc(li.dayLabel||'')+'</b><div class="note">A genuine comment on each gets them talking to us.</div></div><span class="sp"></span>'+(canEdit()?btn(li.running?'Finding posts…':'Find posts now',li.run,'sm ghost'):'')+'</div>';
+    h+='<div class="rgrid">'+((li.cards||[]).map(c=>'<div class="rc" style="opacity:'+c.op+'"><div class="rc-h">'+avatar(c.author,'LinkedIn')+'<div class="rc-w"><b class="ell">'+esc(c.author)+'</b><span class="meta ell">'+esc(c.headline)+'</span></div><span class="sp"></span>'+tagp(c.when,'#6B7280')+'</div>'
+      +'<div class="rc-p">'+esc(c.post)+'</div><div class="rc-r"><span class="rc-l">Our comment</span>'+ta(c.comment,c.onComment,c.saveComment,3)+'</div>'
+      +'<div class="rc-a">'+(c.isNew?btn('Copy + open post',c.copy,'pri sm')+(canEdit()?btn('Done',c.done,'sm')+btn('Skip',c.skip,'sm ghost'):''):tagp(c.isDone?'Commented':'Skipped',c.isDone?'#059669':'#6B7280')+btn('Undo',c.undo,'sm ghost'))+'</div></div>').join('')||'<div class="tb"><div class="empty">'+esc(li.noneText)+'</div></div>')+'</div>'
+      +'<p class="note" style="margin-top:14px">Comments on posts by people already in your pipeline are still in the current CRM. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','gtmEngage'))+'>Open ↗</button></p>';
+  }
+  return h;
+}
+
+/* ---------- Post ideas: our draft next to the post it copies ---------- */
+function pgIdeas(){
+  const gr=safe(()=>L.growthVals(L.allPeople()),{})||{};
+  const drafts=(AK.M.ours||[]).filter(p=>p['Our version']&&!/posted/i.test(p.Status||''));const next=safe(()=>AK.copyNext(15),[])||[];const asks=safe(()=>AK.founderAsks(),[])||[];
+  const comps=(AK.M.comps||[]);const cur=V.f.ideas||'drafts';
+  let h=head('Post ideas','Each draft next to the competitor post it copies, the best posts to copy next, and what to DM when someone comments a word.');
+  h+=tabsBar('ideas',[['drafts','Drafts',drafts.length],['next','To copy next',next.length],['comps','Competitors',comps.length],['asks','Questions for the founders',asks.length],['kw','Comment-a-word DMs',(gr.kw||[]).length],['kit','Profile kit',(gr.kit||[]).length]]);
+  h+='<div style="margin-top:14px">';
+  const nums=t=>[['Views',AK.fmtK(safe(()=>AK.viewsOf(t),0)||0)],['Likes',t.Likes],['Replies',t.Replies]].filter(x=>x[1]&&x[1]!=='0').map(([l,v])=>'<span><b>'+esc(v)+'</b> '+l+'</span>').join('');
+  if(cur==='drafts'){const list=V.more.dr?drafts:drafts.slice(0,20);
+    h+='<div class="ideas">'+list.map(p=>{const o=safe(()=>AK.originalFor(p),null);const f=FUN[p.Funnel];
+      return '<div class="idea"><div class="idea-h">'+platMark(/linkedin/i.test(p.Platform||'')?'LinkedIn':'X')+'<b>'+esc(p.Date||'')+'</b><span class="meta">'+esc(p['Time (IST)']||'')+'</span>'+tagp(p['Daily slot']||p['Post type'],SLOT_C[p['Daily slot']]||'#6B7280')+(f?tagp(f[0]+' · '+f[1],f[2]):'')+stp(/sched/i.test(p.Status||'')?'Scheduled':'Draft')+'<span class="sp"></span>'
+        +btn('Copy ours',()=>L.copy(p['Our version'],'d'+p._row,'Draft copied.'),'sm')+(canEdit()&&!/sched/i.test(p.Status||'')?btn('Mark scheduled',()=>AK.saveScheduled(p,true),'sm ghost'):'')+'</div>'
+        +'<div class="idea-b">'+(o?'<div class="side theirs"><div class="side-h">Their original · <b>'+esc(o.Competitor||o.Account||'')+'</b><span class="sp"></span>'+(o.Link?'<button type="button" class="lnk"'+act(()=>window.open(o.Link,'_blank','noopener'))+'>Open ↗</button>':'')+'</div><div class="side-n">'+nums(o)+'</div><div class="side-x">'+esc(o['Full text']||'')+'</div>'+(o['Why it worked']?'<div class="why">Why it worked: '+esc(o['Why it worked'])+'</div>':'')+'</div>':'')
+        +'<div class="side ours"><div class="side-h">Our version</div><div class="side-x">'+esc(p['Our version'])+'</div>'+(p['What we changed']?'<div class="why">What we changed: '+esc(p['What we changed'])+'</div>':'')+'</div></div>'
+        +((p['Media needed']||p['Founder question'])?'<div class="idea-f">'+(p['Media needed']?'<span>📷 '+esc(p['Media needed'])+'</span>':'')+(p['Founder question']?'<span>❓ '+esc(p['Founder question'])+'</span>':'')+'</div>':'')+'</div>';}).join('')+'</div>'+(drafts.length>20&&!V.more.dr?'<div style="margin-top:12px">'+btn('Show '+(drafts.length-20)+' more',()=>{V.more.dr=true;schedule();},'ghost sm')+'</div>':'');}
+  if(cur==='next')h+='<div class="rgrid">'+next.map(t=>'<div class="rc"><div class="rc-h"><div class="rc-w"><b>'+esc(t.Competitor||'')+'</b><span class="meta">'+esc(t.Account||'')+(t['Post type']?' · '+esc(t['Post type']):'')+'</span></div><span class="sp"></span>'+tagp(t.Platform,t.Platform==='LinkedIn'?'#0A66C2':'#111')+'</div>'
+    +'<div class="side-n" style="margin-top:8px">'+nums(t)+'</div><div class="rc-p">'+esc(t['Full text']||'')+'</div>'+(t['Why it worked']?'<div class="why">Why it worked: '+esc(t['Why it worked'])+'</div>':'')
+    +'<div class="rc-a">'+btn('Copy',()=>L.copy(t['Full text'],'n'+t._row,'Post copied.'),'sm')+(t.Link?btn('Open ↗',()=>window.open(t.Link,'_blank','noopener'),'sm ghost'):'')+'</div></div>').join('')+'</div>';
+  if(cur==='comps'){const posts=AK.M.theirs||[];const st=c=>{const P=posts.filter(t=>t.Competitor===c.Name);const v=P.map(t=>safe(()=>AK.viewsOf(t),0)||0);return{n:P.length,avg:v.length?Math.round(v.reduce((a,b)=>a+b,0)/v.length):0};};
+    const rows=comps.map(c=>({c,s:st(c)})).sort((a,b)=>b.s.avg-a.s.avg);
+    h+='<div class="card sec-b" style="margin:0 0 14px"><h3 style="margin:0 0 10px;font-size:13px">Average views per post</h3>'+hbars(rows.slice(0,12).map(r=>({l:esc(r.c.Name),v:r.s.avg,vl:AK.fmtK(r.s.avg)})),'#7C3AED')+'</div>';
+    h+=table('cmp',[['Competitor','minmax(0,1.4fr)'],['What they sell','minmax(0,2fr)'],['X followers','100px'],['LinkedIn','100px'],['Posts','70px'],['Best post type','minmax(0,1fr)']],rows.map(({c,s})=>({open:c.Website?()=>window.open(/^http/.test(c.Website)?c.Website:'https://'+c.Website,'_blank','noopener'):null,
+      cells:['<b>'+esc(c.Name)+'</b>',ell(c['What they sell']||'','meta'),'<span class="num">'+esc(c['X followers']||'–')+'</span>','<span class="num">'+esc(c['LinkedIn followers']||'–')+'</span>','<span class="num">'+s.n+'</span>',ell(c['Best post type this month']||'','meta')]})),'No competitors yet.');}
+  if(cur==='asks')h+=table('as',[['Question','minmax(0,3fr)'],['For the post','minmax(0,2fr)'],['','auto']],asks.map(a=>({open:null,cells:[ell(a.p['Founder question']),ell(String(a.p['Our version']||'').replace(/\s+/g,' '),'meta'),ACTS(['Copy',()=>L.copy(a.p['Founder question'],'q'+a.p._row,'Question copied.')])]})),'No questions waiting.');
+  if(cur==='kw')h+=table('kw',[['When they comment','minmax(0,1.2fr)'],['DM them','minmax(0,3fr)'],['','auto']],(gr.kw||[]).map(k=>({open:null,cells:['<b>'+esc(k.word)+'</b><div class="meta ell">'+esc(k.label)+'</div>',ell(String(k.text).replace(/\s+/g,' '),'meta'),ACTS(['Copy DM',k.copy])]})),'None set.');
+  if(cur==='kit')h+=table('kit',[['What','160px'],['Text','minmax(0,3fr)'],['','auto']],(gr.kit||[]).map(k=>({open:null,cells:['<b>'+esc(k.label)+'</b>',ell(k.text,'meta'),ACTS(['Copy',k.copy])]})),'');
+  return h+'</div>';
+}
+
+/* ---------- Post metrics with charts ---------- */
+function pgResults(){
+  const xs=safe(()=>AK.trackedPosts(),[])||[],ls=safe(()=>AK.liTracked(),[])||[];const gr=safe(()=>L.growthVals(L.allPeople()),null);
+  const all=[...xs.map(t=>({...t,plat:'X'})),...ls.map(t=>({...t,plat:'LinkedIn'}))].sort((a,b)=>(b.first||0)-(a.first||0));
+  const week=all.filter(t=>(t.first||0)>=wk());const sum=(a,k)=>a.reduce((s,t)=>s+(+t[k]||0),0);
+  const best=week.slice().sort((a,b)=>(b.eng||0)-(a.eng||0))[0];
+  let h=head('Post metrics','How our posts do on LinkedIn and X. Click a post to open it.');
+  h+=strip([['Posts this week',String(week.length),week.filter(t=>t.plat==='X').length+' on X · '+week.filter(t=>t.plat==='LinkedIn').length+' on LinkedIn','#2563EB'],
+    ['X views this week',AK.fmtK(sum(week.filter(t=>t.plat==='X'),'views')),'All time '+AK.fmtK(sum(xs,'views')),'#7C3AED'],['Engagement this week',AK.fmtK(sum(week,'eng')),'Likes, replies, reposts','#DB2777'],
+    ['X followers',gr?gr.now+' / '+gr.goal:'–',gr?gr.daysLeft+' days left · line says '+gr.onTrack:'','#059669'],['Best this week',best?AK.fmtK(best.eng||0):'–',best?String(best.text||'').replace(/\s+/g,' ').slice(0,50):'','#F59E0B']]);
+  // charts: engagement per day by platform, followers, mix, top posts
+  const days=[...Array(14)].map((_,i)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-13+i);return d;});
+  const byDay=(plat,k)=>days.map(d=>{const a=d.getTime(),b=a+D;return all.filter(t=>t.plat===plat&&t.first>=a&&t.first<b).reduce((s,t)=>s+(+t[k]||0),0);});
+  const labels=days.map(d=>d.getDate()+' '+AK.MON[d.getMonth()]);
+  h+='<div class="grid2 sec"><div class="card sec-b"><h3 class="ch">Engagement per day, last 14 days</h3>'+barChart([{n:'X',c:'#7C3AED',data:byDay('X','eng')},{n:'LinkedIn',c:'#0A66C2',data:byDay('LinkedIn','eng')}],labels,130)+'</div>'
+    +'<div class="card sec-b"><h3 class="ch">X followers to 10K by 31 Dec</h3>'+(gr?'<div class="fol">'+ring(parseFloat(gr.pct)/100||0,'#059669',gr.pct)+'<div><div class="big">'+esc(gr.now)+' <span class="faint">/ '+esc(gr.goal)+'</span></div><div class="note">'+esc((gr.status||{}).label||'')+' · need '+esc(gr.perDay||gr.need||'')+'</div></div></div>'
+      +'<div class="mini">'+(gr.bars||[]).map(b=>'<i style="height:'+esc(b.h)+'" title="'+esc(b.t)+'"></i>').join('')+'</div>':'')+'</div></div>';
+  const NM={Reach:['TOFU · Get seen','#059669'],Trust:['MOFU · Build trust','#7C3AED'],Convert:['BOFU · Book calls','#EA580C']};
+  h+='<div class="grid2 sec"><div class="card sec-b"><h3 class="ch">This week’s mix</h3>'+hbars(((gr||{}).mix||[]).map(m=>({l:esc((NM[m.k]||[m.k])[0]),v:+m.n,vl:m.n+' / '+m.tgt,c:(NM[m.k]||[0,'#6B7280'])[1]})),'#6B7280')+'</div>'
+    +'<div class="card sec-b"><h3 class="ch">Top posts this week</h3>'+hbars(week.slice().sort((a,b)=>(b.eng||0)-(a.eng||0)).slice(0,6).map(t=>({l:platMark(t.plat)+' '+esc(String(t.text||'').replace(/\s+/g,' ').slice(0,46)),v:+t.eng||0,c:t.plat==='X'?'#7C3AED':'#0A66C2',go:t.link?()=>window.open(t.link,'_blank','noopener'):null})),'#7C3AED')+'</div></div>';
+  const cur=V.f.res||'all';h+='<div style="margin-top:20px">'+tabsBar('res',[['all','All',all.length],['LinkedIn','LinkedIn',ls.length],['X','X',xs.length]])+'</div>';
+  const list=all.filter(t=>cur==='all'||t.plat===cur);
+  h+='<div style="margin-top:12px">'+table('res',[['Post','minmax(0,3fr)'],['Posted','110px'],['Views','80px'],['Engagement','100px'],['Per 1K views','100px']],list.map(t=>({open:t.link?()=>window.open(t.link,'_blank','noopener'):null,
+    cells:['<div class="pc">'+platMark(t.plat)+ell(String(t.text||'').replace(/\s+/g,' ')||'(post)')+'</div>','<span class="meta">'+esc(t.first?AK.dayWord(new Date(t.first)):'–')+'</span>',
+      '<span class="num">'+esc(t.views!=null?AK.fmtK(t.views):'–')+'</span>','<span class="num">'+esc(t.eng!=null?String(t.eng):'–')+'</span>',t.rate!=null?'<span class="num" style="color:'+(t.rate>=20?'#059669':t.rate>=8?'#B45309':'var(--muted)')+';font-weight:600">'+esc(String(Math.round(t.rate*10)/10))+'</span>':'<span class="faint">–</span>']})),'No posts tracked yet.')+'</div>';
   return h;
 }
 
