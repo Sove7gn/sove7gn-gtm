@@ -2032,12 +2032,12 @@ async function xr_plan(b: any) {
   await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("status", "approved").lt("posted_at", new Date(now - 20 * 3600e3).toISOString());
   const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
   const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
-  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "posted").gte("done_at", dayStart);
+  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").eq("done_by", "x bot").gte("done_at", dayStart);
   const { count: waiting } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "approved");
   const base = { posted_today: postedToday ?? 0, cap, waiting: waiting ?? 0, paused: xs.paused || !!v.replies_paused };
   if (!b.me?.signed_in || xs.paused || v.replies_paused || !cap || (postedToday ?? 0) >= cap) return { ...base, tasks: [] };
   if (!(hr >= xs.from && hr < xs.to)) return { ...base, tasks: [], in_hours: false };
-  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "posted").order("done_at", { ascending: false }).limit(1);
+  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "done").eq("done_by", "x bot").order("done_at", { ascending: false }).limit(1);
   const since = now - (Date.parse(last?.[0]?.done_at ?? "") || 0);
   const wait = (gap + Math.random() * 10) * 60e3;
   if (since < wait) return { ...base, tasks: [], wait_min: Math.ceil((wait - since) / 60e3) };
@@ -2045,7 +2045,7 @@ async function xr_plan(b: any) {
   const { data: ready } = await db.from("crm_x_reply").select("url,author,name,draft,kind,posted_at").eq("status", "approved").neq("draft", "")
     .gte("posted_at", new Date(now - 20 * 3600e3).toISOString()).order("posted_at", { ascending: false }).limit(20);
   // (16 Nov) never more than one reply per person a day: their other approved posts wait (and drop after 20 hours)
-  const { data: today } = await db.from("crm_x_reply").select("author").in("status", ["posted", "sending"]).gte("done_at", dayStart);
+  const { data: today } = await db.from("crm_x_reply").select("author").eq("status", "done").gte("done_at", dayStart);   // by the bot or by hand: one reply per person a day
   const doneBy = new Set((today ?? []).map((r: any) => String(r.author).toLowerCase()));
   const t = (ready ?? []).filter((r: any) => !doneBy.has(String(r.author).toLowerCase())).sort((a: any, c: any) => (c.kind === "lead" ? 1 : 0) - (a.kind === "lead" ? 1 : 0))[0];
   if (!t) return { ...base, tasks: [] };
@@ -2058,7 +2058,7 @@ async function xr_done(b: any) {
   const url = String(b.url ?? ""); if (!url) return { error: "No url" };
   const now = new Date().toISOString();
   if (b.ok) {
-    await db.from("crm_x_reply").update({ status: "posted", done_at: now, done_by: "x bot", error: b.liked === false ? "Posted (the like didn't go through)" : "" }).eq("url", url);
+    await db.from("crm_x_reply").update({ status: "done", done_at: now, done_by: "x bot", error: b.liked === false ? "Posted (the like didn't go through)" : "" }).eq("url", url);   // (16 Nov) "done" + a non-email done_by: Leads > Notifications shows it as posted by the bot
     await xStatus({ last_reply_at: now });
     return { ok: true };
   }

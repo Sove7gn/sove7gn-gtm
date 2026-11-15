@@ -1182,7 +1182,7 @@ class Component extends DCLogic {
     const open=all.filter(r=>r.status==='new').sort((a,b)=>(fresh(b)-fresh(a))||((b.kind==='lead')-(a.kind==='lead'))||(ts(b)-ts(a)));
     const queued=all.filter(r=>r.status==='approved'||r.status==='sending').sort((a,b)=>ts(b)-ts(a));
     const doneToday=all.filter(r=>/^(done|posted|skipped|failed)$/.test(r.status)&&r.done_at&&sameDay(new Date(r.done_at))).sort((a,b)=>new Date(b.done_at)-new Date(a.done_at));
-    const postedN=doneToday.filter(r=>r.status==='posted').length,mineN=doneToday.filter(r=>r.status==='done').length,repliedN=postedN+mineN;const lim=s.more.rp||15;
+    const byBot=r=>r.status==='posted'||(r.status==='done'&&!/@/.test(r.done_by||''));const postedN=doneToday.filter(byBot).length,mineN=doneToday.filter(r=>r.status==='done'&&!byBot(r)).length,repliedN=postedN+mineN;const lim=s.more.rp||15;
     const mine=(r,draft)=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];if(draft){try{navigator.clipboard.writeText(draft);}catch(e){}}
       window.open(id&&draft?'https://x.com/intent/post?in_reply_to='+id+'&text='+encodeURIComponent(draft):r.url,'_blank','noopener');AK.xgSet(r.url,'done');
       this.toast((repliedN+1)+' of 30 today. Make it sound like you before you post.');};
@@ -1204,7 +1204,7 @@ class Component extends DCLogic {
       queued:queued.map(r=>({who:r.name||r.author,text:clip(String(r.draft||'').replace(/\s+/g,' '),140),st:r.status==='sending'?'posting now':'waiting',undo:()=>AK.xgSet(r.url,'new')})),
       hasDone:doneToday.length>0,showDone:!!s.rpDone,toggleDone:()=>this.setState({rpDone:!s.rpDone}),doneLabel:(s.rpDone?'Hide':'Show')+' done today ('+doneToday.length+')',
       done:doneToday.map(r=>({who:r.name||r.author,text:clip(String(r.status==='failed'?(r.error||'failed'):(r.draft||r.post_text)||'').replace(/\s+/g,' '),120),
-        st:{posted:'posted by the bot',done:'replied by you',skipped:'skipped',failed:'bot failed'}[r.status]||r.status,open:()=>window.open(r.url,'_blank','noopener'),undo:()=>AK.xgSet(r.url,'new')}))};}
+        st:byBot(r)?'posted by the bot':{done:'replied by you',skipped:'skipped',failed:'bot failed'}[r.status]||r.status,open:()=>window.open(r.url,'_blank','noopener'),undo:()=>AK.xgSet(r.url,'new')}))};}
   engagedVals(P){const s=this.state;const L=this.lists(P);const E=this.engagers();const n=s.more.eng||20;
     const VO={'DM + reply':0,'Reply only':1};
     const todo=E.filter(e=>(e.Status||'To message')==='To message'&&verdictOf(e)!=='Skip').sort((a,b)=>((VO[verdictOf(a)]??2)-(VO[verdictOf(b)]??2))||((num(b.Followers)||0)-(num(a.Followers)||0)));
