@@ -413,7 +413,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="./data.js?v=7b0750ac14"></script>
+<script src="./data.js?v=ebf72c1b2e"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -2188,12 +2188,15 @@ class Component extends DCLogic {
     const xsent=k=>XT.filter(t=>t.status==='sent'&&k.includes(t.kind));
     const P=this.allPeople();const rep=P.filter(p=>p.c&&p.c['Replied on']);
     const xRows=[row('First DMs sent',cnt(xsent(['dm']),t=>t.sent_at)),row('Follow-ups sent',cnt(xsent(['fu1','fu2','fu3','fu4','fu5','fu6','fu7']),t=>t.sent_at)),
-      row('Replies',cnt(rep,p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})),row('Calls booked',cnt(P.filter(p=>p.stage==='Call booked'&&p.c&&p.c['Call on']),p=>{const d=AK.cellDate(p.c['Call on']);return d?d.getTime():0;}))];
+      row('Replies on ICP posts (goal 30 a day)',cnt((AK.NT.items||[]).filter(e=>e.ok&&e.chan==='X'&&/^Replied/.test(e.what)),e=>e.at)),
+      row('Replies to us',cnt(rep,p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})),row('Calls booked',cnt(P.filter(p=>p.stage==='Call booked'&&p.c&&p.c['Call on']),p=>{const d=AK.cellDate(p.c['Call on']);return d?d.getTime():0;}))];
     const xPipe=['To send','Contacted','Follow-up 1 sent','Follow-up 2 sent','Replied','Call booked','Customer'].map(st=>({k:st==='To send'?'To approve':st==='Contacted'?'First DM sent':st,v:String(P.filter(p=>p.stage===st).length)}));
     const L=this.lists(P);const xApprove=P.filter(p=>p.stage==='To send'&&p.handle&&!AK.xtActive(p.row,'dm')).length;
     const xQ=XT.filter(t=>t.status==='ready'||t.status==='sending');
     const xSeen=ms(xst.seen),xOn=xSeen&&Date.now()-xSeen<45*60e3,cool=ms(xset.cooldown_until)>Date.now();
-    const xHealth=[{ok:xOn&&!xset.paused&&!cool,text:cool?'X asked us to slow down: sending resumes '+new Date(ms(xset.cooldown_until)).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'})+(xset.cap?' (then '+xset.cap+' a day)':''):xset.paused?'X bot is paused':xOn?'X bot is on (checked '+since(xst.seen)+')':'X bot last checked '+since(xst.seen)+': open Chrome so it can send'},
+    const xrT=(AK.NT.items||[]).filter(e=>e.ok&&e.chan==='X'&&/^Replied/.test(e.what)&&ms(e.at)>=T0).length,xrCap=+xset.reply_cap||30;
+    const xrDue=Math.round(xrCap*Math.min(1,(Date.now()-T0)/(864e5)));
+    const xHealth=[{ok:xrT>=Math.min(xrDue,xrCap)-5,text:'Replies on ICP posts today: '+xrT+' of '+xrCap+(xrT<xrDue-5?' (behind: about '+xrDue+' by now)':'')},{ok:xOn&&!xset.paused&&!cool,text:cool?'X asked us to slow down: sending resumes '+new Date(ms(xset.cooldown_until)).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'})+(xset.cap?' (then '+xset.cap+' a day)':''):xset.paused?'X bot is paused':xOn?'X bot is on (checked '+since(xst.seen)+')':'X bot last checked '+since(xst.seen)+': open Chrome so it can send'},
       ...(xst.last_error&&ms(xst.last_error_at)>Date.now()-24*3600e3?[{ok:false,text:'Last problem '+since(xst.last_error_at)+': '+clip(String(xst.last_error),120)}]:[])];
     // ── signals and searches (shared)
     const sig=['funding','launches','hiring'].map(k=>lst['last_'+k+'_result']).filter(r=>r&&r.error);

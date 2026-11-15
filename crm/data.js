@@ -1229,7 +1229,7 @@ const NT={items:[],loaded:false,since:null,desk:(()=>{try{return localStorage.ge
 const NT_LI={invite:"Connection request",dm:"First message",accept:"Accepted their request + first message",followup:"Follow-up",inmail:"InMail",magnet:"Lead magnet sent"};
 async function ntLoad(){
   if(!sb||!session||!member)return;
-  const first=!NT.since,since=NT.since||new Date(Date.now()-3*864e5).toISOString(),stamp=new Date(Date.now()-60e3).toISOString();
+  const first=!NT.since,since=NT.since||new Date(Date.now()-7*864e5).toISOString(),stamp=new Date(Date.now()-60e3).toISOString();
   try{
     const [a,b,c]=await Promise.all([
       sb.from("crm_li_tasks").select("id,lead_id,kind,step,status,text,error,sent_at,updated_at").in("status",["sent","failed"]).gte("updated_at",since).order("updated_at",{ascending:false}).limit(400),
