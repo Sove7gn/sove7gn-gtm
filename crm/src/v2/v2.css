@@ -537,3 +537,15 @@ body{background:#FCFCFD}
 .k2,.tb-r[data-a]{cursor:pointer}
 body.panning,body.panning *{cursor:grabbing!important;user-select:none!important}
 .week2,.board2{scroll-behavior:auto;overscroll-behavior-x:contain}
+
+/* round 6 */
+.mrows{display:grid;gap:10px}
+.mrow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.mrow-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mrow-h .sp{flex:1}
+.mrow-said{margin-top:8px;font-size:13.5px;line-height:1.5;color:var(--fg);background:#F5F3FF;border-left:3px solid #8B5CF6;border-radius:6px;padding:8px 10px;white-space:pre-wrap}
+.mrow-post{margin-top:6px;font-size:12px;color:var(--muted)}
+.mrow-bg{margin-top:6px;font-size:12.5px;color:#1D4ED8;background:#EFF6FF;border-radius:6px;padding:5px 8px}
+.mrow-a{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.pay{display:grid;grid-template-columns:150px 140px auto auto;gap:8px;align-items:center;margin-bottom:6px}
+.tb-day{padding:8px 16px;background:var(--rail);font-size:12px;font-weight:600;color:var(--ink-2);border-top:1px solid var(--line)}

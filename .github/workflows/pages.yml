@@ -19,7 +19,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: mkdir -p _site/v2 && cp crm/index.html crm/data.js crm/support.js crm/tokens.css _site/ && cp crm/v2/index.html _site/v2/
+      - run: mkdir -p _site/v2 _site/old && cp crm/data.js _site/ && cp crm/root.html _site/index.html && cp crm/v2/index.html _site/v2/ && cp crm/index.html crm/data.js crm/support.js crm/tokens.css _site/old/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

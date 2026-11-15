@@ -1394,6 +1394,10 @@ async function liFunding(){
   finally{S.busy.delete("funding");emit();setTimeout(leadsLoad,500)}
 }
 // Signals review (14 Nov): find their LinkedIn and X, add to outreach (LinkedIn request + X Send today), trash, or restore.
+// (16 Nov) Any bot action from the CRM (catch-up add/ignore, scan): answers its JSON, or null with a toast.
+async function botCall(action,body){if(!sb||!canEdit())return null;try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action,...(body||{})}});if(error)throw error;
+  if(action.startsWith("catchup")){const {data:cu}=await sb.from("crm_lead_settings").select("key,value").eq("key","catchup").maybeSingle();if(cu){LD.settings={...LD.settings,catchup:cu.value};emit();}}
+  return data}catch(e){toast("Couldn't reach the bot: "+(e.message||e),true);return null}}
 async function sigAct(what,id){
   if(!sb||!canEdit())return false;const k={find:"sgf",approve:"sga",trash:"sgt",restore:"sgr"}[what]+id;if(S.busy.has(k))return false;S.busy.add(k);emit();
   try{
@@ -1785,7 +1789,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

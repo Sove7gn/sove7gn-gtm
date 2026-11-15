@@ -249,30 +249,38 @@ export async function liOp(op, a = {}) {
     return out;
   }
 
-  // Our latest DM threads: when the other person last wrote, and when we did.
+  // Our DM threads: who the other person is, when each side last wrote, how many messages each side sent, the last message.
+  // x.before pages back (16 Nov, for the catch-up scan of the last week).
   async function threads(x) {
     if (!x.qid) return { need_qid: true };
-    const vars = "(mailboxUrn:" + encodeURIComponent("urn:li:fsd_profile:" + x.me.urn) + ")";
+    const vars = "(mailboxUrn:" + encodeURIComponent("urn:li:fsd_profile:" + x.me.urn) + (x.before ? ",lastUpdatedBefore:" + x.before : "") + ")";
     const r = await fetch("/voyager/api/voyagerMessagingGraphQL/graphql?queryId=" + x.qid + "&variables=" + vars,
       { headers: { ...H, accept: "application/graphql" }, credentials: "include" });
-    if (r.status === 400 || r.status === 404) return { need_qid: true };
+    if (r.status === 400 || r.status === 404) return x.before ? { threads: [], end: true } : { need_qid: true };
     if (!r.ok) throw new Error("messaging answered " + r.status);
     const j = await r.json();
-    // Walk the answer: every message with a sender, a time and a conversation.
-    const convs = new Map();
+    const convs = new Map(), people = new Map(), seenMsg = new Set(); let oldest = Infinity;
+    const tx = (v) => (v && typeof v === "object" ? v.text || "" : v || "");
     const walk = (o, conv) => {
       if (!o || typeof o !== "object") return;
       if (Array.isArray(o)) { o.forEach((v) => walk(v, conv)); return; }
       const cu = typeof o.entityUrn === "string" && o.entityUrn.startsWith("urn:li:msg_conversation:") ? o.entityUrn : conv;
       if (cu && cu !== conv) {
-        const people = JSON.stringify(o.conversationParticipants || []).match(/ACoA[\w-]{10,}/g) || [];
+        const ppl = JSON.stringify(o.conversationParticipants || []).match(/ACoA[\w-]{10,}/g) || [];
         const c = convs.get(cu) || { people: new Set(), msgs: [] };
-        people.forEach((p) => c.people.add(p)); convs.set(cu, c);
+        ppl.forEach((p) => c.people.add(p)); convs.set(cu, c);
+        if (o.lastActivityAt) oldest = Math.min(oldest, +o.lastActivityAt);
+      }
+      if (o.hostIdentityUrn && o.participantType && o.participantType.member) {
+        const m = o.participantType.member; const id = acoa(String(o.hostIdentityUrn));
+        if (id && !people.has(id)) people.set(id, { name: [tx(m.firstName), tx(m.lastName)].filter(Boolean).join(" "), headline: tx(m.headline), url: m.profileUrl || "" });
       }
       if (o.deliveredAt && o.sender && o.body) {
-        const from = acoa(JSON.stringify(o.sender.hostIdentityUrn || o.sender.entityUrn || o.sender));
-        const c = convs.get(cu) || { people: new Set(), msgs: [] }; convs.set(cu, c);
-        c.msgs.push({ from, at: o.deliveredAt, text: txt(o.body) });
+        const key = o.entityUrn || (cu + o.deliveredAt);
+        if (!seenMsg.has(key)) { seenMsg.add(key);
+          const from = acoa(JSON.stringify(o.sender.hostIdentityUrn || o.sender.entityUrn || o.sender));
+          const c = convs.get(cu) || { people: new Set(), msgs: [] }; convs.set(cu, c);
+          c.msgs.push({ from, at: o.deliveredAt, text: txt(o.body) }); }
       }
       for (const k in o) if (k !== "body") walk(o[k], cu);
     };
@@ -281,12 +289,15 @@ export async function liOp(op, a = {}) {
     for (const c of convs.values()) {
       const them = [...c.people].find((p) => p !== x.me.urn);
       if (!them || c.people.size > 2) continue;                                   // skip group chats
-      const mine = c.msgs.filter((m) => m.from === x.me.urn).sort((p, q) => q.at - p.at)[0];
-      const theirs = c.msgs.filter((m) => m.from === them).sort((p, q) => q.at - p.at)[0];
-      out.push({ urn: them, them_at: theirs ? new Date(theirs.at).toISOString() : null, them_text: theirs ? theirs.text.slice(0, 600) : "",
-        me_at: mine ? new Date(mine.at).toISOString() : null });
+      const ms = c.msgs.sort((p, q) => p.at - q.at);
+      const mine = ms.filter((m) => m.from === x.me.urn), theirs = ms.filter((m) => m.from === them), last = ms[ms.length - 1];
+      const pp = people.get(them) || {};
+      out.push({ urn: them, them_at: theirs.length ? new Date(theirs[theirs.length - 1].at).toISOString() : null, them_text: theirs.length ? theirs[theirs.length - 1].text.slice(0, 600) : "",
+        me_at: mine.length ? new Date(mine[mine.length - 1].at).toISOString() : null, first_me_at: mine.length ? new Date(mine[0].at).toISOString() : null,
+        n_me: mine.length, n_them: theirs.length, last_from: last ? (last.from === x.me.urn ? "me" : "them") : "", last_text: last ? last.text.slice(0, 600) : "",
+        last_at: last ? new Date(last.at).toISOString() : null, them_name: pp.name || "", them_headline: pp.headline || "", them_url: pp.url || "" });
     }
-    return { threads: out };
+    return { threads: out, oldest: isFinite(oldest) ? oldest : null };
   }
 
   // Finds the current messaging query id from the requests the messaging page made (call after opening /messaging/).

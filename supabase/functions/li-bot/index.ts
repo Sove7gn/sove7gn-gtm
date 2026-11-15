@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -668,7 +668,9 @@ async function poll(_b: any) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
   const v: any = data?.value ?? {};
   const it = v.inmail_test && !v.inmail_test.done && Date.now() - (Date.parse(v.inmail_test.at ?? "") || 0) < 3600e3 ? v.inmail_test : null;
-  return { sync: (Date.parse(v.refresh_at ?? "") || 0) > (Date.parse(v.last_scan ?? "") || 0) && (Date.now() - (Date.parse(v.refresh_at ?? "") || 0)) < 3600e3,
+  const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle(); const cv: any = cu?.value ?? {};
+  return { reconcile: (Date.parse(cv.req_at ?? "") || 0) > (Date.parse(cv.li_at ?? "") || 0) && Date.now() - (Date.parse(cv.req_at ?? "") || 0) < 3600e3,
+    sync: (Date.parse(v.refresh_at ?? "") || 0) > (Date.parse(v.last_scan ?? "") || 0) && (Date.now() - (Date.parse(v.refresh_at ?? "") || 0)) < 3600e3,
     inmail_test: it ? { urn: it.urn, pid: it.pid, profile: it.profile, name: it.name } : null };
 }
 
@@ -1698,6 +1700,135 @@ async function sortReply(l: Lead, text: string, chan = "LinkedIn"): Promise<{ la
   return { label, draft: String(j.draft ?? "").replace(/\s*[—–]\s*/g, ", ").slice(0, 600) };
 }
 
+// ───────── catch-up (16 Nov) ─────────
+// Reyansh's last week of LinkedIn and X chats compared with the CRM: who we messaged (by hand or not), who replied, who connected
+// and never got a message. Each person is a card in Needs you: Add to pipeline (the CRM catches up to where the chat really is and
+// the bots take over from there) or Ignore. Stored in crm_lead_settings "catchup" {at, items, decided}.
+const nnm = (x: string) => String(x ?? "").toLowerCase().replace(/[^\p{L}\p{N} ]/gu, "").replace(/\s+/g, " ").trim();
+async function reconcile_li(b: any) {
+  await db.from("crm_lead_settings").upsert({ key: "li_chats", value: { at: new Date().toISOString(), threads: (b.threads ?? []).slice(0, 400), conns: (b.conns ?? []).slice(0, 200) } });
+  const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle();
+  await db.from("crm_lead_settings").upsert({ key: "catchup", value: { ...((cu?.value as any) ?? {}), li_at: new Date().toISOString() } });
+  const n = await buildCatchup();
+  return { ok: true, items: n };
+}
+async function catchup_scan(_b: any) {
+  const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle();
+  await db.from("crm_lead_settings").upsert({ key: "catchup", value: { ...((cu?.value as any) ?? {}), req_at: new Date().toISOString() } });
+  await buildCatchup();
+  return { ok: true };
+}
+async function buildCatchup(): Promise<number> {
+  const week = Date.now() - 7 * 864e5;
+  const [{ data: lc }, { data: xc }, { data: cu }] = await Promise.all([
+    db.from("crm_lead_settings").select("value").eq("key", "li_chats").maybeSingle(), db.from("crm_lead_settings").select("value").eq("key", "x_chats").maybeSingle(),
+    db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle()]);
+  const prev: any = cu?.value ?? {}; const decided: Record<string, string> = prev.decided ?? {};
+  const { data: leads } = await db.from("crm_leads").select("id,name,company,role,stage,source,x_handle,linkedin,fields,archived").limit(5000);
+  const L = (leads ?? []) as any[];
+  const byUrn = new Map<string, any>(), byName = new Map<string, any>(), byH = new Map<string, any>();
+  for (const l of L) { const li = l.fields?.li ?? {}; for (const k of [li.urn, li.pid]) if (k) byUrn.set(String(k).toLowerCase(), l);
+    const n = nnm(l.name); if (n && !byName.has(n)) byName.set(n, l); const h = String(l.x_handle ?? "").replace(/^@/, "").toLowerCase(); if (h) byH.set(h, l); }
+  const bg = (l: any) => { if (!l) return {}; const ic = l.fields?.li_icp ?? {}, iv = l.fields?.gtm?.intel ?? {};
+    return { company: l.company || "", role: l.role || "", what: ic.one_liner || iv.description?.v || "", funding: ic.funding || [iv.round?.v, iv.amount?.v].filter(Boolean).join(" ") || "", lead_id: l.id, stage: l.stage, archived: !!l.archived }; };
+  const items: any[] = [];
+  // LinkedIn chats
+  const lv: any = lc?.value ?? {};
+  for (const t of (lv.threads ?? []) as any[]) {
+    const lastAt = Date.parse(t.last_at || t.them_at || t.me_at || "") || 0; if (lastAt < week || !t.urn) continue;
+    const l = byUrn.get(String(t.urn).toLowerCase()) ?? (t.them_name ? byName.get(nnm(t.them_name)) : null); const li = l?.fields?.li ?? {};
+    if (l?.archived) continue;
+    let why = "";
+    if (t.last_from === "them") { const handled = (Date.parse(li.replied_last || li.replied || "") || 0) >= lastAt - 1000 && (li.answered || li.stop === "by hand"); if (!handled) why = "They wrote, no answer yet"; }
+    else if (t.last_from === "me" && !l) why = "You messaged them, they're not in the CRM";
+    else if (t.last_from === "me" && l && !li.dm && !li.stop) why = "You messaged them, the CRM shows no message";
+    if (!why) continue;
+    items.push({ key: "li:" + t.urn, plat: "LinkedIn", why, name: t.them_name || l?.name || "Someone", headline: t.them_headline || l?.role || "", url: t.them_url || l?.linkedin || "", urn: t.urn,
+      last_from: t.last_from, last_text: String(t.last_text ?? "").slice(0, 400), last_at: new Date(lastAt).toISOString(), n_me: t.n_me ?? 0, n_them: t.n_them ?? 0, first_me: t.first_me_at ?? t.me_at ?? null, ...bg(l) });
+  }
+  // LinkedIn connections this week with no message from us
+  const talked = new Set(((lv.threads ?? []) as any[]).filter((t: any) => (t.n_me ?? 0) > 0 || t.me_at).map((t: any) => String(t.urn).toLowerCase()));
+  for (const c of (lv.conns ?? []) as any[]) {
+    if (!c.urn || (Date.parse(c.at || "") || 0) < week || talked.has(String(c.urn).toLowerCase())) continue;
+    const l = byUrn.get(String(c.urn).toLowerCase()) ?? byUrn.get(String(c.pid ?? "").toLowerCase()); const li = l?.fields?.li ?? {};
+    if (l?.archived || li.dm || li.stop) continue;
+    if (l && (await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("lead_id", l.id).in("kind", ["dm", "accept"]).in("status", ["review", "ready", "sending", "sent"])).count) continue;
+    items.push({ key: "li:" + c.urn, plat: "LinkedIn", why: "Connected, no message yet", name: c.name || l?.name || "Someone", headline: l?.role || "", url: c.pid ? "https://www.linkedin.com/in/" + c.pid : l?.linkedin || "",
+      urn: c.urn, pid: c.pid, conn_at: c.at, last_from: "", last_text: "", last_at: c.at, n_me: 0, n_them: 0, ...bg(l) });
+  }
+  // X chats (from the chat page)
+  const xv: any = xc?.value ?? {}; const me = String(xv.me ?? "");
+  const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
+  const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5);
+  const obj = (r: any) => { const o: Record<string, string> = {}; ((h?.cells ?? []) as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
+  const pRows = h ? all.filter((r: any) => r.row > h.row).map((r: any) => ({ r, c: obj(r) })) : [];
+  for (const d of (xv.rows ?? []) as any[]) {
+    const lines = String(d.text ?? "").split("\n").map((x: string) => x.trim()).filter(Boolean); if (lines.length < 2) continue;
+    const name = lines[0]; const prev = [...lines].reverse().find((x: string) => !/^(\d+[smhdw]|now|yesterday|\d{1,2}:\d{2}( ?[ap]m)?|[A-Z][a-z]{2} \d{1,2}(, \d{4})?)$/i.test(x)) || "";
+    if (prev === name) continue;
+    const ids = String(d.href ?? "").match(/(\d{5,})[-:](\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
+    const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase();
+    const pr = pRows.find((x: any) => (uid && String(x.c["X user ID"]) === uid) || (handle && String(x.c["X handle"]).replace(/^@/, "").toLowerCase() === handle) || nnm(x.c["Name"]) === nnm(name));
+    const l = (handle && byH.get(handle)) || (pr ? byH.get(String(pr.c["X handle"]).replace(/^@/, "").toLowerCase()) : null) || byName.get(nnm(name));
+    if (l?.archived) continue;
+    const mine = /^you:/i.test(prev); const st = pr?.c["Status"] || ""; const res = pr?.c["DM result"] || "";
+    let why = "";
+    if (!mine && !/by hand/i.test(res) && !(l?.fields?.x?.replied && (l.fields.x.answered || /^by hand/i.test(res)))) why = pr ? (/^(replied|call booked|customer)$/i.test(st) ? "They wrote, no answer yet" : "They wrote, the CRM shows no reply") : "They wrote, they're not in the CRM";
+    else if (mine && !pr) why = "You messaged them, they're not in the CRM";
+    else if (mine && pr && /^to send$/i.test(st)) why = "You messaged them, the CRM shows To send";
+    if (!why) continue;
+    items.push({ key: "x:" + (uid || handle || nnm(name)), plat: "X", why, name, headline: pr ? [pr.c["Role"], pr.c["Company"]].filter(Boolean).join(" · ") : "", handle: handle || String(pr?.c["X handle"] ?? "").replace(/^@/, ""),
+      uid, row: pr?.r.row ?? null, href: d.href || "", last_from: mine ? "me" : "them", last_text: prev.replace(/^you:\s*/i, "").slice(0, 400), last_at: xv.at,
+      funding_row: pr?.c["Funding stage"] || "", ...bg(l), funding: bg(l).funding || pr?.c["Funding stage"] || "" });
+  }
+  const out = items.filter((x) => !decided[x.key]);
+  await db.from("crm_lead_settings").upsert({ key: "catchup", value: { ...prev, at: new Date().toISOString(), items: out, decided } });
+  return out.length;
+}
+async function catchup_apply(b: any) {
+  const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle();
+  const v: any = cu?.value ?? {}; const it = (v.items ?? []).find((x: any) => x.key === b.key); if (!it) return { ok: false, error: "Already handled" };
+  const decided = { ...(v.decided ?? {}), [it.key]: b.action }; const items = (v.items ?? []).filter((x: any) => x.key !== it.key);
+  const save = () => db.from("crm_lead_settings").upsert({ key: "catchup", value: { ...v, items, decided } });
+  if (b.action !== "add") { await save(); if (it.lead_id && b.action === "trash") await db.from("crm_leads").update({ archived: true }).eq("id", it.lead_id); return { ok: true }; }
+  const now2 = new Date().toISOString();
+  if (it.plat === "LinkedIn") {
+    let l: any = it.lead_id ? (await db.from("crm_leads").select("*").eq("id", it.lead_id).maybeSingle()).data : null;
+    const parts = String(it.headline || "").split(/ at | @ /i);
+    if (!l) { const ins = await db.from("crm_leads").insert({ name: it.name, source: "LinkedIn", stage: "New", heat: "Hot", direction: "Outbound", linkedin: it.url || "", role: parts[0]?.slice(0, 120) || "", company: (parts[1] || "").slice(0, 120),
+        origin_key: "li-src:catchup:" + String(it.urn).toLowerCase(), source_detail: "Added from your LinkedIn chats (catch-up " + now2.slice(0, 10) + ")", fields: { li: { src: "outbound", urn: it.urn, pid: it.pid || "" } } }).select("*").maybeSingle();
+      l = ins.data; if (!l) return { ok: false, error: ins.error?.message ?? "Couldn't add them" }; }
+    const li: any = { ...(l.fields?.li ?? {}), urn: it.urn };
+    if (it.conn_at && !li.acc) li.acc = it.conn_at;
+    if ((it.n_me ?? 0) > 0) { li.dm = li.dm || it.first_me || it.last_at; li.fu = Math.max(+li.fu || 0, Math.min(7, (it.n_me ?? 1) - 1)); li.last = it.last_from === "me" ? it.last_at : (li.last || it.last_at); li.req = li.req || li.acc || li.dm; li.acc = li.acc || li.dm; }
+    delete li.stop; let stage = l.stage;
+    if (it.last_from === "them") {
+      li.replied = li.replied || it.last_at; li.replied_last = it.last_at; li.answered = null; li.stop = "replied";
+      const sr = await sortReply(l, it.last_text || "", "LinkedIn").catch(() => ({ label: "other", draft: "" })); li.reply_label = sr.label; li.draft = sr.draft; li.reply_text = it.last_text;
+      const R = await replyPlan({ ...l, fields: { ...(l.fields ?? {}), li } }, sr, "LinkedIn"); stage = (R.move.stage as string) || "In talks";
+      if (R.status) await db.from("crm_li_tasks").insert({ lead_id: l.id, kind: R.kind, step: 0, text: R.text, subject: "", status: R.status });
+    } else if ((it.n_me ?? 0) > 0) stage = /^(new)$/i.test(stage) ? "Contacted" : stage;
+    await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), li }, stage, archived: false, last_touch: it.last_at || now2 }).eq("id", l.id);
+    await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "note", text: "Caught up from your LinkedIn chats: " + it.why.toLowerCase() + (it.last_text ? " (last: “" + clip(it.last_text, 160) + "”)" : "") + ". The bots take over from here.", by_email: BY });
+  } else {
+    if (it.row) {
+      const cells: Record<string, unknown> = { "DM result": "" };
+      if (it.last_from === "them") { cells.Status = "Replied"; cells["Replied on"] = sheetSerial(new Date(), true); }
+      else if (/to send/i.test(it.why)) { cells.Status = "Sent"; cells["Sent on"] = sheetSerial(new Date(it.last_at || Date.now()), true); }
+      const { data: r0 } = await db.from("crm_sheet").select("cells").eq("tab", "DM Pipeline").eq("row", it.row).maybeSingle();
+      await db.rpc("crm_call", { body: { action: "pipeline", row: it.row, name: it.name, company: "", cells } });
+      if (it.last_from === "them" && it.uid) await x_inbox({ me: { id: "" }, items: [{ from: it.uid, to: "", text: it.last_text, at: Date.now() }] });
+    } else if (it.handle) {
+      let l: any = it.lead_id ? (await db.from("crm_leads").select("*").eq("id", it.lead_id).maybeSingle()).data : null;
+      if (!l) l = (await db.from("crm_leads").insert({ name: it.name, source: "X", stage: it.last_from === "them" ? "In talks" : "Contacted", heat: "Hot", direction: "Outbound", x_handle: "@" + it.handle,
+        origin_key: "x-catchup:" + it.handle.toLowerCase(), source_detail: "Added from your X chats (catch-up " + now2.slice(0, 10) + ")", fields: { x: it.last_from === "them" ? { replied: now2, replied_last: now2, reply_text: it.last_text } : {} } }).select("*").maybeSingle()).data;
+      if (l) await toXPipeline(l, "");
+    } else return { ok: false, error: "No X handle seen for them: open their chat once so the bot can read it" };
+  }
+  await save();
+  return { ok: true };
+}
+
 // ───────── reply rules (16 Nov) ─────────
 // What happens when someone writes back, per kind of reply. Edited on the CRM's Bots page (crm_lead_settings "reply_rules").
 // send: "review" = the answer waits for Reyansh's OK, "auto" = it goes out on its own, "off" = only a draft on their card.
@@ -1847,6 +1978,11 @@ async function x_inbox(b: any) {
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
+  if (domRows.length) {
+    await db.from("crm_lead_settings").upsert({ key: "x_chats", value: { at: new Date().toISOString(), me, rows: domRows.slice(0, 150) } });
+    const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle();
+    if (Date.now() - (Date.parse((cu?.value as any)?.at ?? "") || 0) > 3600e3) await buildCatchup().catch(() => null);
+  }
   if (handed) await xStatus({ inbox_handed: handed, inbox_handed_at: new Date().toISOString() });
   await xStatus({ inbox_debug: { me, ext: b.debug ?? null, dom_rows: domRows.length, dom_hits: domHits.length, senders: [...new Set(items.map((m: any) => m.from))].slice(0, 40), known: [...new Set(items.map((m: any) => m.from))].filter((u) => byUid.has(u as string)), at_range: [Math.min(...items.map((m: any) => m.at)), Math.max(...items.map((m: any) => m.at))], replied } });
   return { ok: true, replied };

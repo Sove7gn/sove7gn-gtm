@@ -549,6 +549,18 @@ body{background:#FCFCFD}
 body.panning,body.panning *{cursor:grabbing!important;user-select:none!important}
 .week2,.board2{scroll-behavior:auto;overscroll-behavior-x:contain}
 
+/* round 6 */
+.mrows{display:grid;gap:10px}
+.mrow{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.mrow-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.mrow-h .sp{flex:1}
+.mrow-said{margin-top:8px;font-size:13.5px;line-height:1.5;color:var(--fg);background:#F5F3FF;border-left:3px solid #8B5CF6;border-radius:6px;padding:8px 10px;white-space:pre-wrap}
+.mrow-post{margin-top:6px;font-size:12px;color:var(--muted)}
+.mrow-bg{margin-top:6px;font-size:12.5px;color:#1D4ED8;background:#EFF6FF;border-radius:6px;padding:5px 8px}
+.mrow-a{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.pay{display:grid;grid-template-columns:150px 140px auto auto;gap:8px;align-items:center;margin-bottom:6px}
+.tb-day{padding:8px 16px;background:var(--rail);font-size:12px;font-weight:600;color:var(--ink-2);border-top:1px solid var(--line)}
+
 </style>
 </head>
 <body>
@@ -960,7 +972,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="../data.js?v=4ab5127dac"></script>
+<script src="../data.js?v=cb096818fd"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -3684,7 +3696,7 @@ Object.assign(L.state,{plat:'Leads',lch:'',owner:'Everyone'});
 const PAGES_KEY='v2-page';
 const hashPage=()=>{const m=location.hash.match(/^#\/([a-z]+)$/i);return m?m[1]:'';};
 const V={page:(()=>{const h=hashPage();if(h)return h;try{return localStorage.getItem(PAGES_KEY)||'today';}catch(e){return 'today';}})(),
-  ptab:'next',pal:false,palQ:'',palSel:0,menu:false,brief:false,more:{},rpQueued:false,f:{},q:{},nums:false,calEd:null,calOpen:{},dragging:null,anim:true,pexp:null,edit:null,bmenu:false};
+  ptab:'next',pal:false,palQ:'',palSel:0,menu:false,brief:false,more:{},rpQueued:false,f:{},q:{},nums:false,calEd:null,calOpen:{},dragging:null,anim:true,pexp:null,edit:null,bmenu:false,cform:null,cuDone:{}};
 
 // Where the old pages live now. Pages not built yet open as a short note with links to the current CRM.
 const GO_MAP={home:'today',leads:'today',leadBrief:'today',notifs:'bots',leadSignals:'needs',gtmNow:'outbound',liPipe:'pipeline',pipeline:'pipeline',leadBoard:'pipeline',leadList:'pipeline',
@@ -3702,8 +3714,8 @@ L.load=()=>{L.state.loading=false;L.state.entered=true;schedule();};
 
 const NAV=[
   {g:'',items:[['today','Home','⌂'],['needs','Needs you','✓'],['calendar','Calendar','▦'],['results','Post metrics','↗']]},
-  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['ideas','Post ideas','✦'],['bots','Bots and messages','⚙']]}];
-const NAV_C={today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
+  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['clients','Clients','$'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['ideas','Post ideas','✦'],['bots','Bots and messages','⚙']]}];
+const NAV_C={clients:'#059669',today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
 const PAGE=Object.fromEntries([...NAV,{g:'',items:[['settings','Settings','⚒'],['messages','Messages','✉']]}].flatMap(g=>g.items.map(([id,label,ic,phase])=>[id,{id,label,ic,phase:phase||1,grp:g.g}])));
 if(!PAGE[V.page])V.page='today';
 const INFO={results:'How our posts do on LinkedIn and X.',ideas:'Drafts, posts to copy next and comment-a-word DMs.',today:'Your numbers against today’s goals, the calls coming up and whether the bots are running, on LinkedIn, X and Instagram together.',
@@ -3724,7 +3736,7 @@ const OLD={outbound:[['X','send','X › Send today'],['Leads','leadSignals','Lea
   pipeline:[['LinkedIn','liPipe','LinkedIn › Pipeline'],['X','pipeline','X › Pipeline'],['Leads','leadBoard','Leads › Pipeline'],['Leads','leadList','Leads › All leads']],
   calls:[['Leads','leadDossier','Leads › Call dossiers']],bots:[['LinkedIn','liOut','LinkedIn › Bot and outreach'],['Leads','notifs','Leads › Notifications']],
   messages:[['X','pipeline','X › Pipeline › Scripts'],['LinkedIn','liOut','LinkedIn › Bot and outreach']],settings:[['Leads','leadSetup','Leads › Setup'],['Leads','leadAdd','Leads › Add people']]};
-function openOld(plat,page){try{localStorage.setItem('ak-crm-plat',JSON.stringify(plat));localStorage.setItem('ak-crm-page',page);}catch(e){}window.open('../','_blank','noopener');}
+function openOld(plat,page){try{localStorage.setItem('ak-crm-plat',JSON.stringify(plat));localStorage.setItem('ak-crm-page',page);}catch(e){}window.open('../old/','_blank','noopener');}
 
 function nav(page,quiet){if(!PAGE[page])page='today';if(page!==V.page){V.more={};V.anim=true;}V.page=page;V.menu=false;try{localStorage.setItem(PAGES_KEY,page);}catch(e){}
   if(location.hash!=='#/'+page)history.replaceState(null,'','#/'+page);L.state.lid=null;L.state.cid=null;const m=document.getElementById('main');if(m)m.scrollTop=0;if(!quiet)schedule();else schedule();}
@@ -3840,11 +3852,11 @@ function render(){
   paint('tbar',g?'':tbarHtml());if(!g)safe(replyAlerts);
   const anim=!!V.anim;V.anim=false;
   paint('col',pageHtml(g),el=>el.classList.toggle('anim',anim));
-  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
+  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml()+clientFormHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
   document.title=PAGE[V.page].label+' · '+(AK.BRAND||'SOVE7GN')+' CRM';
 }
 function railHtml(g){
-  const n=g?null:needs();const tot=n?n.nAnswer+n.nApprove+n.nHand:0;
+  const n=g?null:needs();const tot=n?n.nAnswer+n.nApprove+n.nHand+catchupRows().length:0;
   let h='<button type="button" class="brand"'+act(()=>{V.bmenu=!V.bmenu;schedule();})+'><div class="logo">'+esc((AK.BRAND||'S')[0])+'</div>'+esc(AK.BRAND||'SOVE7GN')+'<span class="caret">▾</span></button>'+brandMenu()+'<nav class="nav">';
   for(const grp of NAV){if(grp.g)h+='<div class="grp"><span>'+esc(grp.g)+'</span></div>';
     for(const [id,label,ic,phase] of grp.items){const badge=id==='needs'&&tot?'<span class="badge">'+(tot>99?'99+':tot)+'</span>':phase>1?'<span class="soon">soon</span>':'';
@@ -3855,7 +3867,7 @@ function railHtml(g){
 function pageHtml(g){
   if(g){if(g.wait)return '<div class="empty" style="padding:80px 0">'+esc(g.title||'Loading…')+'</div>';
     return '<div class="card" style="margin-top:40px"><div class="sec-b"><h2 style="margin:0 0 6px;font-size:16px">'+esc(g.title)+'</h2><p class="note">'+esc(g.body||'')+'</p>'+(g.action==='retry'?btn('Try again',()=>location.reload(),'pri'):'')+'</div></div>';}
-  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings}[V.page];
+  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,clients:pgClients,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings}[V.page];
   const ld=AK.leadsState();
   if(f&&!ld.loaded&&!['calendar','results','ideas','bots','settings','messages','replies'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
   if(f)return safe(f,'<div class="errline">This page couldn’t be drawn. Open the current CRM while it’s fixed.</div>');
@@ -3978,7 +3990,8 @@ function pgNeeds(){
   const cur=V.f.needs||'all';const list=T.filter(x=>cur==='all'||x.t===cur);
   let h=head('Needs you','Everything waiting on you, every platform. Click a row to see the full message.');
   const bulk=cur==='approve'&&canEdit()?(N.liFound.hasAll?btn(N.liFound.allLabel+' on LinkedIn',N.liFound.all,'sm'):'')+(N.xReview.hasAll?btn(N.xReview.allLabel+' X DMs',N.xReview.all,'sm'):''):'';
-  h+=tabsBar('needs',[['all','All',T.length],['answer','Answer',c('answer')],['approve','Approve',c('approve')],['hand','Send by hand',c('hand')]])+(bulk?'<div class="bar" style="margin-top:12px"><span class="sp"></span>'+bulk+'</div>':'');
+  h+=tabsBar('needs',[['all','All',T.length],['answer','Answer',c('answer')],['approve','Approve',c('approve')],['hand','Send by hand',c('hand')],['catchup','Catch up',catchupRows().length]])+(bulk?'<div class="bar" style="margin-top:12px"><span class="sp"></span>'+bulk+'</div>':'');
+  if(cur==='catchup')return h+catchupHtml();
   const TXT={answer:'Answer',approve:'Approve',hand:'By hand'};
   h+='<div style="margin-top:12px">'+table('needs:'+cur,[['Who','minmax(0,1.6fr)'],['To do','minmax(0,1.3fr)'],['Detail','minmax(0,2fr)'],['','auto']],
     list.map(x=>({open:x.open,cells:[pcell(x.name,x.sub,x.plat),'<div class="ell"><b class="todo-w">'+esc(x.what)+'</b></div>'+(cur==='all'?'<div class="meta">'+TXT[x.t]+(x.when?' · '+esc(x.when):'')+'</div>':x.when?'<div class="meta">'+esc(x.when)+'</div>':''),
@@ -4284,7 +4297,8 @@ function pgInbound(){
 function pgReplies(){
   const rp=safe(()=>L.repliesVals(),{rows:[]});const li=safe(()=>L.lisVals(),{cards:[]});const cur=V.f.rep||'x';
   let h=head('Reply to their posts','Show up under the posts of the people we sell to. Approve and the X bot likes the post and replies (30 a day, 15+ min apart).');
-  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
+  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['posted','Posted (live)',(AK.XG.rows||[]).filter(r=>/^(done|posted)$/.test(r.status)&&ms(r.done_at)>Date.now()-D).length],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
+  if(cur==='posted')return h+postedHtml();
   if(cur==='x'){const done=+(rp.doneN||0);
     h+='<div class="rp-top">'+ring(done/30,'#7C3AED',done+'/30')+'<div><b>'+done+' of 30 replies today</b><div class="note">'+esc(rp.botLine||'')+(rp.lastRun?' · '+esc(rp.lastRun):'')+'</div></div><span class="sp"></span>'
       +(rp.hasApproveAll&&canEdit()?btn(rp.approveAllLabel,rp.approveAll,'pri sm'):'')+btn(rp.runLabel||'Check X now',rp.run,'sm ghost')+'</div>';
@@ -4395,7 +4409,7 @@ function tbarHtml(){
 function brandMenu(){
   if(!V.bmenu)return '';
   const it=(ic,l,fn)=>'<button type="button"'+act(()=>{V.bmenu=false;fn();schedule();})+'><span>'+ic+'</span>'+esc(l)+'</button>';
-  return '<div class="bmenu">'+it('⚒','Settings',()=>nav('settings'))+it('⧉','Open the old CRM',()=>window.open('../','_blank','noopener'))+(AK.canEdit()?it('⎋','Sign out',()=>AK.signOut()):'')+'</div>';
+  return '<div class="bmenu">'+it('⚒','Settings',()=>nav('settings'))+it('⧉','Open the old CRM',()=>window.open('../old/','_blank','noopener'))+(AK.canEdit()?it('⎋','Sign out',()=>AK.signOut()):'')+'</div>';
 }
 
 /* ---------- Bots: the whole flow, step by step, with a pen on every message ---------- */
@@ -4531,33 +4545,121 @@ function activityHtml(key,ids,withBots){
 }
 
 /* Midbound: only engagement. Who liked, commented, replied to or quoted our posts, followed, viewed, visited, or DMed us. */
+
+/* ================= round 6 (16 Nov): catch up, Midbound with what they said, Clients, posted replies ================= */
+const cleanName=n=>String(n||'').replace(/\s+(Premium|Verified)( Profile)?\b.*$/i,'').replace(/\s*[•·]?\s*(1st|2nd|3rd\+?)\s*$/i,'').trim()||String(n||'');
+
+/* Midbound: one list for LinkedIn and X; each row says what they actually wrote, so you can decide: reply, DM or ignore */
 function pgMidbound(){
   const rows=[];const nowT=Date.now();
-  for(const x of safe(()=>L.socPeople(),[])||[]){const p=x.p;if(!['hot','warm'].includes(p.fit))continue;const a=x.acts[0]||{};
-    rows.push({plat:'LinkedIn',kind:x.commented?'commented':'liked',name:p.name||'Someone',sub:p.headline||'',said:(x.acts.find(z=>z.kind==='commented'&&z.text)||{}).text||'',
-      what:[x.liked?x.liked+(x.liked===1?' like':' likes'):'',x.commented?x.commented+(x.commented===1?' comment':' comments'):''].filter(Boolean).join(' · '),post:(a.post||{}).text||'',at:x.last,fit:p.fit,lead:p.lead_id,url:p.profile_url||p.url||''});}
+  for(const x of safe(()=>L.socPeople(),[])||[]){const p=x.p;if(!['hot','warm'].includes(p.fit))continue;const c=x.acts.find(z=>z.kind==='commented'&&z.said);const a=c||x.acts[0]||{};
+    const nm=cleanName(p.name);const hl=p.headline&&cleanName(p.headline)!==nm?p.headline:[p.role,p.company].filter(Boolean).join(' · ');
+    rows.push({plat:'LinkedIn',kind:c?'comment':'like',name:nm||'Someone',sub:hl,said:c?c.said:'',post:(a.post||{}).text||'',postUrl:(a.post||{}).url||'',at:x.last,fit:p.fit,lead:p.lead_id,url:p.profile_url||'',person:p,
+      extra:[x.liked?x.liked+(x.liked===1?' like':' likes'):'',x.commented?x.commented+(x.commented===1?' comment':' comments'):''].filter(Boolean).join(' · ')});}
   for(const l of leadsOpen()){const s=srcOf(l);if(!['viewed','site','magnet','inbound'].includes(s))continue;
-    rows.push({plat:'LinkedIn',kind:s==='inbound'?'dm':s,name:l.name||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),said:s==='inbound'?(LIo(l).reply_text||l.source_detail||''):'',what:{viewed:'Viewed our profile',site:'Visited our site',magnet:'Asked for a lead magnet',inbound:'DMed us'}[s],at:ms(l.created_at),lead:l.id,fitN:fitN(l)});}
-  for(const e of (AK.M.engagers||[])){const how=String(e.How||e['How they engaged']||e.Kind||'');const k=/quot/i.test(how)?'quoted':/follow/i.test(how)?'followed':/mention/i.test(how)?'mentioned':'xreplied';
-    const at=AK.cellDate&&e['When']?(AK.cellDate(e['When'])||new Date(0)).getTime():0;
-    rows.push({plat:'X',kind:k,name:e.Name||e.Handle,sub:'@'+String(e.Handle||'').replace(/^@/,'')+(e.Fit?' · '+e.Fit:''),said:e['What they said']||'',what:{quoted:'Quoted our post',followed:'Followed us',mentioned:'Mentioned us',xreplied:'Replied to our post'}[k],at,e,fitX:e.Fit});}
-  const K={liked:'Liked',commented:'Commented',xreplied:'Replied on X',quoted:'Quoted',followed:'Followed',mentioned:'Mentioned',dm:'DMed us',viewed:'Viewed profile',site:'Visited site',magnet:'Lead magnet'};
-  const KC={liked:'#DB2777',commented:'#7C3AED',xreplied:'#7C3AED',quoted:'#2563EB',followed:'#059669',mentioned:'#0EA5E9',dm:'#D97706',viewed:'#6B7280',site:'#6B7280',magnet:'#EA580C'};
+    rows.push({plat:'LinkedIn',kind:s==='inbound'?'dm':s==='viewed'?'view':s==='site'?'site':'magnet',name:cleanName(l.name)||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),said:LIo(l).reply_text||(s==='inbound'?l.source_detail||'':''),at:ms(l.created_at),lead:l.id,fitN:fitN(l),url:l.linkedin||''});}
+  for(const e of (AK.M.engagers||[])){if((e.Status||'To message')!=='To message')continue;const how=String(e.How||'');
+    const k=/quot/i.test(how)?'quote':/follow/i.test(how)?'follow':/tag|mention/i.test(how)?'mention':'comment';
+    const at=e['Found on']?(Date.parse(String(e['Found on']).replace(/^(\d{1,2}) (\w{3}) (\d{4})/,'$2 $1 $3'))||0):0;
+    rows.push({plat:'X',kind:k,name:e.Name||e.Handle,sub:'@'+String(e.Handle||'').replace(/^@/,'')+(e.Bio?' · '+e.Bio:''),said:e['What they said']||'',post:e['Our post']||'',postUrl:e['Their link']||e['Our post link']||'',at,e,fitX:e.Fit});}
+  const K={comment:'Commented or replied',like:'Liked',quote:'Quoted',follow:'Followed',mention:'Tagged or mentioned',dm:'DMed us',view:'Viewed profile',site:'Visited site',magnet:'Lead magnet'};
+  const KC={comment:'#7C3AED',like:'#DB2777',quote:'#2563EB',follow:'#059669',mention:'#0EA5E9',dm:'#D97706',view:'#6B7280',site:'#6B7280',magnet:'#EA580C'};
   const cnt={};for(const r of rows)cnt[r.kind]=(cnt[r.kind]||0)+1;const wkN=k=>rows.filter(r=>(!k||r.kind===k)&&r.at>nowT-7*D).length;
-  const cur=V.f.mid||'all';
-  const list=rows.filter(r=>(cur==='all'||r.kind===cur)&&matchQ('mid',r.name,r.sub,r.said)).sort((a,b)=>(b.at||0)-(a.at||0));
-  let h=head('Midbound','Everyone who engaged with us: liked, commented, replied to or quoted our posts, followed, viewed our profile, visited the site or DMed us. Good fits only.')
-    +strip([['Engaged this week',String(wkN()),rows.length+' in total','#7C3AED'],['Likes',String(cnt.liked||0),wkN('liked')+' this week','#DB2777'],['Comments',String(cnt.commented||0),wkN('commented')+' this week','#7C3AED'],
-      ['X replies and quotes',String((cnt.xreplied||0)+(cnt.quoted||0)),'','#2563EB'],['DMed us',String(cnt.dm||0),'','#D97706']]);
-  h+=chipsBar('mid',[['all','All',rows.length],...Object.keys(K).map(k=>[k,K[k],cnt[k]||0])]);
-  h+=table('mid',[['Who','minmax(0,1.6fr)'],['Engagement','minmax(0,1.1fr)'],['What they said','minmax(0,2fr)'],['When','90px'],['Fit','90px'],['','auto']],list.map(r=>{
-    const e=r.e;const reply=e&&e['Our reply']||'';
-    return{open:r.lead?()=>L.openLead(r.lead):null,cells:[pcell(r.name,r.sub,r.plat),tagp(K[r.kind],KC[r.kind])+(r.what&&!/^(Viewed|Visited|Asked|DMed|Quoted|Followed|Mentioned|Replied)/.test(r.what)?'<div class="meta">'+esc(r.what)+'</div>':''),
-      r.said?ell('“'+r.said+'”','meta'):r.post?ell('On: '+r.post,'meta faint'):'<span class="faint">–</span>','<span class="meta">'+esc(r.at?AK.ago(r.at):'–')+'</span>',
-      r.fitN?fitPill(r.fitN):r.fit?tagp(r.fit==='hot'?'Great fit':'Good fit',r.fit==='hot'?'#059669':'#2563EB'):r.fitX?tagp(r.fitX,'#6B7280'):'<span class="faint">–</span>',
-      e?ACTS(['Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');}],[canEdit()&&['Done',()=>AK.engagerToPipeline(e)],canEdit()&&['Skip',()=>AK.saveEngager(e,'Dismissed')]])
-        :r.url?ACTS(null,[['Profile',()=>window.open(r.url,'_blank','noopener')]]):'']};}),'Nobody yet.');
-  h+='<p class="note" style="margin-top:12px">Messages and follow-ups to these people show on Outbound and Pipelines. People who engaged but don’t fit are hidden. <button type="button" class="btn ghost sm"'+act(()=>openOld('LinkedIn','liPeople'))+'>See them ↗</button></p>';
+  const cur=V.f.mid||'comment';
+  const list=rows.filter(r=>(cur==='all'||r.kind===cur)&&matchQ('mid',r.name,r.sub,r.said)).sort((a,b)=>(!!b.said-!!a.said)||(b.at||0)-(a.at||0));
+  let h=head('Midbound','Everyone who engaged with us on LinkedIn and X. Read what they wrote, then reply, DM them or ignore. Good fits only.')
+    +strip([['Engaged this week',String(wkN()),rows.length+' in total','#7C3AED'],['Comments and replies',String(cnt.comment||0),wkN('comment')+' this week','#7C3AED'],['Likes',String(cnt.like||0),wkN('like')+' this week','#DB2777'],
+      ['Followed or quoted',String((cnt.follow||0)+(cnt.quote||0)),'','#059669'],['DMed us',String(cnt.dm||0),'','#D97706']]);
+  h+=chipsBar('mid',[['comment',K.comment,cnt.comment||0],['all','All',rows.length],...Object.keys(K).filter(k=>k!=='comment').map(k=>[k,K[k],cnt[k]||0])]);
+  h+='<div class="mrows">'+(list.slice(0,V.more.mid?400:40).map(r=>{const e=r.e;const reply=e&&e['Our reply']||'';
+    const open=r.lead?()=>L.openLead(r.lead):null;
+    const acts=e?[btn('Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');},'pri sm'),canEdit()?btn('DM them',()=>AK.engagerToPipeline(e),'sm'):'',canEdit()?btn('Ignore',()=>AK.saveEngager(e,'Dismissed'),'sm ghost'):'']
+      :[r.postUrl?btn('Reply',()=>window.open(r.postUrl,'_blank','noopener'),'pri sm'):'',r.url?btn('DM them',()=>window.open(r.url,'_blank','noopener'),'sm'):'',
+        r.person&&!r.lead&&canEdit()?btn('Add to pipeline',()=>AK.personToLead(r.person),'sm'):'',r.person&&canEdit()?btn('Ignore',()=>AK.setPersonFit(r.person.platform,r.person.person_key,'no'),'sm ghost'):''];
+    const fitH=r.fitN?fitPill(r.fitN):r.fit?tagp(r.fit==='hot'?'Great fit':'Good fit',r.fit==='hot'?'#059669':'#2563EB'):r.fitX?tagp(r.fitX,/core|good/i.test(r.fitX)?'#2563EB':'#6B7280'):'';
+    return '<div class="mrow"><div class="mrow-h">'+pcell(r.name,r.sub,r.plat)+'<span class="sp"></span>'+tagp(K[r.kind],KC[r.kind])+fitH+'<span class="faint" style="font-size:12px">'+esc(r.at?AK.ago(r.at):'')+'</span></div>'
+      +(r.said?'<div class="mrow-said">“'+esc(r.said)+'”</div>':r.extra?'<div class="meta" style="margin-top:6px">'+esc(r.extra)+'</div>':'')
+      +(r.post?'<div class="mrow-post">On our post: '+esc(String(r.post).replace(/\s+/g,' ').slice(0,140))+'</div>':'')
+      +'<div class="mrow-a">'+acts.join('')+(open?btn('Open',open,'sm ghost'):'')+'</div></div>';}).join('')||'<div class="tb"><div class="empty">Nobody here yet.</div></div>')+'</div>'
+    +(list.length>40&&!V.more.mid?'<div style="margin-top:10px">'+btn('Show '+(list.length-40)+' more',()=>{V.more.mid=true;schedule();},'ghost sm')+'</div>':'');
+  return h;
+}
+
+/* Needs you > Catch up: people in your last week of chats that the CRM doesn't reflect yet */
+function catchupRows(){const cu=(AK.LD.settings||{}).catchup||{};return (cu.items||[]).filter(it=>!(V.cuDone||{})[it.key]);}
+function catchupHtml(){
+  const cu=(AK.LD.settings||{}).catchup||{};const items=catchupRows();
+  const go=(it,action)=>{V.cuDone={...(V.cuDone||{}),[it.key]:true};schedule();AK.botCall('catchup_apply',{key:it.key,action}).then(r=>{if(r&&r.ok)L.toast(action==='add'?(it.name+' is in the pipeline. The bots take over from where the chat is.'):action==='trash'?'Moved to the bin.':'Ignored.');else{V.cuDone[it.key]=false;L.toast('Couldn’t do that: '+((r&&r.error)||'try again'),null,true);schedule();}});};
+  const W={'They wrote, no answer yet':'#7C3AED','They wrote, they’re not in the CRM':'#7C3AED','They wrote, the CRM shows no reply':'#7C3AED','Connected, no message yet':'#0EA5E9'};
+  let h='<div class="bar" style="margin-top:12px"><span class="note">Your last week of LinkedIn and X chats, checked against the CRM'+(cu.at?' · updated '+esc(since(cu.at)):'')+'. Add to pipeline puts them where the chat really is, so the bots take over from there.</span><span class="sp"></span>'+(canEdit()?btn('Scan my chats again',()=>{AK.botCall('catchup_scan',{}).then(()=>L.toast('Scanning. LinkedIn chats are read by the extension within a few minutes.'));},'sm'):'')+'</div>';
+  if(!items.length)return h+'<div class="tb"><div class="empty">Nothing to catch up on'+(cu.li_at?'.':'. The first LinkedIn scan runs a few minutes after the extension starts.')+'</div></div>';
+  return h+'<div class="mrows">'+items.map(it=>'<div class="mrow"><div class="mrow-h">'+pcell(cleanName(it.name),[it.role,it.company].filter(Boolean).join(' · ')||it.headline,it.plat)+'<span class="sp"></span>'+tagp(it.why,W[it.why]||'#D97706')
+    +(it.stage?tagp('CRM: '+plainWords(it.stage),'#6B7280'):'')+'<span class="faint" style="font-size:12px">'+esc(it.last_at?since(it.last_at):'')+'</span></div>'
+    +((it.what||it.funding||it.headline)?'<div class="mrow-bg">'+[it.what?esc(it.what):'',it.funding?'💰 '+esc(it.funding):'',it.headline&&!it.role?esc(it.headline):''].filter(Boolean).join(' · ')+'</div>':'')
+    +(it.last_text?'<div class="mrow-said"><b>'+(it.last_from==='me'?'You':'They')+':</b> '+esc(it.last_text)+'</div>':'')
+    +((it.n_me||it.n_them)?'<div class="meta" style="margin-top:4px">You sent '+(it.n_me||0)+' · they sent '+(it.n_them||0)+'</div>':'')
+    +'<div class="mrow-a">'+(canEdit()?btn('Add to pipeline',()=>go(it,'add'),'pri sm')+btn('Ignore',()=>go(it,'ignore'),'sm ghost')+(it.lead_id?btn('Bin',()=>go(it,'trash'),'sm ghost'):''):'')
+    +(it.url?btn('Open chat ↗',()=>window.open(it.url,'_blank','noopener'),'sm ghost'):it.href?btn('Open chat ↗',()=>window.open('https://x.com'+it.href,'_blank','noopener'),'sm ghost'):'')+(it.lead_id?btn('Open',()=>L.openLead(it.lead_id),'sm ghost'):'')+'</div></div>').join('')+'</div>';
+}
+
+/* Clients: wins, losses, MRR, cost and margin, payments (after Drona's Closed and Health pages) */
+const money=n=>'$'+Math.round(+n||0).toLocaleString('en-US');
+function clientsAll(){return (AK.leadSetting('clients')||[]).slice();}
+function saveClients(arr){return AK.leadSettingSave('clients',arr);}
+function clientForm(c){V.cform={id:'c'+Date.now(),status:'Active',start:new Date().toISOString().slice(0,10),mrr:'',cost:'',setup:'',payments:[],...(c||{})};schedule();}
+function clientFormHtml(){
+  const f=V.cform;if(!f)return '';const close=()=>{V.cform=null;schedule();};
+  const inpF=(k,label,type,ph)=>'<label>'+esc(label)+'</label><input class="in" type="'+(type||'text')+'" value="'+esc(f[k]??'')+'" placeholder="'+esc(ph||'')+'"'+inp(e=>{V.cform[k]=e.target.value;})+'>';
+  const sel=(k,label,opts)=>'<label>'+esc(label)+'</label><select class="in"'+chg(e=>{V.cform[k]=e.target.value;})+'>'+opts.map(o=>'<option'+(f[k]===o?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+  const mrr=+f.mrr||0,cost=+f.cost||0;
+  return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh"><h2>'+(f.name?esc(f.name):'New client')+'</h2><span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb"><div class="kv">'
+    +inpF('name','Company','text','Acme')+inpF('contact','Main contact','text','Founder name')+inpF('email','Email','email')+inpF('service','What we do for them','text','Inbound + outbound GTM')
+    +sel('source','Came from',['LinkedIn','X','Inbound','Referral','Email','Other'])+sel('status','Status',['Active','Paused','Ended'])
+    +inpF('start','Start date','date')+inpF('end','End date (if ended)','date')
+    +inpF('mrr','Monthly revenue (USD)','number','20000')+inpF('cost','Our monthly cost to deliver (USD)','number','4000')+inpF('setup','One-time setup fee (USD)','number','0')
+    +'<label>Notes</label><textarea class="in" rows="3"'+inp(e=>{V.cform.notes=e.target.value;})+'>'+esc(f.notes||'')+'</textarea></div>'
+    +'<div class="note" style="margin-top:10px">Margin: <b>'+(mrr?Math.round((mrr-cost)/mrr*100)+'%':'–')+'</b> · profit '+money(mrr-cost)+' a month</div>'
+    +'<div class="blk" style="margin-top:14px"><h3>Payments<span class="sp"></span>'+btn('+ Payment',()=>{V.cform.payments=[...(V.cform.payments||[]),{date:new Date().toISOString().slice(0,10),amount:V.cform.mrr||'',paid:false}];schedule();},'sm ghost')+'</h3>'
+    +(f.payments||[]).map((p,i)=>'<div class="pay"><input class="in" type="date" value="'+esc(p.date)+'"'+inp(e=>{V.cform.payments[i].date=e.target.value;})+'><input class="in" type="number" placeholder="Amount" value="'+esc(p.amount)+'"'+inp(e=>{V.cform.payments[i].amount=e.target.value;})+'>'
+      +'<button type="button" class="chip'+(p.paid?' on':'')+'"'+act(()=>{V.cform.payments[i].paid=!p.paid;schedule();})+'>'+(p.paid?'Paid':'Not paid')+'</button><button type="button" class="btn ghost sm"'+act(()=>{V.cform.payments.splice(i,1);schedule();})+'>×</button></div>').join('')+'</div>'
+    +'<div class="under">'+(canEdit()?btn('Save client',()=>{const arr=clientsAll().filter(x=>x.id!==f.id);arr.push({...V.cform,updated_at:new Date().toISOString()});saveClients(arr).then(()=>L.toast('Saved '+(V.cform&&V.cform.name||'the client')+'.'));V.cform=null;schedule();},'pri sm')
+      +(clientsAll().some(x=>x.id===f.id)?btn('Delete',()=>{if(!confirm('Delete '+(f.name||'this client')+'?'))return;saveClients(clientsAll().filter(x=>x.id!==f.id));V.cform=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
+}
+function pgClients(){
+  const C=clientsAll();const act0=C.filter(c=>c.status==='Active');const mrr=act0.reduce((s,c)=>s+(+c.mrr||0),0),cost=act0.reduce((s,c)=>s+(+c.cost||0),0);
+  const paid=C.flatMap(c=>(c.payments||[]).filter(p=>p.paid)).reduce((s,p)=>s+(+p.amount||0),0),due=C.flatMap(c=>(c.payments||[]).filter(p=>!p.paid)).reduce((s,p)=>s+(+p.amount||0),0);
+  const won=leadsOpen().filter(l=>/^won$/i.test(l.stage||'')),lost=(AK.LD.rows||[]).filter(l=>/^(lost|cold lead)$/i.test(l.stage||'')&&!l.archived);
+  const cur=V.f.cli||'clients';
+  let h=head('Clients','Every client: what they pay, what they cost us to deliver, the margin, and payments. Wins and losses from the pipeline below.',canEdit()?btn('+ Add a client',()=>clientForm(),'pri sm'):'');
+  h+=strip([['MRR',money(mrr),act0.length+' active '+(act0.length===1?'client':'clients'),'#059669'],['Monthly profit',money(mrr-cost),'after delivery cost','#2563EB'],['Margin',mrr?Math.round((mrr-cost)/mrr*100)+'%':'–','profit ÷ revenue','#7C3AED'],
+    ['ARR',money(mrr*12),'MRR × 12','#0D9488'],['Collected',money(paid),due?money(due)+' still to collect':'nothing outstanding','#D97706']]);
+  // MRR over the last 6 months
+  const months=[...Array(6)].map((_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-5+i);return d;});
+  const mAt=(d,k)=>C.filter(c=>c.start&&new Date(c.start)<=new Date(d.getFullYear(),d.getMonth()+1,0)&&(!c.end||new Date(c.end)>=d)&&c.status!=='Paused').reduce((s,c)=>s+(+c[k]||0),0);
+  if(C.length)h+='<div class="card sec-b" style="margin-bottom:16px"><h3 class="ch">Revenue and profit by month</h3>'+barChart([{n:'Revenue',c:'#059669',data:months.map(d=>mAt(d,'mrr'))},{n:'Profit',c:'#2563EB',data:months.map(d=>mAt(d,'mrr')-mAt(d,'cost'))}],months.map(d=>AK.MON[d.getMonth()]),120)+'</div>';
+  h+=tabsBar('cli',[['clients','Clients',C.length],['won','Won',won.length],['lost','Lost',lost.length]])+'<div style="margin-top:12px">';
+  if(cur==='clients')h+=table('cli',[['Client','minmax(0,1.6fr)'],['Status','90px'],['MRR','100px'],['Cost','100px'],['Margin','80px'],['Since','110px'],['Paid / due','minmax(0,1fr)']],
+    C.sort((a,b)=>(b.status==='Active')-(a.status==='Active')||(+b.mrr||0)-(+a.mrr||0)).map(c=>{const m=+c.mrr||0,k=+c.cost||0;const pd=(c.payments||[]).filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),du=(c.payments||[]).filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0);
+      return{open:()=>clientForm(c),cells:[pcell(c.name||'(no name)',[c.contact,c.service].filter(Boolean).join(' · '),null),tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280'),'<b class="num">'+money(m)+'</b>','<span class="num meta">'+money(k)+'</span>',
+        '<span class="num" style="color:'+(m&&(m-k)/m>=0.5?'#059669':'#B45309')+';font-weight:600">'+(m?Math.round((m-k)/m*100)+'%':'–')+'</span>','<span class="meta">'+esc(c.start||'')+'</span>','<span class="meta">'+money(pd)+(du?' · <span style="color:#B45309">'+money(du)+' due</span>':'')+'</span>']};}),'No clients yet. Add the first one with + Add a client.');
+  if(cur==='won')h+=table('won',[['Who','minmax(0,2fr)'],['From','100px'],['Won','110px'],['Value','100px'],['','auto']],won.map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),'<span class="meta">'+esc(l.source||'')+'</span>','<span class="meta">'+esc(since(l.stage_at))+'</span>','<span class="num">'+(l.price?money(l.price):'–')+'</span>',
+    ACTS(canEdit()&&!clientsAll().some(c=>c.lead_id===l.id)?['Add as client',()=>clientForm({name:l.company||l.name,contact:l.name,email:l.email||'',source:l.source,lead_id:l.id,mrr:l.price||''})]:null)]})),'No wins yet. People you move to Won show here.');
+  if(cur==='lost')h+=table('lost',[['Who','minmax(0,2fr)'],['Stage','110px'],['Why','minmax(0,2fr)'],['When','110px']],lost.sort((a,b)=>ms(b.stage_at)-ms(a.stage_at)).map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),tagp(l.stage,'#6B7280'),ell(LIo(l).reply_label==='not_interested'?'Said no: '+(LIo(l).reply_text||''):LIo(l).stop==='no reply'?'No reply after all follow-ups':l.closed_for||l.next_step||'','meta'),'<span class="meta">'+esc(since(l.stage_at))+'</span>']})),'Nothing lost.');
+  return h+'</div>';
+}
+
+/* Reply to their posts > Posted: every reply that went live, by day */
+function postedHtml(){
+  const R=(AK.XG.rows||[]).filter(r=>/^(done|posted)$/.test(r.status)&&r.done_at).sort((a,b)=>ms(b.done_at)-ms(a.done_at));
+  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-6+i);return d;});
+  const per=days.map(d=>R.filter(r=>{const t=ms(r.done_at);return t>=d.getTime()&&t<d.getTime()+D;}).length);
+  let h='<div class="card sec-b" style="margin:12px 0"><h3 class="ch">Replies live on X, last 7 days</h3>'+barChart([{n:'Replies posted',c:'#7C3AED',data:per}],days.map(d=>d.getDate()+' '+AK.MON[d.getMonth()]),90)+'</div>';
+  let last='';
+  h+='<div class="tb">'+(R.length?R.slice(0,V.more.posted?300:60).map(r=>{const d=new Date(r.done_at);const day=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'});const head2=day!==last?'<div class="tb-day">'+esc(day)+' · '+R.filter(x=>new Date(x.done_at).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})===day).length+' replies</div>':'';last=day;
+    const bot=!/@/.test(r.done_by||'');
+    return head2+'<div class="tb-r" style="grid-template-columns:70px minmax(0,1.2fr) minmax(0,2fr) auto"'+act(()=>window.open(r.url,'_blank','noopener'),false)+'><span class="meta">'+esc(d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))+'</span>'+pcell(r.name||r.author,'@'+r.author,'X')
+      +'<div class="tc"><div class="ell"><b>Our reply:</b> '+esc(r.draft||'')+'</div><div class="ell meta">On: '+esc(String(r.post_text||'').replace(/\s+/g,' '))+'</div></div>'+tagp(bot?'Posted by the bot':'Posted by you',bot?'#7C3AED':'#059669')+'</div>';}).join(''):'<div class="empty">No replies posted yet.</div>')+'</div>'
+    +(R.length>60&&!V.more.posted?'<div style="margin-top:10px">'+btn('Show more',()=>{V.more.posted=true;schedule();},'ghost sm')+'</div>':'');
   return h;
 }
 

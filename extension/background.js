@@ -32,10 +32,11 @@ function setup() {
   chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 });
   chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 });
   chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 });
+  chrome.alarms.create("recon", { periodInMinutes: 60, delayInMinutes: 4 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : a.name === "recon" ? reconcileRun(false) : tick()));
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
 chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
@@ -336,7 +337,7 @@ async function xTab() {
     try {
       const t = await chrome.tabs.get(xTabId);
       if (/(^|\/\/)(x|twitter)\.com/.test(t.url || t.pendingUrl || "")) {
-        if (t.discarded || t.status !== "complete") { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); }
+        if (t.discarded) { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); }
         if (await xAlive(t.id)) return t.id;
         await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(3000);
         if (await xAlive(t.id)) return t.id;
@@ -394,7 +395,8 @@ async function xTick() {
     if (Date.now() - pollAt > 3 * 60e3) {
       await store.set({ pollAt: Date.now() });
       try { const r = await api("poll", {}); if (r.sync && !busy) setTimeout(() => sync(false), 1500);
-        if (r.inmail_test && !busy) setTimeout(() => inmailTest(r.inmail_test), 3000); } catch (_) {}
+        if (r.inmail_test && !busy) setTimeout(() => inmailTest(r.inmail_test), 3000);
+        if (r.reconcile && !busy) setTimeout(() => reconcileRun(true), 4000); } catch (_) {}
     }
     let { xqueue = [], xplanAt = 0 } = await store.get(["xqueue", "xplanAt"]);
     xqueue = xqueue.filter((t) => Date.now() - t.handed < 50 * 60e3);
@@ -488,7 +490,7 @@ async function xReplyTick() {
       const alertText = () => [...document.querySelectorAll('[role="alert"], [data-testid="toast"]')].map((e) => e.innerText).join(" ");
       let btn = null;
       for (let i = 0; i < 24; i++) {
-        btn = document.querySelector('[data-testid="tweetButton"]');
+        btn = document.querySelector('[role="dialog"] [data-testid="tweetButton"]') || document.querySelector('[data-testid="tweetButtonInline"]') || document.querySelector('[data-testid="tweetButton"]');
         const box = document.querySelector('[data-testid="tweetTextarea_0"]');
         if (btn && btn.getAttribute("aria-disabled") !== "true" && box && box.innerText.trim().length > 2) break;
         btn = null; await wait(500);
@@ -500,7 +502,8 @@ async function xReplyTick() {
         const a = alertText();
         if (/automated|try again later|rate limit|over capacity|temporarily/i.test(a)) return { ok: false, limit: true, error: "X: " + a.slice(0, 200) };
         if (/already said that|something went wrong|can.t reply|isn.t available|restricted who can reply/i.test(a)) return { ok: false, error: "X: " + a.slice(0, 200) };
-        if (!document.querySelector('[data-testid="tweetButton"]') || /your post was sent|reply was sent/i.test(a)) return { ok: true };
+        const bx = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]');
+        if (!btn.isConnected || !bx || bx.innerText.trim().length < 2 || /your post was sent|reply was sent/i.test(a)) return { ok: true };
       }
       return { ok: false, error: "Pressed Post but X didn't confirm within 12 seconds" };
     } });
@@ -529,6 +532,30 @@ async function xg(action, body = {}) {
 }
 // Every 10 minutes (16 Nov): reads the X DM inbox and hands the CRM any new messages. The CRM matches them to people we DMed,
 // marks them Replied, sorts the reply (interested, question, not now, not interested), drafts the answer and stops the follow-ups.
+// (16 Nov) Catch-up scan: the last week of LinkedIn chats (paging back) and recent connections, compared with the CRM by li-bot.
+// Anyone we messaged, who replied, or who connected without a message, and the CRM doesn't reflect it, lands in Needs you.
+async function reconcileRun(force) {
+  if (busy) return;
+  const { key } = await store.get("key"); if (!key) return;
+  const { recAt = 0 } = await store.get("recAt"); if (!force && Date.now() - recAt < 20 * 3600e3) return;
+  busy = true; const ka = keepAlive();
+  try {
+    const { me, qid } = await store.get(["me", "qid"]); if (!me || !me.urn || !qid) return;
+    const all = []; let before = null;
+    for (let i = 0; i < 10; i++) {
+      const t = await op("threads", { me, qid, before }); if (!t || t.need_qid) break;
+      all.push(...(t.threads || []));
+      if (!t.oldest || t.end || Date.now() - t.oldest > 7 * 864e5 || t.oldest === before) break;
+      before = t.oldest; await sleep(rand(1500, 3000));
+    }
+    const seen = new Set(); const threads = all.filter((t) => !seen.has(t.urn) && seen.add(t.urn));
+    const conns = await op("connections").catch(() => []);
+    const out = await api("reconcile_li", { threads, conns });
+    await store.set({ recAt: Date.now() });
+    await log("Catch-up: " + threads.length + " LinkedIn chats and " + conns.length + " recent connections checked; " + ((out && out.items) || 0) + " to review in the CRM (Needs you > Catch up).");
+  } catch (e) { await log("Catch-up scan: " + (e.message || e), true); }
+  finally { clearInterval(ka); busy = false; }
+}
 async function xInboxTick() {
   const { key } = await store.get("key"); if (!key) return;
   if (!(await xAcquire("inbox", 180e3))) return;
@@ -574,6 +601,7 @@ async function xInboxTick() {
           return { url: location.href, cells: [...out.values()].slice(0, 150), locked: /passcode|enter your pin|recover your|set up encryption/i.test(body) && out.size < 2, sample: out.size ? "" : body.slice(0, 900) };
         } }).catch((e) => { if (!/frame|removed|navigat/i.test(String(e.message || e))) throw e; return null; });
       }
+      await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
       const fr = (frames || []).map((f) => f && f.result).filter(Boolean);
       dom = fr.flatMap((f) => f.cells || []);
       convs.push({ page: "chat", frames: fr.map((f) => ({ url: String(f.url).slice(0, 120), cells: (f.cells || []).length, sample: String(f.sample || "").slice(0, 500) })) });
