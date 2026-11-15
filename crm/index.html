@@ -1176,7 +1176,7 @@ class Component extends DCLogic {
   // Replies (15 Nov, bot 16 Nov): one slim row per fresh post. Approve hands the draft to the Chrome extension, which likes the post
   // and posts the reply from Reyansh's X tab (30 a day max, 15+ minutes apart, paused during X's cooldown). Reply myself opens X with
   // the draft typed in and ticks it off. Values for replies.html (rp).
-  repliesVals(){const s=this.state;const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
+  repliesVals(){const s=this.state;const ent=x=>String(x||'').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");const today=new Date();const sameDay=d=>d&&AK.sameDay(d,today);
     const all=AK.XG.rows;const ts=r=>new Date(r.posted_at||r.created_at).getTime();const fresh=r=>Date.now()-ts(r)<45*6e4;
     const open=all.filter(r=>r.status==='new').sort((a,b)=>(fresh(b)-fresh(a))||((b.kind==='lead')-(a.kind==='lead'))||(ts(b)-ts(a)));
     const queued=all.filter(r=>r.status==='approved'||r.status==='sending').sort((a,b)=>ts(b)-ts(a));
@@ -1188,7 +1188,7 @@ class Component extends DCLogic {
     const shown=open.slice(0,lim);
     const rows=shown.map(r=>{const t=ts(r);const d=String(r.draft||'').trim();
       return{who:r.name||r.author,sub:'@'+r.author+(r.followers!=null?' · '+fmtK(r.followers):''),kind:r.kind==='lead'?pill('Lead','out'):pill('Creator','in'),
-        age:fresh(r)?pill('Fresh','ok'):pill(t?AK.ago(t):'Earlier','neutral'),text:clip(r.post_text,260),full:String(r.post_text||'').slice(0,600),
+        age:fresh(r)?pill('Fresh','ok'):pill(t?AK.ago(t):'Earlier','neutral'),text:clip(ent(r.post_text),260),full:ent(r.post_text).slice(0,600),
         draft:d,hasDraft:!!d,noDraft:!d,setDraft:e=>AK.xgDraft(r.url,e.target.value),
         approve:()=>{if(!d){this.toast('Write a reply first, then approve.',true);return;}AK.xgSet(r.url,'approved');this.toast('Queued. The bot likes the post and replies within the hour (15+ min apart).');},
         mine:()=>mine(r,d),mineLabel:d?'Reply myself ↗':'Open ↗',skip:()=>AK.xgSet(r.url,'skipped')};});
@@ -1743,7 +1743,7 @@ class Component extends DCLogic {
     if(page==='gtmViews')return{...base,gv:this.gtmViewsVals()};
     if(page==='liPipe')return{...base,lp:this.liPipeVals()};
     if(page==='leadDossier')return{...base,dos:this.dossierVals()};
-    if(page==='leadBrief')return{...base,db:this.dailyVals(),ow:this.outreachVals()};
+    if(page==='leadBrief')return{...base,db:this.dailyVals(),ow:this.outreachVals(),sc:this.scoreVals()};
     if(page==='leadSignals')return{...base,sg:this.leadSignalsVals()};
     if(LI_LISTS[page])return{...base,gv:this.gtmViewsVals(LI_LISTS[page]),liOut:page==='liOut'?this.liOutVals():null,bot:page==='liOut'?this.liBotVals():null};
     if(page==='gtmNow')return{...base,now:this.gtmNowVals()};
@@ -2149,6 +2149,77 @@ class Component extends DCLogic {
     return{li,x,target,tabs,
       table:list.slice(0,lim).map(p=>{const c=COL[grp(p)]||['#f3eefc','#6b3fb8'];return{...avatar(p.l.name),name:p.l.name,sub:[p.l.role,p.l.company].filter(Boolean).join(' · '),step:p.st[0],sBg:c[0],sFg:c[1],when:p.st[2],next:p.st[3],open:()=>this.openLead(p.l.id)};}),
       hasMoreRows:list.length>lim,moreRows:'Show '+Math.min(50,list.length-lim)+' more of '+list.length,moreRowsGo:()=>this.setState(x=>({outLim:(x.outLim||25)+50}))};}
+  /* Daily brief scoreboard (15 Nov): one clean update. Overall, then LinkedIn and X the same way: numbers for today, yesterday
+     and the last 7 days, where everyone is now, what waits on Reyansh, what goes out next, whether the bots are healthy, and a
+     numbered list of next steps. Everything is live from what the CRM has loaded. */
+  scoreVals(){const s=this.state;const D=864e5;const t0=new Date();t0.setHours(0,0,0,0);const T0=t0.getTime(),Y0=T0-D,W0=T0-6*D;
+    const ms=x=>{const v=Date.parse(x||'');return isNaN(v)?0:v;};
+    const win=at=>{const v=typeof at==='number'?at:ms(at);return{t:v>=T0,y:v>=Y0&&v<T0,w:v>=W0};};
+    const cnt=(arr,atOf)=>{const o={t:0,y:0,w:0};for(const a of arr){const w=win(atOf(a));if(w.t)o.t++;if(w.y)o.y++;if(w.w)o.w++;}return o;};
+    const jump=(plat,page)=>{store.set('plat',plat);try{localStorage.setItem('ak-crm-page',page);}catch(e){}this.setState({plat,page,cid:null,lid:null,pal:false});if(this.mainRef.current)this.mainRef.current.scrollTop=0;if(this.ready)this.load(320);};
+    const row=(label,o,hint)=>({label,t:String(o.t),y:String(o.y),w:String(o.w),hint:hint||'',tC:o.t?'var(--ink)':'var(--ink-4)'});
+    const since=x=>x?this.since(x):'never';
+    // ── LinkedIn
+    const LT=AK.LBT.rows||[],LS=AK.LD.settings||{},lst=LS.li_bot_status||{},lset=LS.li_bot||{};
+    const sent=k=>LT.filter(t=>t.status==='sent'&&k.includes(t.kind));
+    const LL=this.leadsAll().filter(l=>l.source==='LinkedIn');const LI=l=>(l.fields||{}).li||{};
+    const liRows=[row('Connection requests sent',cnt(sent(['invite']),t=>t.sent_at)),row('Accepted our request',cnt(LL.filter(l=>LI(l).acc),l=>LI(l).acc)),
+      row('First messages (the 3 ideas)',cnt(sent(['dm','accept']),t=>t.sent_at)),row('Follow-ups sent',cnt(sent(['followup']),t=>t.sent_at)),
+      row('Replies',cnt(LL.filter(l=>LI(l).replied),l=>LI(l).replied)),row('Calls booked',cnt(LL.filter(l=>/^(call booked|proposal sent|won)$/i.test(l.stage)),l=>l.stage_at))];
+    const live=LL.filter(l=>!l.archived&&!/^(won|lost|cold lead)$/i.test(l.stage));
+    const liPipe=[['Requests out',live.filter(l=>LI(l).req&&!LI(l).acc).length],['Accepted, ideas next',live.filter(l=>LI(l).acc&&!LI(l).dm&&!LI(l).replied&&!LI(l).stop).length],
+      ['Ideas sent, in follow-ups',live.filter(l=>LI(l).dm&&!LI(l).replied&&!LI(l).stop).length],['Talking',live.filter(l=>LI(l).replied||/^in talks$/i.test(l.stage)).length],
+      ['Call booked',LL.filter(l=>/^(call booked|proposal sent)$/i.test(l.stage)).length],['Won',LL.filter(l=>/^won$/i.test(l.stage)).length]].map(([k,v])=>({k,v:String(v)}));
+    const liReview=LT.filter(t=>t.status==='review'&&t.kind==='invite').length;
+    const liAnswer=LL.filter(l=>LI(l).replied&&/^in talks$/i.test(l.stage)&&!LI(l).answered&&ms(LI(l).replied)>Date.now()-14*D).length;
+    const liQueued=LT.filter(t=>t.status==='ready'||t.status==='sending');const q=k=>liQueued.filter(t=>k.includes(t.kind)).length;
+    const liSeen=ms(lst.seen),liOn=liSeen&&Date.now()-liSeen<45*60e3;
+    const wkInv=sent(['invite']).filter(t=>ms(t.sent_at)>Date.now()-7*D).length,cap=+lset.week_cap||150;
+    const liHealth=[{ok:liOn&&!lset.paused,text:lset.paused?'LinkedIn bot is paused':liOn?'LinkedIn bot is on (checked '+since(lst.seen)+')':'LinkedIn bot last checked '+since(lst.seen)+': open Chrome so it can send'},
+      {ok:wkInv<cap,text:wkInv+' of '+cap+' connection requests used this week'+(wkInv>=cap?': the cap is reached, requests wait':'')},
+      ...(lst.last_error&&ms(lst.last_error_at)>Date.now()-6*3600e3?[{ok:false,text:'Last error '+since(lst.last_error_at)+': '+clip(String(lst.last_error),120)}]:[])];
+    // ── X
+    const XT=AK.XT.rows||[],xs=(AK.XT.status||{}),xst=xs.x_bot_status||{},xset=xs.x_bot||{};
+    const xsent=k=>XT.filter(t=>t.status==='sent'&&k.includes(t.kind));
+    const P=this.allPeople();const rep=P.filter(p=>p.c&&p.c['Replied on']);
+    const xRows=[row('First DMs sent',cnt(xsent(['dm']),t=>t.sent_at)),row('Follow-ups sent',cnt(xsent(['fu1','fu2','fu3','fu4','fu5','fu6','fu7']),t=>t.sent_at)),
+      row('Replies',cnt(rep,p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})),row('Calls booked',cnt(P.filter(p=>p.stage==='Call booked'&&p.c&&p.c['Call on']),p=>{const d=AK.cellDate(p.c['Call on']);return d?d.getTime():0;}))];
+    const xPipe=['To send','Contacted','Follow-up 1 sent','Follow-up 2 sent','Replied','Call booked','Customer'].map(st=>({k:st==='To send'?'To approve':st==='Contacted'?'First DM sent':st,v:String(P.filter(p=>p.stage===st).length)}));
+    const L=this.lists(P);const xApprove=P.filter(p=>p.stage==='To send'&&p.handle&&!AK.xtActive(p.row,'dm')).length;
+    const xQ=XT.filter(t=>t.status==='ready'||t.status==='sending');
+    const xSeen=ms(xst.seen),xOn=xSeen&&Date.now()-xSeen<45*60e3,cool=ms(xset.cooldown_until)>Date.now();
+    const xHealth=[{ok:xOn&&!xset.paused&&!cool,text:cool?'X asked us to slow down: sending resumes '+new Date(ms(xset.cooldown_until)).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'})+(xset.cap?' (then '+xset.cap+' a day)':''):xset.paused?'X bot is paused':xOn?'X bot is on (checked '+since(xst.seen)+')':'X bot last checked '+since(xst.seen)+': open Chrome so it can send'},
+      ...(xst.last_error&&ms(xst.last_error_at)>Date.now()-24*3600e3?[{ok:false,text:'Last problem '+since(xst.last_error_at)+': '+clip(String(xst.last_error),120)}]:[])];
+    // ── signals and searches (shared)
+    const sig=['funding','launches','hiring'].map(k=>lst['last_'+k+'_result']).filter(r=>r&&r.error);
+    const sigNew=this.leadsAll().filter(l=>((l.fields||{}).li||{}).signal_status==='new').length;
+    // ── overall
+    const firstT=cnt([...sent(['invite','inmail']),...xsent(['dm'])],t=>t.sent_at);const goal=(+lset.daily_new||20)+(+xset.daily_new||10);
+    const allReplies=cnt([...LL.filter(l=>LI(l).replied).map(l=>LI(l).replied),...rep.map(p=>{const d=AK.cellDate(p.c['Replied on']);return d?d.getTime():0;})],x=>x);
+    const callsUp=this.leadsAll().filter(l=>/^call booked$/i.test(l.stage)&&!l.archived).length;
+    const m0=new Date();m0.setDate(1);m0.setHours(0,0,0,0);const won=this.leadsAll().filter(l=>/^won$/i.test(l.stage)&&ms(l.stage_at)>=m0.getTime()&&!/clip|ugc/i.test(String(l.pitch||'')+String(l.closed_for||''))).length;
+    const overall=[{label:'New people reached today',v:firstT.t+' / '+goal,d:'Yesterday '+firstT.y+' · 7 days '+firstT.w,c:firstT.t>=goal?'var(--ok-ink)':'var(--ink)'},
+      {label:'Replies (LinkedIn + X)',v:String(allReplies.t),d:'Yesterday '+allReplies.y+' · 7 days '+allReplies.w,c:'var(--ink)'},
+      {label:'Calls booked (GTM)',v:String(callsUp),d:'In Call booked now',c:'var(--ink)'},
+      {label:'Clients won this month',v:String(won),d:won?'':'Goal: the first one',c:won?'var(--ok-ink)':'var(--bad)'}];
+    // ── next steps, most important first
+    const steps=[];const st=(text,why,btn,go)=>steps.push({n:String(steps.length+1),text,why,btn,go,hasBtn:!!btn});
+    if(liAnswer)st('Answer '+liAnswer+' LinkedIn '+(liAnswer===1?'reply':'replies'),'They wrote back: the bot stopped, it’s your move.','Open',()=>jump('LinkedIn','liPipe'));
+    if(L.rep.length)st('Answer '+L.rep.length+' X '+(L.rep.length===1?'reply':'replies'),'They wrote back on X.','Open',()=>jump('X','inbox'));
+    if(callsUp)st('Prep '+callsUp+' booked '+(callsUp===1?'call':'calls'),'Read the dossier, and end the call with the offer and the price.','Dossiers',()=>jump('Leads','leadDossier'));
+    if(liReview)st('Approve '+liReview+' LinkedIn connection '+(liReview===1?'request':'requests'),'The only step that needs you; everything after runs on its own.','Approve',()=>jump('LinkedIn','liPipe'));
+    if(xApprove)st('Approve '+xApprove+' first X '+(xApprove===1?'DM':'DMs'),'They wait in X › Pipeline › To approve.','Approve',()=>jump('X','pipeline'));
+    if(sigNew)st('Review '+sigNew+' new '+(sigNew===1?'signal':'signals'),'Founders who just raised, launched or are hiring for growth.','Review',()=>jump('Leads','leadSignals'));
+    if(!liOn||!xOn)st('Keep Chrome open with the extension on','The bots only send while Chrome is open'+(!liOn?' (LinkedIn last checked '+since(lst.seen)+')':'')+(!xOn?' (X last checked '+since(xst.seen)+')':'')+'.','',null);
+    for(const r of sig)st('Signals: '+r.error,'The daily searches can’t run until this is fixed.','Signals',()=>jump('Leads','leadSignals'));
+    if(!steps.length)st('Nothing needs you right now','The bots are sending; new replies will show here.','',null);
+    const left=[{k:'LinkedIn requests to approve',v:liReview},{k:'LinkedIn messages going out',v:q(['dm','accept'])+q(['followup'])},{k:'LinkedIn requests going out',v:q(['invite'])},
+      {k:'X first DMs to approve',v:xApprove},{k:'X messages queued',v:xQ.length}].map(x=>({k:x.k,v:String(x.v)}));
+    const hl=h=>h.map(x=>({text:x.text,dot:x.ok?'var(--ok)':'var(--warn)'}));
+    return{overall,steps,left,
+      li:{rows:liRows,pipe:liPipe,health:hl(liHealth),wait:liReview+' requests to approve · '+liAnswer+' replies to answer',next:q(['invite'])+' requests, '+q(['dm','accept'])+' first messages and '+q(['followup'])+' follow-ups queued',open:()=>jump('LinkedIn','liPipe')},
+      x:{rows:xRows,pipe:xPipe,health:hl(xHealth),wait:xApprove+' first DMs to approve · '+L.rep.length+' replies to answer',next:xQ.filter(t=>t.kind==='dm').length+' first DMs and '+xQ.filter(t=>t.kind!=='dm').length+' follow-ups queued',open:()=>jump('X','pipeline')},
+      updated:'Live · '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),details:!!s.briefDetails,detailsLabel:s.briefDetails?'Hide details':'Show details: follow-up lists, everyone on LinkedIn, past briefs',toggleDetails:()=>this.setState(z=>({briefDetails:!z.briefDetails}))};}
   dailyVals(){const s=this.state;const R=AK.BR.rows||[];const pick=R.find(x=>x.day===s.briefDay)||R[0];const b=pick?pick.data:null;
     const fmtD=d=>{const t=new Date(d+'T00:00:00');return isNaN(t)?d:t.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});};
     const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));const made=pick?Date.parse(pick.made_at):0;const done=s.briefDone||{};
