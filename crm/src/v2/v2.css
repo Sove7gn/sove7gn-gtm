@@ -232,3 +232,69 @@ textarea.in{resize:vertical;min-height:70px;line-height:1.45}
   .kv{grid-template-columns:1fr}
   .sec-h .hint{display:none}
 }
+
+/* ---------- v2 phase 2+3 (16 Nov): one clean row style everywhere ---------- */
+.ph{margin-bottom:18px}
+.h2{font-size:15px;font-weight:600;margin:28px 0 10px}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.bar .sp{flex:1}
+.in.search{width:220px;height:32px;padding:5px 10px}
+.seg{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto}
+.seg button{white-space:nowrap;flex:none;border:0;background:none;padding:9px 12px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;gap:6px;align-items:center}
+.seg button.on{color:var(--fg);border-bottom-color:var(--fg);font-weight:500}
+.seg .c{font-size:11.5px;background:var(--sunk);border-radius:20px;padding:0 7px;color:var(--muted)}
+.seg button.on .c{background:var(--fg);color:#fff}
+.tb{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}
+.tb-h,.tb-r{display:grid;gap:14px;align-items:center;padding:0 16px}
+.tb-h{height:36px;background:var(--rail);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:500}
+.tb-r{min-height:58px;padding-top:8px;padding-bottom:8px;border-top:1px solid var(--line)}
+.tb-h+.tb-r{border-top:0}
+.tb-r[data-a]{cursor:pointer}
+.tb-r:hover{background:#FAFAFB}
+.tc{min-width:0}
+.tb-more{padding:8px 12px;border-top:1px solid var(--line)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.faint{color:var(--faint)}
+.pc{display:flex;gap:10px;align-items:center;min-width:0}
+.pc-t{min-width:0}
+.pc .nm{font-weight:600}
+.ra{display:flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:nowrap}
+.todo-w{font-weight:500}
+.todo3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.t3{text-align:left;border:1px solid var(--line);border-radius:12px;background:#fff;padding:14px 16px}
+.t3:hover{border-color:var(--line-2);background:#FAFAFB}
+.t3 .n{font-size:26px;font-weight:600;letter-spacing:-.02em}
+.t3 .l{font-weight:600;margin-top:2px}
+.t3 .d{font-size:12.5px;color:var(--muted)}
+.t3.zero .n{color:var(--faint)}
+.goal{display:flex;align-items:center;gap:10px;font-size:13px}
+.bar1{width:120px;height:6px;border-radius:6px;background:var(--sunk);overflow:hidden}
+.bar1 i{display:block;height:100%;background:var(--fg)}
+.posts{display:grid;gap:12px}
+.post{border:1px solid var(--line);border-radius:12px;background:#fff;padding:14px 16px}
+.post-h{display:flex;align-items:center;gap:10px}
+.post-h .sp{flex:1}
+.post-t{margin:10px 0;font-size:13.5px;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.post textarea{min-height:52px}
+.post-a{display:flex;gap:6px;margin-top:8px}
+.board{display:flex;gap:12px;overflow-x:auto;padding:14px 0 16px;align-items:flex-start}
+.bcol{flex:0 0 248px;background:var(--rail);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 230px)}
+.bcol-h{display:flex;align-items:center;gap:7px;padding:10px 12px;font-size:13px;font-weight:600}
+.bcol-h .c{font-size:11.5px;color:var(--muted);font-weight:500}
+.bcol-h .sp{flex:1}
+.dotc{width:8px;height:8px;border-radius:50%;flex:none}
+.bcol-b{overflow:auto;padding:0 8px 8px;display:flex;flex-direction:column;gap:8px}
+.kc{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 11px;cursor:pointer;min-width:0}
+.kc:hover{border-color:var(--line-2)}
+.kc-t{display:flex;align-items:center;gap:6px;justify-content:space-between;min-width:0}
+.kc .meta{font-size:12px}
+.kc-one{font-size:12.5px;color:var(--ink-2);margin-top:4px}
+.kc-a{display:flex;gap:4px;margin-top:8px}
+.kc-empty{font-size:12.5px;color:var(--faint);text-align:center;padding:12px 0}
+@media (max-width:860px){
+  .tb-h{display:none}
+  .tb-r{grid-template-columns:1fr!important;gap:6px;padding:12px 16px}
+  .ra{justify-content:flex-start}
+  .todo3{grid-template-columns:1fr}
+  .in.search{width:100%}
+}
