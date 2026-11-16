@@ -4042,6 +4042,10 @@ function briefHtml(){
     const fl=(t,o,plat)=>'<div class="blk"><h3>'+platMark(plat)+esc(t)+'</h3><div class="chips" style="margin-bottom:8px">'+stats(o.stats)+'</div>'+((o.items||[]).length?'<div class="rows card">'+o.items.map(it=>followItem({...it,plat})).join('')+'</div>':'<div class="note">Nobody to follow up with.</div>')+'</div>';
     body='<div class="chips" style="margin-bottom:14px">'+(b.days||[]).map(d=>'<button type="button" class="chip'+(d.on?' on':'')+'"'+act(cb(d.pick))+'>'+esc(d.label)+'</button>').join('')+'</div>'
       +'<p class="note" style="margin-top:0">'+esc(b.covers)+'</p>'
+      +safe(()=>{const R=AK.BR.rows||[];const bo=((R.find(x=>x.day===(L.state||{}).briefDay)||R[0]||{}).data||{}).bots;if(!bo)return '';
+        return '<div class="blk"><h3>Bots: what went out</h3><div class="rows card">'+bo.out.map(t=>'<div class="note" style="padding:6px 10px">'+esc(t)+'</div>').join('')+'</div>'
+          +'<h3 style="margin-top:12px">'+(bo.broke.length?'What broke':'Nothing broke')+'</h3>'+(bo.broke.length?'<div class="rows card">'+bo.broke.map(t=>'<div class="note" style="padding:6px 10px;color:#b42318">'+esc(t)+'</div>').join('')+'</div>':'')
+          +(bo.waiting?'<p class="note">'+bo.waiting+' answers or approvals wait for you in Needs you.</p>':'')+'</div>';},'')
       +'<div class="stats" style="margin-bottom:16px">'+(b.overall||[]).map(o=>'<div class="stat"><div class="l">'+esc(o.label)+'</div><div class="v">'+esc(o.v)+'</div><div class="d">'+esc(o.d||'')+'</div></div>').join('')+'</div>'
       +fl('LinkedIn: follow up today',b.li||{},'LinkedIn')+fl('X: follow up today',b.x||{},'X')+fl('Instagram: no update in 2+ days (most move to WhatsApp)',b.ig||{},'Instagram');}
   return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh"><h2>Morning brief'+(b.title?' · '+esc(b.title):'')+'</h2><span style="flex:1"></span>'

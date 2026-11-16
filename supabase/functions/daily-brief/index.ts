@@ -381,8 +381,9 @@ async function build(dry = false, days = 7) {
     { label: "New leads", v: li.found + igs.newLeads + xs.found, d: "LinkedIn " + li.found + " · X " + xs.found + " · Instagram " + igs.newLeads },
     { label: "Follow up today", v: liFollow.length + xFollow.length + igStale.length, d: "LinkedIn " + liFollow.length + " · X " + xFollow.length + " · Instagram " + igStale.length },
   ];
+  const bots = await botReport(start, end);
   const brief = {
-    day: today, yday, from: new Date(start).toISOString(), to: new Date(end).toISOString(), made_at: new Date().toISOString(), overall,
+    day: today, yday, bots, from: new Date(start).toISOString(), to: new Date(end).toISOString(), made_at: new Date().toISOString(), overall,
     linkedin: { stats: [{ label: "Requests sent", v: li.requests }, { label: "Accepted", v: li.accepted }, { label: "First DMs", v: li.dms }, { label: "Follow-ups", v: li.followups },
       { label: "Replies", v: li.replies }, { label: "Calls booked", v: li.calls }, { label: "New good fits", v: li.found }, { label: "Waiting for your OK", v: liReview ?? 0 }, { label: "Approved, sending soon", v: liReady ?? 0 }], follow: liFollow.sort((a, b) => (b.days ?? 0) - (a.days ?? 0)).slice(0, 40), followN: liFollow.length },
     x: { stats: [{ label: "DMs sent", v: xs.dms }, { label: "Follow-ups", v: xs.followups }, { label: "Replies", v: xs.replies }, { label: "Couldn't DM", v: xs.cant },
@@ -393,6 +394,45 @@ async function build(dry = false, days = 7) {
   };
   await db.from("crm_briefs").upsert({ day: today, data: brief, made_at: brief.made_at });
   return brief;
+}
+
+// (16 Nov) What the bots sent in the last 24 hours and what broke, for the top of the morning brief.
+async function botReport(start: number, end: number) {
+  const from = new Date(start).toISOString(), to = new Date(end).toISOString();
+  const tally = (rows: any[], key: (r: any) => string) => { const m: Record<string, number> = {}; for (const r of rows) { const k = key(r); m[k] = (m[k] ?? 0) + 1; } return Object.entries(m).sort((a, b) => b[1] - a[1]); };
+  const why = (e: any) => String(e || "no reason given").replace(/\(@[^)]*\)/g, "").replace(/\s+/g, " ").trim().slice(0, 90);
+  const [xr, xrf, xt, xtf, lt, ltf, xs, ls, waitX, waitLi, xb] = await Promise.all([
+    db.from("crm_x_reply").select("url").eq("status", "done").eq("done_by", "x bot").gte("done_at", from).lt("done_at", to),
+    db.from("crm_x_reply").select("error").eq("status", "failed").gte("done_at", from).lt("done_at", to),
+    db.from("crm_x_tasks").select("kind").eq("status", "sent").gte("sent_at", from).lt("sent_at", to),
+    db.from("crm_x_tasks").select("error").eq("status", "failed").gte("updated_at", from).lt("updated_at", to),
+    db.from("crm_li_tasks").select("kind").eq("status", "sent").gte("sent_at", from).lt("sent_at", to),
+    db.from("crm_li_tasks").select("error").eq("status", "failed").gte("updated_at", from).lt("updated_at", to),
+    db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle(),
+    db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle(),
+    db.from("crm_x_tasks").select("id", { count: "exact", head: true }).in("kind", ["reply", "close"]).eq("status", "review"),
+    db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("status", "review"),
+    db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle(),
+  ]);
+  const xk = tally(xt.data ?? [], (r) => r.kind === "dm" ? "first DMs" : "follow-ups"), lk = tally(lt.data ?? [], (r) => ({ invite: "connection requests", dm: "first messages", followup: "follow-ups", accept: "accepts", reply: "answers", close: "closing notes", inmail: "InMails" } as any)[r.kind] ?? r.kind);
+  const list = (a: [string, number][]) => a.length ? a.map(([k, n]) => n + " " + k).join(", ") : "nothing";
+  const out = [
+    "X post replies: " + (xr.data ?? []).length + " of 30",
+    "X DMs: " + list(xk),
+    "LinkedIn: " + list(lk),
+  ];
+  const broke: string[] = [];
+  for (const [k, n] of tally(xrf.data ?? [], (r) => why(r.error)).slice(0, 3)) broke.push("X post replies failed " + n + "x: " + k);
+  for (const [k, n] of tally(xtf.data ?? [], (r) => why(r.error)).slice(0, 3)) broke.push("X DMs failed " + n + "x: " + k);
+  for (const [k, n] of tally(ltf.data ?? [], (r) => why(r.error)).slice(0, 3)) broke.push("LinkedIn sends failed " + n + "x: " + k);
+  const xv: any = xs.data?.value ?? {}, lv: any = ls.data?.value ?? {};
+  const ago = (t: any) => Math.round((Date.now() - (Date.parse(t ?? "") || 0)) / 60e3);
+  if (ago(xv.seen) > 60) broke.push("The X bot hasn't checked in for " + Math.round(ago(xv.seen) / 60) + " hours (is Chrome open?)");
+  if (ago(lv.seen) > 60) broke.push("The LinkedIn bot hasn't checked in for " + Math.round(ago(lv.seen) / 60) + " hours (is Chrome open?)");
+  const cd = (xb.data?.value as any)?.cooldown_until; if (Date.parse(cd ?? "") > Date.now()) broke.push("X asked us to slow down: DMs and replies paused until " + new Date(Date.parse(cd) + 330 * 60e3).toISOString().slice(11, 16) + " IST");
+  if ((xr.data ?? []).length < 20) broke.push("Only " + (xr.data ?? []).length + " X post replies went out (goal 30)");
+  const waiting = (waitX.count ?? 0) + (waitLi.count ?? 0);
+  return { out, broke, waiting, version: xv.version ?? lv.version ?? "" };
 }
 
 Deno.serve(async (req) => {
