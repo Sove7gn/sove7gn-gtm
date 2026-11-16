@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "crm", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8787", "--directory", "crm"], "port": 8787 }
+    { "name": "crm", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8787", "--directory", "crm"], "port": 8787 },
+    { "name": "crm-2", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8789", "--directory", "crm"], "port": 8789, "autoPort": false }
   ]
 }
