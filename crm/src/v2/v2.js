@@ -861,7 +861,9 @@ function board(B,plat){
   return '<div class="board2" data-keep="board:'+plat+'">'+cols.map(c=>'<div class="bc"><div class="bc-h" style="border-top-color:'+esc(c.dot||'var(--faint)')+'"><b>'+esc(plainWords(c.name))+'</b><span class="cnt">'+esc(c.n)+'</span><span class="sp"></span>'
     +(c.hasBulk&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.bulk))+'>'+esc(c.bulkLabel)+'</button>':c.hasAll&&canEdit()?'<button type="button" class="lnk"'+act(cb(c.all))+'>Approve all</button>':'')
     +'<button type="button" class="exp" title="Open the whole column"'+act(()=>{V.pexp={plat,id:c.id};schedule();})+'>⤢</button></div>'
-    +(c.hint?'<div class="bc-hint">'+esc(plainWords(c.hint))+'</div>':'')+'<div class="bc-b" data-keep="bc:'+plat+':'+esc(c.id)+'">'
+    +(c.hint?'<div class="bc-hint">'+esc(plainWords(c.hint))+'</div>':'')
+    +(c.msg?'<details class="bc-msg" onclick="event.stopPropagation()"><summary>The message</summary><div class="msgbox">'+esc(c.msg)+'</div></details>':'')
+    +'<div class="bc-b" data-keep="bc:'+plat+':'+esc(c.id)+'">'
     +(c.cards||[]).slice(0,V.more['b:'+plat+c.id]?400:25).map(k=>kcard(k,plat)).join('')
     +((c.cards||[]).length>25&&!V.more['b:'+plat+c.id]?'<button type="button" class="lnk"'+act(()=>{V.more['b:'+plat+c.id]=true;schedule();})+'>Show '+((c.cards||[]).length-25)+' more</button>':'')
     +(!(c.cards||[]).length?'<div class="kc-empty">Nobody here</div>':'')+'</div></div>').join('')+'</div>';
@@ -875,6 +877,7 @@ function kcard(k,plat){
     +((l||c)&&plat!=='ig'?handBtn(hand,()=>l?handLi(l,!hand):handX(c,!hand),true):'')+trashBtn(l?rmOfLead(l):c?rmOfContact(c):null)+'</span></div>'
     +(k.sub?'<div class="ell k2-s">'+esc(k.sub)+'</div>':'')+(k.one?'<div class="k2-o">'+esc(k.one)+'</div>':'')+(chips?'<div class="k2-c">'+chips+'</div>':'')
     +(k.status?'<div class="k2-st">'+esc(plainWords(k.status))+'</div>':'')
+    +(k.next?(k.nextMsg?'<details class="k2-next" onclick="event.stopPropagation()"><summary>'+esc(k.next)+'</summary><div class="msgbox">'+esc(k.nextMsg)+'</div></details>':'<div class="k2-next">'+esc(k.next)+'</div>'):'')
     +(k.hasMsg&&canEdit()&&!hand?'<div class="k2-a">'+btn('Approve',k.approve,'pri sm')+btn('Skip',k.skip,'sm ghost')+'</div>':'')
     +(!k.hasMsg&&!k.isFailed&&canEdit()&&!hand&&/^(Writing the request|Looking them up)/.test(k.status||'')?'<div class="k2-a">'+btn('Write it now',()=>{AK.lbtRun();L.toast('Writing the request now. About 30 seconds, then Approve shows here.');},'sm')+'</div>':'')
     +(k.isFailed&&canEdit()?'<div class="k2-a">'+btn('Try again',k.retry,'sm')+'</div>':'')

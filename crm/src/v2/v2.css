@@ -553,3 +553,12 @@ body.panning,body.panning *{cursor:grabbing!important;user-select:none!important
 /* (16 Nov) trash icon on every person: remove into the Trash */
 .trash{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:4px 6px;border-radius:6px;opacity:.45;transition:opacity .15s,background .15s;margin-left:4px}
 .trash:hover{opacity:1;background:#FEF3F2}
+
+/* (16 Nov) sequence steps: the column's message and each card's next step, expandable */
+.bc-msg{margin:0 10px 8px;font-size:12px}
+.bc-msg summary,.k2-next summary{cursor:pointer;color:var(--muted,#667085);font-weight:600;list-style:none}
+.bc-msg summary::before,.k2-next summary::before{content:"▸ ";}
+.bc-msg[open] summary::before,.k2-next[open] summary::before{content:"▾ ";}
+.k2-next{margin-top:6px;font-size:11.5px;color:#1D4ED8}
+.k2-next summary{color:#1D4ED8}
+.msgbox{margin-top:6px;padding:8px 10px;border-radius:8px;background:#F8FAFC;border:1px solid #E5E7EB;color:#344054;white-space:pre-wrap;line-height:1.45;font-weight:400}
