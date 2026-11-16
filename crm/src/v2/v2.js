@@ -134,7 +134,7 @@ function needs(){return memo('needs',()=>{
   const allTips=(tips.items||[]).filter(t=>t.notSent);
   const tipItems=allTips.filter(t=>{const x=LIo(byId.get(t.id));return x.replied||(x.acc&&!x.dm&&!botFirst.has(t.id));});
   const tipsAhead=allTips.length-tipItems.length;
-  const fol=[...((dv.li||{}).items||[]).map(x=>({...x,plat:'LinkedIn'})),...((dv.x||{}).items||[]).map(x=>({...x,plat:'X'})),...((dv.ig||{}).items||[]).map(x=>({...x,plat:'Instagram'}))];
+  const fol=[...((dv.li||{}).items||[]).map(x=>({...x,plat:'LinkedIn'})),...((dv.x||{}).items||[]).filter(x=>x.id&&leadById(x.id)).map(x=>({...x,plat:'X'})),...((dv.ig||{}).items||[]).map(x=>({...x,plat:'Instagram'}))];
   const rpOpen=+(rp.openN||0);
   return{lp,xp,rp,sg,tips,tipsAhead,dv,liAnswer,xAnswer,liWait,xWait,sigs,tipItems,fol,liFound:col(lp,'found'),xReview:col(xp,'review'),
     nAnswer:liAnswer.length+xAnswer.length,nApprove:liWait.length+xWait.length+rpOpen+sigs.length,nHand:tipItems.length+fol.length};});}
@@ -319,7 +319,7 @@ function todos(){return memo('todos',()=>{
     main:canEdit()?['Add to outreach',k.add]:null,more:[canEdit()&&['Not a fit',k.trash]]});
   for(const t of N.tipItems)out.push({rm:rmFor(t.id),t:'hand',plat:'LinkedIn',name:t.name,sub:t.sub,what:'Send their 3 ideas',detail:t.meta,when:'',open:t.openLead,
     main:['Copy + open chat',()=>{t.copy();if(t.hasChat)t.openChat();}],more:[t.canEdit&&['Mark sent',t.markSent]]});
-  for(const it of N.fol)out.push({rm:rmFor(it.id)||rmFor(it.lead_id)||(it.handle?{x:String(it.handle).replace(/^@/,''),name:it.name}:null),t:'hand',plat:it.chan==='WhatsApp'?'WhatsApp':it.plat,name:it.name,sub:it.sub,what:'Follow up on '+it.chan,detail:plainWords(it.why),when:'',open:it.hasLead?it.openLead:null,
+  for(const it of N.fol)out.push({rm:rmFor(it.id)||(/linkedin\.com\/in\//.test(it.link||'')?{link:it.link,name:it.name}:null),t:'hand',plat:it.chan==='WhatsApp'?'WhatsApp':it.plat,name:it.name,sub:it.sub,what:'Follow up on '+it.chan,detail:plainWords(it.why),when:'',open:it.hasLead?it.openLead:null,
     main:it.hasLink?[it.chan==='WhatsApp'?'WhatsApp':'Open',it.open]:null,more:[it.canSpoke&&['Done',it.spoke]]});
   return out.filter(o=>!gone(o.rm));});}
 function pgNeeds(){

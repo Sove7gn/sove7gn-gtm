@@ -1835,7 +1835,7 @@ class Component extends DCLogic {
     const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));const made=pick?Date.parse(pick.made_at):0;const done=s.briefDone||{};
     const CH={LinkedIn:['#e8f1fb','#0a66c2'],X:['#eef0f3','#111'],WhatsApp:['#e3f6ea','#16723b'],Instagram:['#fdeef6','#b4237a']};
     const item=(it,k)=>{const l=it.id?byId.get(it.id):null;const touched=l&&Date.parse(l.last_touch||'')>made+6e4;const key=k+':'+(it.id||it.name);
-      return{...avatar(it.name),name:it.name,sub:it.sub||'',why:it.why,chan:it.channel,chanBg:(CH[it.channel]||CH.X)[0],chanFg:(CH[it.channel]||CH.X)[1],
+      return{...avatar(it.name),id:it.id||null,link:it.link||'',name:it.name,sub:it.sub||'',why:it.why,chan:it.channel,chanBg:(CH[it.channel]||CH.X)[0],chanFg:(CH[it.channel]||CH.X)[1],
         hasLink:!!it.link,open:()=>window.open(it.link,'_blank','noopener'),openLabel:it.channel==='WhatsApp'?'WhatsApp ↗':'Open '+it.channel+' ↗',
         hasLead:!!l,openLead:()=>l&&this.openLead(l.id),hasPhone:!!it.phone,phone:it.phone||'',
         canSpoke:!!l&&AK.canEdit(),spoke:()=>{if(!l)return;this.setState(x=>({briefDone:{...(x.briefDone||{}),[key]:true}}));AK.leadNote(l.id,'message','Followed up'+(it.channel==='WhatsApp'?' on WhatsApp':' on '+it.channel)+' (from the Daily brief)');},

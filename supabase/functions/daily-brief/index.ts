@@ -328,8 +328,9 @@ async function build(dry = false, days = 7) {
     if (t < start) m.b = Math.max(m.b, v); if (t < end) m.e = Math.max(m.e, v); views.set(link, m);
   }
   xs.views = [...views.values()].reduce((a, m) => a + Math.max(0, m.e - m.b), 0);
+  // (16 Nov) The X bot sends every X follow-up itself and replies wait under Needs you > Answer, so the brief lists no X follow-ups.
   const xFollow: Item[] = [];
-  for (const r of P.rows) {
+  for (const r of (false as boolean) ? P.rows : []) {
     const st = c(r, "Status"), name = c(r, "Name"), handle = c(r, "X handle").replace(/^@/, ""); if (!name) continue;
     const sent = parseT(c(r, "Sent on")), f1 = parseT(c(r, "FU1 sent")), f2 = parseT(c(r, "FU2 sent")), rep = parseT(c(r, "Replied on")), call = c(r, "Call on");
     const link = handle ? "https://x.com/messages/compose?recipient_id=" + c(r, "X user ID") : "";
@@ -341,7 +342,7 @@ async function build(dry = false, days = 7) {
     if (why) xFollow.push({ name, sub: [c(r, "Role"), c(r, "Company")].filter(Boolean).join(" · "), why, channel: "X", link: xl });
   }
   const E = H("Post Engagers"), eh = E.h;
-  for (const r of E.rows) {
+  for (const r of (false as boolean) ? E.rows : []) {   // (16 Nov) engagers live in Midbound, not here
     const st = String(r.cells?.[col(eh, "Status")] ?? ""), verdict = String(r.cells?.[col(eh, "Verdict")] ?? "");
     if (st && st !== "To message") continue; if (/skip/i.test(verdict)) continue;
     const handle = String(r.cells?.[col(eh, "Handle")] ?? "").replace(/^@/, ""); if (!handle || /^grok$|bot$/i.test(handle) || /\bbot\b/i.test(String(r.cells?.[col(eh, "Name")] ?? ""))) continue;

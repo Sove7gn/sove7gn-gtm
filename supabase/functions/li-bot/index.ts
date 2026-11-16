@@ -2298,7 +2298,8 @@ async function xAutoFollowups(): Promise<number> {
     const first = String(name).trim().split(/\s+/)[0];
     const company = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "your company";
     const n = X_FU_KINDS.indexOf(kind);
-    const t = tpl.get(c["Template"]);
+    // (16 Nov) a DM sent by hand with no follow-up script ("Inbound" and the like) follows the warm or cold script
+    const t = tpl.get(c["Template"]) ?? tpl.get(/warm/i.test(c["Warm/Cold"] || "") ? "W1" : "A1");
     // (14 Nov) Openers that offered 3 ideas: follow-up 1 sends them (written for this person), follow-up 2 the booking link.
     const offered = /\b(3|three)\s+(quick\s+|small\s+|inbound\s+)*(tips|ideas|tricks)\b/i.test(String(c["Opener (30-40 words)"] ?? ""));
     let raw = "";
