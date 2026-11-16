@@ -2457,6 +2457,8 @@ async function xAutoFollowups(): Promise<number> {
       if (add.length >= 30) break;
       continue;
     }
+    // (16 Nov, Reyansh) The old X sequence is stopped: people it reached stay where they are and get no more follow-ups.
+    continue;
     let kind = "";
     if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";
     else if (/^fu1 sent$/i.test(st) && !c["FU2 sent"] && f1 && now - f1 >= 24 * 3600e3) kind = "fu2";   // FU1 is a day, so this is the next day or later
