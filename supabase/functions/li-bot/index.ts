@@ -2250,7 +2250,7 @@ async function briefs(b: any) {
   const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
   if (!b.force_id) await li_move({}).catch(() => ({}));
   if (!b.force_id) await x_from_li({ max: 6 }).catch(() => ({}));
-  if (!b.force_id) await xv2_prepare({ max: 6 }).catch(() => ({}));    // (16 Nov) X first DMs get their v2 opener ahead       // (15 Nov) LinkedIn leads into the X pipeline, X handle found by the bot
+  if (!b.force_id) await xv2_prepare({ max: 2 }).catch(() => ({}));    // (16 Nov) X first DMs get their v2 opener ahead       // (15 Nov) LinkedIn leads into the X pipeline, X handle found by the bot
   if (!b.force_id) await magnets_check({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
   return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
 }
