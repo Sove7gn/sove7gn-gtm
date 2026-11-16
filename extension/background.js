@@ -609,7 +609,9 @@ async function xLoop() {
     const due = (k, min) => now - (xl[k] || 0) > min * 60e3;
     const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 10) ? ["read", xReadTick] : ["dms", xTick];
     xl[job[0]] = now; await store.set({ xl });
-    await job[1]();
+    const t0 = Date.now(); let ok = true;
+    try { await job[1](); } catch (e) { ok = false; await log("X " + job[0] + ": " + (e.message || e), true); }
+    await xReport("x_" + job[0], ok, "ran " + new Date().toLocaleTimeString() + " (" + Math.round((Date.now() - t0) / 1000) + "s)");   // heartbeat for the Bots page
   } finally { xbusy = false; }
 }
 // LinkedIn loop: the chat check every 20 minutes (or when Refresh is pressed in the CRM), else the next approved send; the slow
@@ -630,7 +632,9 @@ async function liLoop() {
   else if (due("posts", 180)) job = ["posts", engagersRun];
   if (job) ll[job[0]] = now;
   await store.set({ ll });
-  if (job) await job[1]();
+  if (!job) return;
+  const t0 = Date.now(); await job[1]();
+  await xReport("li_" + job[0], true, "ran " + new Date().toLocaleTimeString() + " (" + Math.round((Date.now() - t0) / 1000) + "s)");
 }
 // The X account id behind a handle, read off their profile page (the follow button carries it).
 async function xFindId(handle) {
