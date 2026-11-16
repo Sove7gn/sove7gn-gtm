@@ -315,7 +315,7 @@ async function compLiPeople(list: any[], me: any) {
     if (sameName(p.name, post.author)) continue;   // the author answering under their own post
     const said = String(p.said ?? "").trim();
     byKey.set(key, { key, urn: p.urn || "", pid: p.pid || "", name: cleanName(p.name), headline: String(p.headline ?? "").slice(0, 200), said: said.slice(0, 400), post_id: pid, agency: post.agency || post.author,
-      post_url: post.url, intent: INTENT.test(said) ? "Asked for it" : said.split(/\s+/).length <= 3 && said.length > 0 ? "Comment-to-get" : "", status: "pending", at: now() });
+      post_url: post.url, how: "commented", intent: INTENT.test(said) ? "Asked for it" : said.split(/\s+/).length <= 3 && said.length > 0 ? "Comment-to-get" : "", status: "pending", at: now() });
     n++;
   }
   await putSet("li_comp_posts", posts);
@@ -325,8 +325,9 @@ async function compLiPeople(list: any[], me: any) {
 async function judgeComp(p: { name: string; headline: string; said?: string; company?: string }) {
   const schema = { type: "object", required: ["fit", "why"], properties: {
     fit: { type: "string", enum: ["hot", "warm", "not a fit"] }, why: { type: "string", description: "One plain sentence" },
-    role: { type: "string" }, company: { type: "string" }, company_what: { type: "string", description: "What the company sells, one line" },
-    funded: { type: "string", enum: ["raised", "bootstrapped", "unknown"], description: "raised = has raised money from investors (pre-seed or later)" },
+    role: { type: "string" }, company: { type: "string" }, company_what: { type: "string", description: "What the company does, one short line" },
+    funding: { type: "string", description: "Money raised from investors, short, like 'Seed, $3M (2025)'. 'none found' if nothing" },
+    yc: { type: "string", description: "Y Combinator batch like 'W24' if they are a YC company, else empty" },
     b2b: { type: "boolean", description: "true if the company sells to businesses" }, agency: { type: "boolean", description: "true if the company is an agency, consultancy, freelancer or service business" },
     country: { type: "string", description: "Where the company or the person is based" } } };
   const res = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
@@ -336,13 +337,18 @@ async function judgeComp(p: { name: string; headline: string; said?: string; com
   if (!res.ok) throw new Error("Exa answered " + res.status + ": " + (await res.text()).slice(0, 160));
   return (await res.json()).output?.content ?? {};
 }
+// Raised money? From the funding line (or the old "funded" field), and a YC batch counts.
+const fundedOf = (o: any) => o.funded === "raised" || !!String(o.yc ?? "").trim() || (/\$|€|£|pre-seed|seed|series|angel|raised|backed|venture/i.test(String(o.funding ?? "")) && !/none|not found|unknown|bootstrap|no (known )?funding/i.test(String(o.funding ?? "")));
 // Our ICP, strictly: decision maker, B2B, not an agency, raised money, not based in a non tier-1 country.
 function compCore(o: any, headline: string, buyer = false): string {
   const role = String(o.role || headline || "");
   if (!DM_ROLE.test(role)) return "Not a decision maker";
   if (o.agency === true || /\bagency|freelanc|consultan|coach\b/i.test(headline)) return "Agency, freelancer or consultant";
   if (o.b2b === false) return "Sells to consumers";
-  if (!buyer && o.funded !== "raised") return o.funded === "bootstrapped" ? "Bootstrapped (no raise found)" : "No funding found";
+  const amt = (() => { const m = String(o.funding ?? "").match(/\$\s?([\d.,]+)\s?(k|m|b|million|billion)?/i); if (!m) return 0; const n = +m[1].replace(/,/g, ""); const u = (m[2] || "").toLowerCase();
+    return n * (u.startsWith("b") ? 1e9 : u.startsWith("m") ? 1e6 : u === "k" ? 1e3 : 1); })();
+  if (amt > 30e6) return "Too big (raised " + String(o.funding).slice(0, 40) + ")";   // (17 Nov) past Series B they hire a team, not us
+  if (!buyer && !fundedOf(o)) return /bootstrap/i.test(String(o.funding ?? o.funded ?? "")) ? "Bootstrapped (no raise found)" : "No funding found";
   const ctry = String(o.country ?? "").trim();
   if (ctry && !/^(unknown|n\/a|remote|global)$/i.test(ctry) && !TIER1.test(ctry)) return "Based in " + ctry;
   if (o.fit === "not a fit") return o.why ? clip(String(o.why), 90) : "Not our ICP";
@@ -356,58 +362,114 @@ async function compLead(p: any, o: any, why: string, extra: Record<string, unkno
   const { data: lead, error } = await db.from("crm_leads").insert({ name: p.name ?? "", role: o.role || clip(p.headline ?? "", 120), company: o.company ?? "",
     linkedin: p.pid ? "https://www.linkedin.com/in/" + p.pid : key, direction: "Outbound", source: "LinkedIn", stage: "New", heat: "Hot",
     source_detail: (extra.buyer ? "A client of " : "Commented on a LinkedIn post by ") + (p.agency || "a lead-gen agency") + (extra.buyer ? " (competitor)" : " (lead-gen agency)"),
-    notes: [why, o.company_what ? (o.company || "Their company") + ": " + o.company_what : "", o.funded === "raised" ? "Has raised money" : ""].filter(Boolean).join("\n"),
+    notes: [why, o.company_what ? (o.company || "Their company") + ": " + o.company_what : "", o.yc ? "YC " + o.yc : "", fundedOf(o) ? "Funding: " + (o.funding || "raised") : ""].filter(Boolean).join("\n"),
     origin_key: "li-src:comp:" + key, created_by: "automation",
-    fields: { li, li_icp: { funding: o.funded === "raised" ? "Raised" : "", one_liner: clip(String(o.company_what ?? ""), 200), hq_country: o.country ?? "" } } }).select("id").single();
+    x_handle: p.handle ? "@" + String(p.handle).replace(/^@/, "") : "",
+    fields: { li, li_icp: { funding: fundedOf(o) ? (o.funding || "Raised") : "", one_liner: clip(String(o.company_what ?? ""), 200), hq_country: o.country ?? "", yc: o.yc ?? "" } } }).select("id").single();
   if (error || !lead) return "";
   await db.from("crm_lead_events").insert({ lead_id: lead.id, kind: "note", text: "Found automatically: " + (extra.buyer ? "named as a client of " + p.agency : "commented on " + (p.agency || "an agency") + "'s LinkedIn post" + (p.said ? ": “" + clip(p.said, 160) + "”" : "")) + ". " + why, by_email: "automation" });
   return lead.id as string;
 }
 async function compJudge(max = 6) {
   const ppl = await getSet<any[]>("li_comp_people", []);
-  const adds = await getSet<string[]>("li_comp_add", []);
-  let added = 0;
-  // "Add anyway" from the CRM
-  for (const k of adds) { const p = ppl.find((x) => x.key === k); if (!p || p.lead_id) continue;
-    const id = await compLead(p, { role: p.role, company: p.company, company_what: p.company_what, funded: p.funded, country: p.country }, "Added by hand from Competitors > LinkedIn comments.");
-    if (id) { p.lead_id = id; p.status = "fit"; added++; } }
-  if (adds.length) await putSet("li_comp_add", []);
+  const added = 0;   // (17 Nov) nobody goes into a pipeline by themselves: Reyansh sends them from Competitors > Leads (comp_send)
   const todo = ppl.filter((p) => p.status === "pending").slice(0, max);
   await Promise.all(todo.map(async (p) => {
     let o: any = {}; try { o = await judgeComp(p); } catch (e) { p.err = String((e as Error).message ?? e).slice(0, 120); p.tries = (p.tries ?? 0) + 1; if (p.tries >= 3) p.status = "not"; return; }
     const no = compCore(o, p.headline);
-    Object.assign(p, { role: o.role ?? "", company: o.company ?? "", company_what: o.company_what ?? "", funded: o.funded ?? "unknown", country: o.country ?? "", why: no || o.why || "", judged_at: now(), status: no ? "not" : "fit" });
-    if (!no) { const id = await compLead(p, o, o.why ?? ""); if (id) { p.lead_id = id; added++; } }
+    Object.assign(p, { role: o.role ?? "", company: o.company ?? "", company_what: o.company_what ?? "", funding: o.funding ?? "", yc: o.yc ?? "", funded: fundedOf(o) ? "raised" : "unknown", country: o.country ?? "", why: no || o.why || "", judged_at: now(), status: no ? "not" : "fit" });
   }));
   await putSet("li_comp_people", ppl);
   return { judged: todo.length, added, waiting: ppl.filter((p) => p.status === "pending").length };
 }
 // Named clients of a competitor: find the founder on LinkedIn, background-check, add as a lead (Leads found, needs Reyansh's OK).
+async function compPersonAdd(p: any) {
+  const ppl = await getSet<any[]>("li_comp_people", []);
+  if (ppl.some((x) => x.key === p.key)) return;
+  await putSet("li_comp_people", [p, ...ppl].slice(0, 900));
+}
 async function compBuyers(max = 3) {
   const intel = await getSet<Record<string, any>>("comp_intel", {});
   let n = 0;
+  // Clients added to Leads found before 17 Nov show in the same list, marked as sent.
+  for (const [comp, it] of Object.entries(intel)) for (const cl of (it.clients ?? []) as any[]) if (cl.lead_id && !cl.listed) { cl.listed = true; n += 0;
+    const pid = decodeURIComponent((String(cl.linkedin).match(/\/in\/([^/?#]+)/) || [])[1] || "");
+    if (pid) await compPersonAdd({ key: "https://www.linkedin.com/in/" + pid.toLowerCase(), pid, urn: "", name: cl.person, headline: cl.role ?? "", said: "", how: "client", agency: comp, role: cl.role ?? "",
+      company: cl.company, company_what: cl.note ?? "", funding: cl.funding ?? (cl.funded === "raised" ? "Raised" : ""), yc: cl.yc ?? "", country: cl.country ?? "", why: "Named as a client of " + comp,
+      status: "sent", sent_li: cl.looked ?? now(), lead_id: cl.lead_id, judged_at: now(), at: cl.looked ?? now() }); }
   for (const [comp, it] of Object.entries(intel)) for (const cl of (it.clients ?? []) as any[]) {
     if (n >= max) break; if (cl.looked) continue; cl.looked = now(); n++;
     try {
       const schema = { type: "object", properties: { name: { type: "string" }, role: { type: "string" }, linkedin: { type: "string", description: "Their LinkedIn profile URL" },
-        company_what: { type: "string" }, funded: { type: "string", enum: ["raised", "bootstrapped", "unknown"] }, b2b: { type: "boolean" }, agency: { type: "boolean" }, country: { type: "string" } } };
+        company_what: { type: "string", description: "What the company does, one short line" }, funding: { type: "string", description: "Money raised, short, like 'Seed, $3M (2025)', or 'none found'" },
+        yc: { type: "string", description: "YC batch like 'W24' if a YC company, else empty" }, b2b: { type: "boolean" }, agency: { type: "boolean" }, country: { type: "string" } } };
       const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
         body: JSON.stringify({ query: "founder CEO of " + cl.company, category: "people", numResults: 5, outputSchema: schema,
           systemPrompt: "Find the founder or CEO of the company " + cl.company + " (" + clip(cl.note || "", 120) + "). Give their LinkedIn URL only if it is clearly them." }) });
       const j: any = r.ok ? await r.json() : {}; const o = j.output?.content ?? {};
       const url = String(o.linkedin || (j.results ?? []).map((x: any) => x.url).find((u: string) => /linkedin\.com\/in\//.test(u)) || "");
       const pid = decodeURIComponent((url.match(/\/in\/([^/?#]+)/) || [])[1] || "");
-      Object.assign(cl, { person: o.name ?? "", role: o.role ?? "", linkedin: pid ? "https://www.linkedin.com/in/" + pid : "", funded: o.funded ?? "", country: o.country ?? "" });
+      Object.assign(cl, { person: o.name ?? "", role: o.role ?? "", linkedin: pid ? "https://www.linkedin.com/in/" + pid : "", funding: o.funding ?? "", yc: o.yc ?? "", country: o.country ?? "" });
       if (!pid || !o.name) { cl.why = "Founder not found on LinkedIn"; continue; }
-      const no = compCore({ ...o, company: cl.company, fit: "hot" }, o.role ?? "", true);   // a paying client of theirs has money to spend
-      cl.why = no || "Fits: " + (o.company_what ?? "");
-      if (no) continue;
-      const id = await compLead({ key: "https://www.linkedin.com/in/" + pid.toLowerCase(), pid, name: o.name, headline: o.role ?? "", agency: comp }, { ...o, company: cl.company }, "Named as a client of " + comp + ".", { buyer: comp });
-      if (id) cl.lead_id = id;
+      const no = compCore({ ...o, company: cl.company, fit: "hot" }, o.role ?? "");   // (17 Nov) clients need a raise on record too
+      cl.why = no || "Fits";
+      await compPersonAdd({ key: "https://www.linkedin.com/in/" + pid.toLowerCase(), pid, urn: "", name: o.name, headline: o.role ?? "", said: "", how: "client", agency: comp, post_url: "",
+        role: o.role ?? "", company: cl.company, company_what: o.company_what || cl.note || "", funding: o.funding ?? "", yc: o.yc ?? "", country: o.country ?? "", why: no || "Named as a client of " + comp,
+        status: no ? "not" : "fit", judged_at: now(), at: now() });
     } catch (e) { cl.why = "Lookup failed: " + String((e as Error).message ?? e).slice(0, 80); }
   }
-  if (n) await putSet("comp_intel", intel);
+  await putSet("comp_intel", intel);
   return { looked: n };
+}
+// (17 Nov) Competitors > Leads: Reyansh sends a person to the LinkedIn pipeline (Leads found) or the X pipeline (To send), or trashes them.
+// who: "li" = li_comp_people (LinkedIn commenters, competitors' clients), "x" = comp_audience (X repliers and followers).
+async function findLiExa(name: string, company: string): Promise<string> {
+  const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: name + " " + company, category: "people", numResults: 5 }) });
+  const j: any = r.ok ? await r.json() : {}; const first = String(name).split(/\s+/)[0].toLowerCase();
+  const hit = (j.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url) && String(x.title ?? "").toLowerCase().includes(first)) ?? (j.results ?? []).find((x: any) => /linkedin\.com\/in\//.test(x.url));
+  return hit ? String(hit.url).split("?")[0] : "";
+}
+async function findXExa(name: string, company: string): Promise<string> {
+  const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: name + " " + company + " on X", includeDomains: ["x.com", "twitter.com"], numResults: 8 }) });
+  const j: any = r.ok ? await r.json() : {}; const first = String(name).split(/\s+/)[0].toLowerCase();
+  const hs = (j.results ?? []).map((x: any) => ({ h: (String(x.url).match(/(?:x|twitter)\.com\/(\w{1,15})(?:[/?#]|$)/i) || [])[1] || "", t: String(x.title ?? "") + " " + String(x.author ?? "") }))
+    .filter((x: any) => x.h && !/^(home|search|i|intent|share|hashtag|explore|status)$/i.test(x.h));
+  const hit = hs.find((x: any) => x.t.toLowerCase().includes(first)) ?? null;
+  return hit ? hit.h : await findX(name, company).catch(() => "");
+}
+async function comp_send(b: any) {
+  const who = b.who === "x" ? "x" : "li", key = String(b.key ?? ""), to = String(b.to ?? "");
+  const setKey = who === "x" ? "comp_audience" : "li_comp_people";
+  const list = await getSet<any[]>(setKey, []);
+  const p = list.find((x) => (who === "x" ? x.handle : x.key) === key);
+  if (!p) return { ok: false, msg: "Not found" };
+  const save = async () => { const cur = await getSet<any[]>(setKey, []); const i = cur.findIndex((x) => (who === "x" ? x.handle : x.key) === key); if (i >= 0) cur[i] = { ...cur[i], ...p }; await putSet(setKey, cur); };
+  if (to === "trash") { p.status = "trash"; p.trashed_at = now(); await save(); return { ok: true, msg: "Trashed" }; }
+  const o = { role: p.role, company: p.company, company_what: p.company_what || p.what, funding: p.funding || p.stage, yc: p.yc, country: p.country, funded: p.funded };
+  if (to === "li") {
+    let li = who === "li" ? (p.pid ? "https://www.linkedin.com/in/" + p.pid : p.key) : p.linkedin || "";
+    if (!li) { li = await findLiExa(p.name, p.company || "").catch(() => ""); if (li) p.linkedin = li; }
+    if (!li) { p.err = "LinkedIn profile not found"; await save(); return { ok: false, msg: "Couldn't find their LinkedIn profile" }; }
+    const pid = decodeURIComponent((li.match(/\/in\/([^/?#]+)/) || [])[1] || "");
+    const id = await compLead({ key: "https://www.linkedin.com/in/" + pid.toLowerCase(), pid, urn: who === "li" ? p.urn : "", name: p.name, headline: p.headline || p.role || "", said: p.said || p.text || "",
+      agency: p.agency || p.comp || "", post_url: p.post_url || p.url || "", handle: who === "x" ? p.handle : "" }, o, "Sent from Competitors > Leads.", p.how === "client" ? { buyer: p.agency } : {});
+    if (!id) return { ok: false, msg: "Couldn't add them" };
+    Object.assign(p, { lead_id: id, sent_li: now(), status: "sent" }); await save();
+    return { ok: true, msg: "In LinkedIn › Leads found" };
+  }
+  if (to === "x") {
+    let h = who === "x" ? p.handle : String(p.x_handle ?? "").replace(/^@/, "");
+    if (!h) { h = await findXExa(p.name, p.company || "").catch(() => ""); if (h) p.x_handle = h; }
+    if (!h) { p.err = "X account not found"; await save(); return { ok: false, msg: "Couldn't find their X account" }; }
+    const res = await toXPipeline({ name: p.name, company: p.company || "", role: p.role || "Founder", linkedin: who === "li" ? (p.pid ? "https://www.linkedin.com/in/" + p.pid : p.key) : p.linkedin || "", x_handle: "@" + h,
+      source_detail: p.company_what || p.what || "", fields: { signal: { kind: "comp", headline: [p.yc ? "YC " + p.yc : "", p.funding || p.stage || "", p.company_what || p.what || ""].filter(Boolean).join(" · "), url: "", why: p.why || "", stage: p.funding || p.stage || "" } } }, "");
+    if (!/^added|already/.test(res)) return { ok: false, msg: res };
+    Object.assign(p, { sent_x: now(), status: "sent" }); await save();
+    return { ok: true, msg: /already/.test(res) ? "Already in the X pipeline" : "In X › To send" };
+  }
+  return { ok: false, msg: "Unknown choice" };
 }
 async function comp_daily(b: any) {
   const st = await getSet<any>("comp_status", {}), ago = (k: string) => Date.now() - (Date.parse(st[k] ?? "") || 0);
@@ -417,7 +479,7 @@ async function comp_daily(b: any) {
     else if (b.job === "li" || ago("li_at") > 20 * 3600e3) { st.li_at = now(); await putSet("comp_status", st); out.li = await compLiFind(+(b.want ?? 4)); }
     else {
       const intel = await getSet<Record<string, any>>("comp_intel", {});
-      const C = (await compList()).sort((a, b2) => (+(b2.followers !== false) - +(a.followers !== false)));
+      const C = (await compList()).filter((c) => /agency/i.test(String(c.type ?? "")) && c.followers !== false || /^roger$/i.test(c.name));   // (17 Nov) agencies and Roger only
       const next = b.name ? C.find((c) => c.name === b.name) : C.find((c) => (c.followers !== false || c.website) && Date.now() - (Date.parse(intel[c.name]?.at ?? "") || 0) > 7 * 864e5);
       if (next && (b.name || ago("intel_at") > 40 * 60e3)) {
         st.intel_at = now(); await putSet("comp_status", st);
@@ -428,7 +490,7 @@ async function comp_daily(b: any) {
         await putSet("comp_intel", intel);
       }
       out.judge = await compJudge(+(b.max ?? 6));
-      out.buyers = await compBuyers(2);
+      out.buyers = await compBuyers(4);
     }
   } catch (e) { out.error = String((e as Error).message ?? e).slice(0, 200); }
   st.last = now(); st.last_result = out; await putSet("comp_status", st);
@@ -443,7 +505,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, comp_daily } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, comp_daily, comp_send } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -815,10 +877,10 @@ async function toXPipeline(l: any, opener = ""): Promise<string> {
   const used = (id: string) => P.filter((r: any) => r.row > hdr.row && r.cells?.[ix("Template")] === id).length;
   const tpl = live.sort((a: string, b: string) => used(a) - used(b))[0] ?? "";
   const next = Math.max(...P.map((r: any) => r.row)) + 1, sig = l.fields?.signal ?? {}, kind = sig.kind ?? l.fields?.li?.src ?? "";
-  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? clip(String(l.fields?.li?.list ?? "Founder list"), 40) : kind === "from_li" ? "From LinkedIn" : "Launch";
-  const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : kind === "launch" ? "Congrats on the launch." : "";
+  const seg = kind === "comp" ? "Competitor audience" : kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? clip(String(l.fields?.li?.list ?? "Founder list"), 40) : kind === "from_li" ? "From LinkedIn" : "Launch";
+  const hook = kind === "comp" ? "" : kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : kind === "launch" ? "Congrats on the launch." : "";
   const ist = new Date(Date.now() + IST_MS); const stamp = ist.getUTCDate() + " " + MON3[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + String(ist.getUTCHours()).padStart(2, "0") + ":" + String(ist.getUTCMinutes()).padStart(2, "0");
-  const via = kind === "from_li" ? "Added from LinkedIn (handle found by the bot) on " : "Added from Leads > Signals on ";
+  const via = kind === "comp" ? "Sent from Competitors > Leads on " : kind === "from_li" ? "Added from LinkedIn (handle found by the bot) on " : "Added from Leads > Signals on ";
   const writes = [{ row: next, col: ix("Name") + 1, values: [[l.name, l.company || "Unknown", l.role || "Founder", "Reyansh", "X DM", "Cold", seg, "9", h, l.linkedin || "", "", clip(String(sig.headline ?? l.source_detail ?? ""), 180), sig.url || "", stamp, opener ? "" : tpl, opener, "To send"]] },
     { row: next, col: ix("Notes") + 1, values: [[via + stamp + ". " + (sig.why ?? "") + (sig.what ? " " + l.company + ": " + sig.what : "")]] },
     { row: next, col: ix("Funding stage") + 1, values: [[kind === "funding" ? [sig.round, sig.amount, sig.date].filter(Boolean).join(", ") : sig.stage || "", sig.url || "", hook]] }];

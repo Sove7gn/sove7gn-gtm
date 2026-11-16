@@ -370,7 +370,11 @@ async function compAudienceSave(rows: any[]) {
   if (!rows.length) return;
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "comp_audience").maybeSingle();
   const have: any[] = Array.isArray(data?.value) ? (data!.value as any[]) : []; const seen = new Set(rows.map((r) => r.handle));
-  await db.from("crm_lead_settings").upsert({ key: "comp_audience", value: [...rows, ...have.filter((r) => !seen.has(r.handle))].slice(0, 600) }, { onConflict: "key" });
+  const old = new Map(have.map((r) => [r.handle, r]));   // Reyansh's choices (trash, sent to LinkedIn/X) and the bot's research stay
+  const keep = (r: any) => { const o: any = old.get(r.handle); if (!o) return r; const k: any = {};
+    for (const f of ["sent_li", "sent_x", "lead_id", "linkedin", "yc", "funding", "country", "one_liner", "err"]) if (o[f] != null) k[f] = o[f];
+    if (["trash", "sent"].includes(o.status)) k.status = o.status; return { ...r, ...k }; };
+  await db.from("crm_lead_settings").upsert({ key: "comp_audience", value: [...rows.map(keep), ...have.filter((r) => !seen.has(r.handle))].slice(0, 600) }, { onConflict: "key" });
 }
 const F_FOUNDER = /(co-?founder|founder|\bceo\b|\bcto\b|\bcoo\b|\bcmo\b|\bcro\b|chief|building @|founding)/i;
 const F_NOT = /(crypto|web3|defi|nft|onchain|blockchain|\bvc\b|venture|investor|investing|angel|\bfund\b|capital|partner at|recruit|talent|hiring manager|student|intern|looking for (a )?(job|role)|open to work|journalist|reporter|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|marketing studio)/i;
@@ -428,7 +432,9 @@ async function followSource(maxAdd = 10, given?: any[]) {
     judged.push(...out);
   }
   cfg.queue = queue.slice(Math.min(judgedN, batchList.length), 400);   // the ones not judged in time wait for the next run
-  const fits = judged.filter((x) => x.o?.fit === "Core buyer" && !/^unknown$/i.test(String(x.o.stage || "").trim())).slice(0, maxAdd);
+  // (17 Nov) People from a competitor's audience wait on CRM > Competitors > Leads for Reyansh to send them to LinkedIn or X (or trash them).
+  const fromComp = (x: any) => String(x.f._via).startsWith("comp:") || !!cfg.accounts[x.f._via]?.comp;
+  const fits = judged.filter((x) => x.o?.fit === "Core buyer" && !fromComp(x) && !/^unknown$/i.test(String(x.o.stage || "").trim())).slice(0, maxAdd);
   // 4. Their 3 ideas, written ahead (X follow-up 1 sends them).
   const tips = fits.length ? await llm(fits.map((x) => "Write 3 short, specific ideas for how " + (x.o.company || "this startup") + " could get more inbound from X and LinkedIn, for its founder " + x.f.name + ". " +
     "What they build: " + x.o.what + ". Their X bio: \"" + clip(String(x.f.description || ""), 200) + "\". Each idea is one numbered line (1., 2., 3.), under 200 characters, concrete (a post format, a list to tag, a reply habit, a profile fix), " +
@@ -441,7 +447,8 @@ async function followSource(maxAdd = 10, given?: any[]) {
   if (rowsX.length) await db.from("crm_x_people").upsert(rowsX, { onConflict: "handle" });
   const compRows = judged.filter((x) => String(x.f._via).startsWith("comp:") || cfg.accounts[x.f._via]?.comp).map((x) => ({ handle: String(x.f.userName || x.f.screen_name).toLowerCase(), name: x.f.name || "",
     comp: String(x.f._via).startsWith("comp:") ? String(x.f._via).slice(5) : cfg.accounts[x.f._via]?.comp, how: String(x.f._via).startsWith("comp:") ? "replied" : "follows", text: clip(String(x.f._ctx || x.f.description || ""), 240),
-    url: x.f._url || "", fit: x.o?.fit || "Not judged", why: noDash(x.o?.why || ""), company: x.o?.company || "", role: x.o?.role || "", stage: x.o?.stage || "", added: fits.includes(x) && !!String(tips[fits.indexOf(x)] || "").trim(), at: new Date().toISOString() }));
+    url: x.f._url || "", fit: x.o?.fit || "Not judged", why: noDash(x.o?.why || ""), company: x.o?.company || "", role: x.o?.role || "", stage: x.o?.stage || "", what: clip(String(x.o?.what || ""), 200), bio: clip(String(x.f.description || ""), 200), followers: x.f.followers_count ?? null,
+    status: x.o?.fit === "Core buyer" ? "fit" : "not", at: new Date().toISOString() }));
   await compAudienceSave(compRows).catch(() => {});
   let next = Math.max(3, ...(pl ?? []).map((r) => r.row)) + 1; const writes: any[] = []; const added: string[] = [];
   for (const [i, x] of fits.entries()) {

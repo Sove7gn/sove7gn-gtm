@@ -1070,163 +1070,94 @@ function compFormHtml(){
     +'<div class="note" style="margin-top:8px">The bot reads every X account here (company and founders) through your X tab: their posts, the people replying to them, and (direct competitors) their followers. People who fit our ICP go to X › Pipeline › To approve, with our own opener. The competitor is never mentioned.</div>'
     +'<div class="under">'+(canEdit()?btn('Save',save,'pri sm')+(compsAll().some(x=>x.id===f.id)?btn(f.archived?'Restore':'Stop tracking',()=>{const arr=compsAll().map(x=>x.id===f.id?{...x,archived:!f.archived}:x);AK.leadSettingSave('competitors',arr);V.compF=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
 }
+// (17 Nov) Three simple pages: the agencies we compete with (and Roger), the people we found through them, and their Google ads.
+const isRival=c=>!c.archived&&((/agency/i.test(String(c.type||''))&&c.followers!==false)||/^roger$/i.test(c.name));
+const shortPrice=t=>{t=String(t||'');const m=t.match(/[$£€₹]\s?[\d,.]+\s?[kK]?(\s?(?:-|–|to)\s?[$£€₹]?\s?[\d,.]+\s?[kK]?)?(\s?(?:\/|per|a)\s?(?:mo(?:nth)?|month|yr|year|meeting|lead|seat|email|e-mail))?/);
+  return m?m[0].replace(/\s?per\s?/,'/').replace(/\/?month\b/,'/mo').replace(/\s+/g,' ').trim():'';};
+const tagc=(t,c)=>t?'<span class="tg" style="color:'+c+';background:'+c+'14;border-color:'+c+'33">'+esc(t)+'</span>':'';
 function pgCompetitors(){
-  const C=compsAll().filter(c=>!c.archived),P=compPosts(),A=compAud();const cur=V.f.comp||'home';const wk=Date.now()-7*D;
-  const postsOf=c=>P.filter(p=>p.comp===c.name),audOf=c=>A.filter(a=>a.comp===c.name);
-  const direct=C.filter(c=>c.followers!==false),creators=C.filter(c=>c.followers===false);
-  let h=head('Competitors','Their buyers and their audience are our buyers. This page finds them and puts them in our pipeline.',canEdit()?btn('+ Add a competitor',()=>compForm(),'pri sm'):'');
-  const added=A.filter(a=>a.added).length,core=A.filter(a=>a.fit==='Core buyer').length;
-  const AD=compAds(),IN=compIntel(),LP=liCompPosts(),LQ=liCompPeople();const adsN=Object.values(AD).reduce((s2,x)=>s2+((x&&x.ads)||[]).length,0);
-  const buyers=Object.values(IN).flatMap(x=>(x&&x.clients)||[]);const liFit=LQ.filter(q=>q.status==='fit').length,liAdded=LQ.filter(q=>q.lead_id).length+buyers.filter(b=>b.lead_id).length;
-  h+=tabsBar('comp',[['home','Overview',null],['list','Competitors',C.length],['intel','ICP & buyers',Object.keys(IN).length],['li','LinkedIn comments',LQ.length],['ads','Their ads',adsN],['posts','Their X posts',P.length],['aud','Their X audience',A.length],['ideas','Post ideas','']])+'<div style="margin-top:12px">';
-  if(cur==='list'){
-    const fl=V.f.compF||'direct';const L0=fl==='direct'?direct:fl==='creators'?creators:C;
-    h+='<div class="bar" style="margin-bottom:10px">'+[['direct','Direct competitors',direct.length],['creators','Agency founders & creators',creators.length],['all','All',C.length]].map(([k,l,n])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compF=k;schedule();})+'>'+esc(l)+' '+n+'</button>').join('')+'</div>';
-    h+=table('comps',[['Competitor','minmax(0,1.6fr)'],['Type','130px'],['Where','120px'],['Founders','minmax(0,1.4fr)'],['X / LinkedIn','120px'],['Posts (7d)','90px'],['Google ads','90px'],['Clients named','100px'],['Audience','110px']],
-      L0.sort((a,b)=>postsOf(b).length-postsOf(a).length||String(a.name).localeCompare(b.name)).map(c=>{const ps=postsOf(c),p7=ps.filter(p=>ms(p.time)>wk),au=audOf(c);
-        const lk=ps.length?Math.round(ps.reduce((s2,p)=>s2+(+String(p.likes||0).replace(/[^0-9.]/g,'')||0)*(/K/i.test(p.likes||'')?1000:1),0)/ps.length):0;
-        const fo=(c.founders||[]).map(f=>esc(f.name)+(f.role?' <span class="meta">('+esc(f.role)+')</span>':'')+(f.linkedin?' <a href="'+esc(f.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">in</a>':'')+(f.x?' <a href="https://x.com/'+esc(xh(f.x))+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">𝕏</a>':'')).join(', ');
-        const links=[c.x?'<a href="https://x.com/'+esc(xh(c.x))+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">@'+esc(xh(c.x))+'</a>':'',c.linkedin?'<a href="'+esc(c.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">LinkedIn</a>':''].filter(Boolean).join(' · ');
-        return{open:()=>compForm(c),cells:[pcell(c.name+(c.needs_info?' ⚠':''),[c.what,c.website].filter(Boolean).join(' · '),null),tagp(c.type||'—','#6B7280'),'<span class="meta">'+esc(c.country||'—')+'</span>',
-          '<span class="meta" style="white-space:normal">'+(fo||'<span style="color:#9CA3AF">Add founders</span>')+'</span>','<span class="meta">'+(links||'—')+'</span>','<span class="num">'+p7.length+'</span>','<span class="num meta">'+(((compAds()[c.name]||{}).ads||[]).length||'–')+'</span>','<span class="num meta">'+(((compIntel()[c.name]||{}).clients||[]).length||'–')+'</span>',
-          '<span class="meta">'+(au.length?au.length+' · '+au.filter(a=>a.added).length+' added':'—')+'</span>']};}),'No competitors yet. Add one with + Add a competitor.');
-    h+='<p class="note" style="margin-top:10px">⚠ = needs details. Founders with an X account are read too. Add a founder’s LinkedIn URL and their posts are picked up for LinkedIn comments.</p>';
-  }
-  if(cur==='posts'){
-    const names=[...new Set(P.map(p=>p.comp))].sort();const pick=V.f.compP||'';const sort=V.f.compS||'new';
-    let L0=P.filter(p=>!pick||p.comp===pick);const n=v=>{const t=String(v||'');return (+t.replace(/[^0-9.]/g,'')||0)*(/K/i.test(t)?1e3:/M/i.test(t)?1e6:1);};
-    L0=sort==='top'?L0.slice().sort((a,b)=>n(b.likes)+n(b.replies)*3-(n(a.likes)+n(a.replies)*3)):L0;
-    h+='<div class="bar" style="margin-bottom:10px"><select class="in" style="width:220px"'+chg(e=>{V.f.compP=e.target.value;schedule();})+'><option value="">Everyone</option>'+names.map(x=>'<option'+(x===pick?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>'
-      +['new','top'].map(k=>'<button type="button" class="chip'+(sort===k?' on':'')+'"'+act(()=>{V.f.compS=k;schedule();})+'>'+(k==='new'?'Newest':'Most engagement')+'</button>').join('')+'</div>';
-    h+=L0.length?L0.slice(0,V.more.compP?400:60).map(p=>'<div class="card" style="margin-bottom:8px;padding:12px 14px"><div class="bar"><b>'+esc(p.comp)+'</b><span class="meta">@'+esc(p.handle)+' · '+esc(since(p.time))+'</span><span class="sp"></span><span class="meta">♥ '+esc(p.likes||0)+' · 💬 '+esc(p.replies||0)+(p.views?' · 👁 '+esc(p.views):'')+'</span><a class="lnk" href="'+esc(p.url)+'" target="_blank" rel="noopener">Open ↗</a></div><div style="margin-top:6px;white-space:pre-wrap;font-size:13px;line-height:1.45">'+esc(String(p.text||'').slice(0,600))+'</div></div>').join('')
-      +(L0.length>60&&!V.more.compP?btn('Show all '+L0.length,()=>{V.more.compP=true;schedule();},'sm ghost'):''):'<div class="empty">No posts read yet. The bot reads one competitor’s X profile an hour through your X tab, so they fill in over the day.</div>';
-  }
-  if(cur==='aud'){
-    const fl=V.f.compA||'core';const L0=A.filter(a=>fl==='all'||(fl==='core'?a.fit==='Core buyer':fl==='added'?a.added:a.fit!=='Core buyer'));
-    h+='<div class="bar" style="margin-bottom:10px">'+[['core','Core buyers',A.filter(a=>a.fit==='Core buyer').length],['added','Added to our pipeline',A.filter(a=>a.added).length],['rest','Not a fit',A.filter(a=>a.fit!=='Core buyer').length],['all','All',A.length]].map(([k,l,n2])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compA=k;schedule();})+'>'+esc(l)+' '+n2+'</button>').join('')+'</div>';
-    h+=table('caud',[['Person','minmax(0,1.5fr)'],['Found via','minmax(0,1fr)'],['Fit','110px'],['Why','minmax(0,2fr)'],['Status','150px']],
-      L0.map(a=>({open:()=>window.open('https://x.com/'+a.handle,'_blank','noopener'),cells:[pcell(a.name||'@'+a.handle,'@'+a.handle+(a.company?' · '+[a.role,a.company].filter(Boolean).join(' at '):''),'X'),
-        '<span class="meta">'+esc((a.how==='replied'?'Replied to ':'Follows ')+(a.comp||''))+'</span>',tagp(a.fit||'—',a.fit==='Core buyer'?'#059669':a.fit==='Good fit'?'#D97706':'#6B7280'),
-        ell([a.stage&&!/unknown/i.test(a.stage)?a.stage:'',a.why].filter(Boolean).join(' · ')||a.text||'','meta'),'<span class="meta">'+(a.added?'In X › To approve':a.fit==='Core buyer'?'Fit, ideas not written':'—')+'</span>']})),
-      'Nobody yet. As the bot reads who replies to and follows your competitors, they show here, judged, and the fits go to X › To approve.');
-  }
-  if(cur==='home')h+=compHomeHtml(C);
-  if(cur==='intel')h+=compIntelHtml(C);
-  if(cur==='ads')h+=compAdsHtml(C);
-  if(cur==='li')h+=compLiHtml();
+  const cur=['list','leads','ads','ideas'].includes(V.f.comp)?V.f.comp:'list';V.f.comp=cur;
+  const R=compsAll().filter(isRival);const P=compLeads();const todo=P.filter(p=>p.st==='fit').length;
+  const AD=compAds();const adsN=R.reduce((s2,c)=>s2+((AD[c.name]||{}).ads||[]).length,0);
+  let h=head('Competitors','Agencies selling what we sell. We find the people around them who fit our ICP, and you choose who goes into our pipeline.',canEdit()&&cur==='list'?btn('+ Add a competitor',()=>compForm(),'pri sm'):'');
+  h+=tabsBar('comp',[['list','1. Competitors',R.length],['leads','2. Leads',todo],['ads','3. Google ads',adsN],['ideas','Post ideas',null]])+'<div style="margin-top:14px">';
+  if(cur==='list')h+=compListHtml(R);
+  if(cur==='leads')h+=compLeadsHtml(P);
+  if(cur==='ads')h+=compAdsHtml(R);
   if(cur==='ideas')h+=pgIdeas(true);
   return h+'</div>';
 }
-/* Overview: what this page does, and the numbers that matter (leads it brings us, replies, calls, and the market's prices) */
-const COMP_GOAL={leads:20,reached:15,replies:4,calls:2};   // a week
-const shortPrice=t=>{t=String(t||'');const m=t.match(/[$£€₹]\s?[\d,.]+\s?[kK]?(\s?(?:-|–|to)\s?[$£€₹]?\s?[\d,.]+\s?[kK]?)?(\s?(?:\/|per|a)\s?(?:mo(?:nth)?|month|yr|year|meeting|lead|seat|email|e-mail))?/);
-  return m?m[0].replace(/\s?per\s?/,'/').replace(/\/?month\b/,'/mo').replace(/\s+/g,' ').trim():'';};
-function compHomeHtml(C){
-  const wk=Date.now()-7*D;const LQ=liCompPeople(),LP=liCompPosts(),A=compAud(),IN=compIntel(),AD=compAds();
-  const leads=(AK.LD.rows||[]).filter(l=>!l.archived&&LIo(l).src==='comp');const xAdd=A.filter(a=>a.added);
-  const inWk=l=>ms(l.created_at)>wk;const reached=l=>!!(LIo(l).req||LIo(l).dm);const replied=l=>!!LIo(l).replied||/^(In talks|Call booked|Proposal sent|Won)$/.test(l.stage||'');const call=l=>/^(Call booked|Proposal sent|Won)$/.test(l.stage||'');
-  const W={leads:leads.filter(inWk).length+xAdd.filter(a=>ms(a.at)>wk).length,reached:leads.filter(l=>reached(l)&&ms(LIo(l).req||LIo(l).dm)>wk).length,replies:leads.filter(l=>replied(l)&&ms(LIo(l).replied||l.stage_at)>wk).length,calls:leads.filter(l=>call(l)&&ms(l.stage_at)>wk).length};
-  const T={leads:leads.length+xAdd.length,reached:leads.filter(reached).length,replies:leads.filter(replied).length,calls:leads.filter(call).length};
-  const kpi=(k,label,sub)=>{const v=W[k],g=COMP_GOAL[k],pc=Math.min(100,Math.round(v/g*100));const c=pc>=100?'#059669':pc>=50?'#D97706':'#DC2626';
-    return '<div class="card" style="padding:14px 16px"><div class="meta">'+esc(label)+'</div><div style="display:flex;align-items:baseline;gap:6px;margin-top:4px"><b style="font-size:26px">'+v+'</b><span class="meta">/ '+g+' this week</span></div>'
-      +'<div style="height:6px;border-radius:3px;background:#E5E7EB;margin:8px 0 6px"><div style="height:6px;border-radius:3px;width:'+pc+'%;background:'+c+'"></div></div><div class="meta" style="font-size:12px">'+esc(sub)+' · '+T[k]+' all time</div></div>';};
-  const grid='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px';
-  let h='<div class="card" style="padding:14px 16px;margin-bottom:14px"><b>How it works</b><ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;font-size:13px">'
-    +'<li><b>Their commenters.</b> Every day the bot finds 4 LinkedIn posts by lead-gen agencies and reads who commented. On X it reads who replies to and follows them.</li>'
-    +'<li><b>Their clients.</b> It reads each competitor’s site and case studies for the clients they name, then finds those founders on LinkedIn.</li>'
-    +'<li><b>Only our ICP gets through.</b> Founders and C-suite at funded B2B startups, outside India. They land in <b>LinkedIn › Leads found</b> and <b>X › To approve</b> for your OK. The competitor is never mentioned.</li></ol></div>';
-  h+='<h3 class="ch" style="margin:0 0 8px">Pipeline from competitors</h3><div style="'+grid+'">'
-    +kpi('leads','New ICP leads','LinkedIn '+leads.filter(inWk).length+' · X '+xAdd.filter(a=>ms(a.at)>wk).length)+kpi('reached','Reached out','requests and DMs sent')+kpi('replies','Replied','answers to our messages')+kpi('calls','Calls booked','the number that pays')+'</div>';
-  const rate=(a,b)=>b?Math.round(a/b*100)+'%':'–';
-  h+='<div class="meta" style="margin:8px 0 18px">Reply rate '+rate(T.replies,T.reached)+' · call rate '+rate(T.calls,T.reached)+' (all time, LinkedIn). Weekly targets: '+COMP_GOAL.leads+' leads, '+COMP_GOAL.reached+' reached, '+COMP_GOAL.replies+' replies, '+COMP_GOAL.calls+' calls.</div>';
-  // market: what they charge vs what our clients pay
-  const act0=clientsAll().filter(c=>c.status==='Active'),our=act0.length?Math.round(act0.reduce((s2,c)=>s2+conv(c.mrr,curOf(c),'USD'),0)/act0.length):0;
-  const priced=C.filter(c=>IN[c.name]&&shortPrice(IN[c.name].pricing));
-  const ads=C.filter(c=>((AD[c.name]||{}).ads||[]).length);const buyers=Object.values(IN).flatMap(x=>(x&&x.clients)||[]);
-  h+='<h3 class="ch" style="margin:0 0 8px">The market</h3><div style="'+grid+'">'
-    +[['Our average client pays',our?'$'+our.toLocaleString('en-US')+'/mo':'–',act0.length+' active clients'],['Public prices',priced.length+' of '+Object.keys(IN).length,priced.length?priced.map(c=>c.name+' '+shortPrice(IN[c.name].pricing)).join(' · '):'researched so far, none public yet'],
-      ['Their clients we found',String(buyers.length),buyers.filter(b=>b.lead_id).length+' fit and added to Leads found'],['Running Google ads',String(ads.length),ads.map(c=>c.name).join(', ')||'none found']]
-      .map(([l,v,d])=>'<div class="card" style="padding:14px 16px"><div class="meta">'+esc(l)+'</div><b style="font-size:22px;display:block;margin-top:4px">'+esc(v)+'</b><div class="meta" style="font-size:12px;margin-top:4px">'+esc(d)+'</div></div>').join('')+'</div>';
-  // one line per competitor: what they charge, who they sell to, what we got from them
-  const R=C.filter(c=>c.followers!==false||IN[c.name]);
-  h+='<h3 class="ch" style="margin:18px 0 8px">Competitor by competitor</h3>'+table('chome',[['Competitor','minmax(0,1.1fr)'],['Price','130px'],['Who they sell to','minmax(0,2fr)'],['Leads we got','100px'],['Google ads','90px']],
-    R.map(c=>{const it=IN[c.name]||{};const n=leads.filter(l=>LIo(l).comp===c.name).length+A.filter(a=>a.comp===c.name&&a.added).length;
-      return{open:()=>{V.f.comp='intel';schedule();},cells:[pcell(c.name,[c.type,c.country].filter(Boolean).join(' · '),null),'<span class="meta">'+esc(shortPrice(it.pricing)||(it.at?'Not public':'–'))+'</span>',ell(it.icp||(it.at?'–':'Being researched'),'meta'),'<b class="num">'+n+'</b>','<span class="num meta">'+(((AD[c.name]||{}).ads||[]).length||'–')+'</span>']};}),'');
-  // what the bot is doing
-  const st=AK.leadSetting('comp_status')||{};
-  h+='<div class="meta" style="margin-top:14px;font-size:12px">Bot: last ran '+esc(since(st.last)||'not yet')+' · '+LP.filter(p=>p.status==='new').length+' agency posts waiting for your LinkedIn tab · '+LQ.filter(q=>q.status==='pending').length+' commenters waiting for a check.</div>';
+/* 1. Competitors: price, website, who they sell to, their current clients */
+const wrap3=t=>'<div class="meta" title="'+esc(t)+'" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4">'+esc(t)+'</div>';
+function compListHtml(R){
+  const IN=compIntel();
+  const sameIcp=it=>{const t=String((it&&it.icp)||'');if(!t)return '';const b2b=/b2b|saas|startup|founder/i.test(t),fund=/funded|seed|series|vc|venture|yc|y combinator/i.test(t);return b2b&&fund?'Yes':b2b?'Partly':'No';};
+  return table('rivals',[['Competitor','minmax(0,1.2fr)'],['Price','120px'],['Who they sell to','minmax(0,2fr)'],['Current clients','minmax(0,1.6fr)'],['Same ICP as us?','120px']],
+    R.map(c=>{const it=IN[c.name]||{};const cl=(it.clients||[]).map(x=>x.company).filter(Boolean);const s2=sameIcp(it);
+      return{open:()=>compForm(c),cells:[
+        '<div class="pc-t"><div class="ell nm"><b>'+esc(c.name)+'</b>'+(c.needs_info?' <span class="meta">(add details)</span>':'')+'</div>'+(c.website?'<a class="meta" href="'+esc(c.website)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(dom(c.website))+' ↗</a>':'<span class="meta">no website yet</span>')+'</div>',
+        '<b>'+esc(shortPrice(it.pricing)||(it.at?'Not public':'…'))+'</b>',
+        wrap3(it.icp||(it.at?'Not found':'Researching…')),
+        wrap3(cl.length?cl.join(', '):(it.at?'None named publicly':'Researching…')),
+        s2?tagc(s2,s2==='Yes'?'#059669':s2==='Partly'?'#D97706':'#6B7280'):'<span class="meta">…</span>']};}),'No competitors yet. Add one with + Add a competitor.')
+    +'<p class="note" style="margin-top:10px">Prices, buyers and clients come from their websites and case studies, refreshed weekly. Click a row to edit it.</p>';
+}
+/* 2. Leads: everyone we found through competitors who fits our ICP */
+function compLeads(){
+  const ov=V.cmpSt||{};const out=[];
+  for(const q of liCompPeople()){if(!q||!q.name)continue;const st=(ov['li:'+q.key]||{}).status||q.status;
+    out.push({id:'li:'+q.key,who:'li',key:q.key,st,name:q.name,role:q.role||q.headline||'',company:q.company||'',one:q.company_what||'',yc:q.yc||'',funding:q.funding||(q.funded==='raised'?'Raised':''),country:q.country||'',
+      how:q.how==='client'?'Client of '+q.agency:'Commented on '+(q.agency||'an agency')+'’s LinkedIn post',said:q.said||'',plat:'LinkedIn',url:q.pid?'https://www.linkedin.com/in/'+q.pid:q.key,
+      sentLi:!!(q.sent_li||q.lead_id||(ov['li:'+q.key]||{}).li),sentX:!!(q.sent_x||(ov['li:'+q.key]||{}).x),at:q.judged_at||q.at,err:q.err||''});}
+  for(const a of compAud()){if(!a||!a.handle)continue;const st=(ov['x:'+a.handle]||{}).status||a.status||(a.fit==='Core buyer'?(a.added?'sent':'fit'):'not');
+    out.push({id:'x:'+a.handle,who:'x',key:a.handle,st,name:a.name||'@'+a.handle,role:a.role||'',company:a.company||'',one:a.what||a.bio||'',yc:a.yc||'',funding:a.funding||(a.stage&&!/unknown/i.test(a.stage)?a.stage:''),country:a.country||'',
+      how:(a.how==='replied'?'Replied to '+a.comp+' on X':'Follows '+a.comp+' on X'),said:a.how==='replied'?a.text||'':'',plat:'X',url:'https://x.com/'+a.handle,
+      sentLi:!!(a.sent_li||(ov['x:'+a.handle]||{}).li),sentX:!!(a.sent_x||a.added||(ov['x:'+a.handle]||{}).x),at:a.at,err:a.err||''});}
+  return out.sort((a,b)=>ms(b.at)-ms(a.at));
+}
+function compSend(p,to){
+  const ov=V.cmpSt=V.cmpSt||{};ov[p.id]={...(ov[p.id]||{}),busy:to};schedule();
+  AK.botCall('comp_send',{who:p.who,key:p.key,to}).then(r=>{const o=ov[p.id]||{};delete o.busy;
+    if(r&&r.ok){if(to==='trash')o.status='trash';else{o.status='sent';o[to]=true;}L.toast(p.name+': '+r.msg);}
+    else L.toast(p.name+': '+((r&&r.msg)||'didn’t work, try again'),null,true);ov[p.id]=o;schedule();});
+}
+function compLeadsHtml(P){
+  const fl=['fit','sent','trash'].includes(V.f.compL2)?V.f.compL2:'fit';const n=k=>P.filter(p=>p.st===k).length;
+  let h='<div class="bar" style="margin-bottom:12px">'+[['fit','To review'],['sent','Sent to pipeline'],['trash','Trashed']].map(([k,l])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compL2=k;schedule();})+'>'+esc(l)+' '+n(k)+'</button>').join('')
+    +'<span class="sp"></span><span class="meta">Only people who fit our ICP show here: founders and C-suite at funded B2B startups outside India.</span></div>';
+  const L0=P.filter(p=>p.st===fl);
+  if(!L0.length)return h+'<div class="empty">'+(fl==='fit'?'Nobody to review right now. New people come in every day from competitors’ LinkedIn comments, their X audience and their clients.':'Nobody here yet.')+'</div>';
+  const busy=p=>((V.cmpSt||{})[p.id]||{}).busy;
+  h+=L0.slice(0,V.more.compL2?500:60).map(p=>{const a=avc(p.name);const b=busy(p);
+    const tags=[p.yc?tagc('YC '+p.yc,'#EA580C'):'',p.funding&&!/none|not found|unknown/i.test(p.funding)?tagc(p.funding,'#059669'):'',p.country&&!/unknown/i.test(p.country)?tagc(p.country,'#6B7280'):'',tagc(p.plat,p.plat==='X'?'#111827':'#0A66C2')].join(' ');
+    const btns=canEdit()&&fl!=='trash'?(b?'<span class="meta">Working…</span>':
+      (p.sentLi?'<span class="meta">✓ LinkedIn</span>':btn('Send to LinkedIn',()=>compSend(p,'li'),'sm pri'))+' '+(p.sentX?'<span class="meta">✓ X</span>':btn('Send to X',()=>compSend(p,'x'),'sm'))+(fl==='fit'?' '+btn('Trash',()=>compSend(p,'trash'),'sm ghost'):'')):'';
+    return '<div class="card" style="margin-bottom:10px;padding:14px 16px;display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:12px;align-items:start">'
+      +'<div class="av" style="width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:600;background:'+a.bg+';color:'+a.fg+'">'+esc(a.ini)+'</div>'
+      +'<div style="min-width:0"><div><a href="'+esc(p.url)+'" target="_blank" rel="noopener" style="font-weight:600;color:inherit">'+esc(p.name)+'</a> <span class="meta">'+esc([p.role,p.company].filter(Boolean).join(' at '))+'</span></div>'
+      +(p.one?'<div style="font-size:13px;margin-top:3px">'+esc(clipS(p.one,160))+'</div>':'')
+      +'<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">'+tags+'</div>'
+      +'<div class="meta" style="margin-top:6px;font-size:12px">'+esc(p.how)+(p.said?': “'+esc(clipS(p.said,140))+'”':'')+(p.err?' · '+esc(p.err):'')+'</div></div>'
+      +'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">'+btns+'</div></div>';}).join('')
+    +(L0.length>60&&!V.more.compL2?btn('Show all '+L0.length,()=>{V.more.compL2=true;schedule();},'sm ghost'):'');
   return h;
 }
-/* ICP & buyers: who each competitor sells to, what they charge and promise, who already buys from them, and what their audience asks for */
-function compIntelHtml(C){
-  const IN=compIntel(),LQ=liCompPeople(),A=compAud();
-  const order=C.filter(c=>IN[c.name]).concat(C.filter(c=>!IN[c.name]&&(c.followers!==false||c.website)));
-  let h='<p class="note" style="margin:0 0 12px">Read from their website, case studies and what’s written about them, once a week each. Clients they name are looked up: the founder is found on LinkedIn, checked against our ICP, and fits go to <b>LinkedIn › Leads found</b> for your OK. Their audience’s signals come from the people commenting on and replying to them.</p>';
-  if(!order.length)return h+'<div class="empty">Nothing researched yet. One competitor is read every 40 minutes.</div>';
-  for(const c of order){const it=IN[c.name];
-    const sig=LQ.filter(q=>q.agency===c.name),xa=A.filter(a=>a.comp===c.name);const fits=sig.filter(q=>q.status==='fit').length+xa.filter(a=>a.fit==='Core buyer').length;
-    const asks=sig.filter(q=>q.intent).length;const ppl=sig.length+xa.length;
-    h+='<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="bar"><b style="font-size:15px">'+esc(c.name)+'</b><span class="meta">'+esc([c.type,c.country,dom(c.website)].filter(Boolean).join(' · '))+'</span><span class="sp"></span>'
-      +(it&&it.at?'<span class="meta">Read '+esc(since(it.at))+'</span>':'<span class="meta">Not read yet</span>')+'</div>';
-    if(!it){h+='<div class="meta" style="margin-top:6px">Waiting for its turn.</div></div>';continue;}
-    if(it.error)h+='<div class="meta" style="margin-top:6px;color:#DC2626">Couldn’t read: '+esc(it.error)+'</div>';
-    const row=(l,v)=>v&&!/^unknown$/i.test(v)?'<div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;margin-top:6px;font-size:13px;line-height:1.45"><span class="meta">'+esc(l)+'</span><span>'+esc(v)+'</span></div>':'';
-    const cl=it.clients||[];
-    h+=row('Sells to',it.icp)+row('Price',shortPrice(it.pricing)||'Not public')+row('Their clients',cl.length?cl.length+' named · '+cl.filter(b=>b.lead_id).length+' added to our Leads found':'None named publicly')
-      +row('Their audience',ppl?ppl+' people read · '+fits+' fit our ICP'+(asks?' · '+asks+' asked for something':''):'Not read yet');
-    h+='<details style="margin-top:8px"><summary class="meta" style="cursor:pointer">Full breakdown: offer, CTA, results, weak spots, how we win'+(cl.length?', their clients':'')+'</summary>'
-      +row('What they sell',it.offer)+row('Price (details)',it.pricing)+row('Their CTA',it.cta)+row('Results they claim',it.proof)+row('Where they find clients',it.channels)+row('Weak spots',it.weak)+row('How we win',it.beat);
-    if(cl.length){h+='<div class="meta" style="margin:10px 0 4px">Their clients ('+cl.length+')</div>'+table('cb'+c.id,[['Company','minmax(0,1.2fr)'],['What we know','minmax(0,2fr)'],['Founder','minmax(0,1.2fr)'],['Status','170px']],
-      cl.map(b=>({open:()=>{if(b.lead_id&&leadById(b.lead_id))L.openLead(b.lead_id);else if(b.linkedin)window.open(b.linkedin,'_blank','noopener');},cells:[pcell(b.company,'',null),ell(b.note||'','meta'),
-        '<span class="meta">'+(b.person&&!/^unknown$/i.test(b.person)?esc(b.person)+(b.role&&!/^unknown$/i.test(b.role)?' ('+esc(b.role)+')':''):b.looked?'Not found':'Looking soon')+'</span>',
-        b.lead_id?tagp(leadById(b.lead_id)?(leadById(b.lead_id).stage==='New'?'In Leads found':leadById(b.lead_id).stage):'Lead added','#059669'):'<span class="meta">'+esc(b.why||(b.looked?'—':'Waiting'))+'</span>']})),'');}
-    h+='</details></div>';}
-  return h;
-}
-/* Their ads: Google and YouTube ads from Google's Ads Transparency Center (the reel's method), plus links to the LinkedIn and Meta ad libraries */
-function compAdsHtml(C){
+const clipS=(t,n)=>{t=String(t||'').replace(/\s+/g,' ').trim();return t.length>n?t.slice(0,n-1)+'…':t;};
+/* 3. Google ads: what each competitor is running */
+function compAdsHtml(R){
   const AD=compAds();
-  let h='<p class="note" style="margin:0 0 12px">Every competitor’s Google and YouTube ads, read daily from Google’s Ads Transparency Center. Look at their headline and CTA, then make ours sharper. LinkedIn and Meta don’t let a server read their ad libraries, so each competitor has a link to open them in your browser.</p>';
-  const withAds=C.filter(c=>((AD[c.name]||{}).ads||[]).length),rest=C.filter(c=>!((AD[c.name]||{}).ads||[]).length&&c.followers!==false);
   const libs=c=>{const n=encodeURIComponent(c.name.replace(/\s*\(.*\)$/,''));const d=dom(c.website);
     return '<a href="https://adstransparency.google.com/?region=anywhere'+(d?'&domain='+encodeURIComponent(d):'')+'" target="_blank" rel="noopener">Google</a> · <a href="https://www.linkedin.com/ad-library/search?accountOwner='+n+'" target="_blank" rel="noopener">LinkedIn</a> · <a href="https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=ALL&q='+n+'" target="_blank" rel="noopener">Meta</a>';};
-  for(const c of withAds){const a=AD[c.name];
-    h+='<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="bar"><b>'+esc(c.name)+'</b><span class="meta">'+esc(a.total)+' Google ads · '+esc(a.domain)+' · checked '+esc(since(a.at))+'</span><span class="sp"></span><span class="meta">'+libs(c)+'</span></div>'
+  const on=R.filter(c=>((AD[c.name]||{}).ads||[]).length),off=R.filter(c=>!((AD[c.name]||{}).ads||[]).length);
+  let h='<p class="note" style="margin:0 0 12px">Checked every day in Google’s ad library. Google never shows who clicked an ad, so nobody can be found from ads; the people around competitors are on the Leads page.</p>';
+  for(const c of on){const a=AD[c.name];
+    h+='<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="bar"><b>'+esc(c.name)+'</b><span class="meta">'+esc(a.total)+' ads running or recent</span><span class="sp"></span><span class="meta">'+libs(c)+'</span></div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:10px">'
       +a.ads.map(x=>'<a href="'+esc(x.url)+'" target="_blank" rel="noopener" style="display:block;border:1px solid var(--line,#e5e7eb);border-radius:8px;padding:8px;text-decoration:none;color:inherit">'
         +(x.img?'<img src="'+esc(x.img)+'" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:auto;max-height:180px;object-fit:contain;background:#fff;border-radius:4px">':'<div class="meta" style="height:80px;display:grid;place-items:center">'+esc(x.fmt)+' ad, open to see it</div>')
-        +'<div class="meta" style="margin-top:6px;font-size:11px">'+esc(x.fmt)+' · '+esc(x.first)+' → '+esc(x.last)+(x.adv&&x.adv!==c.name?' · '+esc(x.adv):'')+'</div></a>').join('')+'</div></div>';}
-  if(rest.length)h+='<div class="card" style="padding:14px 16px"><b>No Google ads found</b><div class="meta" style="margin:4px 0 8px">'+(C.filter(c=>c.followers!==false&&!c.website).length?'Competitors without a website can’t be looked up: add it in their form. ':'')+'Check their LinkedIn and Meta ads here:</div>'
-    +rest.map(c=>'<div class="bar" style="padding:4px 0;border-top:1px solid var(--line,#eee)"><span style="min-width:180px">'+esc(c.name)+'</span><span class="meta">'+(c.website?esc(dom(c.website)):'no website')+'</span><span class="sp"></span><span class="meta">'+libs(c)+'</span></div>').join('')+'</div>';
-  return h;
-}
-/* LinkedIn comments: lead-gen agencies' posts, who commented, background-checked against our ICP */
-function compLiHtml(){
-  const LP=liCompPosts(),LQ=liCompPeople();const fl=V.f.compL||'fit';const pick=V.f.compLP||'';
-  let h='<p class="note" style="margin:0 0 12px">Every day the bot finds 4 LinkedIn posts by lead-gen agencies with lots of comments (lead magnets and case studies). Your LinkedIn tab opens each one and reads who commented. Each person gets a background check: only founders and C-suite at <b>funded B2B startups</b>, outside India, go to <b>LinkedIn › Leads found</b> for your OK, with our own note. The agency is never mentioned.</p>';
-  const ST={new:'Waiting for your LinkedIn tab',reading:'Being read',read:'Read'};
-  h+='<div class="card" style="padding:12px 14px;margin-bottom:12px"><b>Agency posts</b> <span class="meta">'+LP.length+' found · '+LP.filter(p=>p.status==='read').length+' read</span>'
-    +(LP.length?LP.slice(0,V.more.compLp?200:8).map(p=>{const n=LQ.filter(q=>q.post_id===p.id);
-      return '<div class="bar" style="padding:7px 0;border-top:1px solid var(--line,#eee);cursor:pointer"'+act(()=>{V.f.compLP=pick===p.id?'':p.id;V.f.compL='all';schedule();})+'><span style="min-width:0;flex:1"><b>'+esc(p.agency||p.author)+'</b> <span class="meta">'+esc(p.author)+(p.headline?' · '+esc(p.headline):'')+'</span>'
-        +'<div class="ell meta" style="font-size:12px">'+esc(String(p.text||'').replace(/\s+/g,' ').slice(0,160))+'</div></span>'
-        +'<span class="meta" style="white-space:nowrap">'+(p.comments?p.comments+' comments · ':'')+(p.magnet?'comment-to-get · ':'')+esc(ST[p.status]||p.status)+(n.length?' · '+n.length+' people, '+n.filter(q=>q.status==='fit').length+' fit':'')+(p.note?' · '+esc(p.note):'')+'</span>'
-        +'<a class="lnk" href="'+esc(p.url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">Open ↗</a></div>';}).join('')
-      +(LP.length>8&&!V.more.compLp?btn('Show all '+LP.length,()=>{V.more.compLp=true;schedule();},'sm ghost'):''):'<div class="meta" style="margin-top:6px">None yet. The first ones come in on the next run.</div>')+'</div>';
-  let L0=LQ.filter(q=>!pick||q.post_id===pick);
-  const cnt=k=>L0.filter(q=>k==='fit'?q.status==='fit':k==='ask'?!!q.intent:k==='wait'?q.status==='pending':k==='not'?q.status==='not':true).length;
-  h+='<div class="bar" style="margin-bottom:10px">'+[['fit','Fit our ICP'],['ask','Asked for something'],['wait','Waiting for a check'],['not','Not a fit'],['all','All']].map(([k,l])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compL=k;schedule();})+'>'+esc(l)+' '+cnt(k)+'</button>').join('')
-    +(pick?'<button type="button" class="chip on"'+act(()=>{V.f.compLP='';schedule();})+'>One post only ×</button>':'')+'</div>';
-  L0=L0.filter(q=>fl==='fit'?q.status==='fit':fl==='ask'?!!q.intent:fl==='wait'?q.status==='pending':fl==='not'?q.status==='not':true);
-  const adds=AK.leadSetting('li_comp_add')||[];
-  h+=table('licomp',[['Person','minmax(0,1.5fr)'],['Their comment','minmax(0,1.6fr)'],['On','130px'],['Check','minmax(0,1.6fr)'],['Status','150px']],
-    L0.map(q=>({open:()=>{if(q.lead_id&&leadById(q.lead_id))L.openLead(q.lead_id);else window.open(q.pid?'https://www.linkedin.com/in/'+q.pid:q.key,'_blank','noopener');},
-      cells:[pcell(q.name,q.company?[q.role,q.company].filter(Boolean).join(' at '):q.headline,'LinkedIn'),
-        '<div class="tc">'+ell(q.said||'—','meta')+(q.intent?tagp(q.intent,'#D97706'):'')+'</div>','<span class="meta">'+esc(q.agency||'')+'</span>',
-        ell(q.status==='pending'?'Waiting for its background check':[q.funded==='raised'?'Raised':'',q.country,q.company_what,q.why].filter(Boolean).join(' · '),'meta'),
-        q.lead_id?tagp(leadById(q.lead_id)?(leadById(q.lead_id).stage==='New'?'In Leads found':leadById(q.lead_id).stage):'Lead added','#059669')
-          :q.status==='not'&&canEdit()?(adds.includes(q.key)?'<span class="meta">Adding…</span>':btn('Add anyway',()=>{AK.leadSettingSave('li_comp_add',[...(AK.leadSetting('li_comp_add')||[]),q.key]).then(()=>L.toast('Added to Leads found on the next run (within 15 minutes).'));},'sm ghost'))
-          :'<span class="meta">'+(q.status==='pending'?'Checking soon':'—')+'</span>']})),
-    LQ.length?'Nobody in this view.':'Nobody yet. Commenters show here once your LinkedIn tab has read the first agency posts.');
+        +'<div class="meta" style="margin-top:6px;font-size:11px">'+esc(x.fmt)+' · ran '+esc(x.first)+' to '+esc(x.last)+'</div></a>').join('')+'</div></div>';}
+  h+=table('noads',[['Competitor','minmax(0,1fr)'],['Google ads','160px'],['Check other ad libraries','minmax(0,1fr)']],
+    off.map(c=>({cells:['<b>'+esc(c.name)+'</b>','<span class="meta">'+(c.website?'None running':'No website to check')+'</span>','<span class="meta">'+libs(c)+'</span>']})),'');
   return h;
 }
 
