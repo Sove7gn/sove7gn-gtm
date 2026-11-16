@@ -2814,17 +2814,22 @@ async function x_plan(b: any) {
   await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
   const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
   const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
-  const { count: sentToday } = await db.from("crm_x_tasks").select("id", { count: "exact", head: true }).eq("status", "sent").gte("sent_at", dayStart);
+  // (17 Nov) Replies to posts have their own cap (x_bot.reply_cap), so only DMs and follow-ups count here.
+  const { data: sentRows } = await db.from("crm_x_tasks").select("kind").eq("status", "sent").gte("sent_at", dayStart).not("kind", "in", "(reply,close)").limit(500);
+  const sentToday = (sentRows ?? []).length, dmToday = (sentRows ?? []).filter((r: any) => r.kind === "dm").length, fuToday = sentToday - dmToday;
   const left = Math.max(0, set.cap - (sentToday ?? 0));
   const inHours = hr >= set.from && hr < set.to;
   if (set.paused || !inHours || !left || !b.me?.signed_in) return { tasks: [], paused: set.paused, in_hours: inHours, left, sent_today: sentToday ?? 0 };
-  const { data: lastSent } = await db.from("crm_x_tasks").select("sent_at").eq("status", "sent").order("sent_at", { ascending: false }).limit(1);
+  const { data: lastSent } = await db.from("crm_x_tasks").select("sent_at").eq("status", "sent").not("kind", "in", "(reply,close)").order("sent_at", { ascending: false }).limit(1);
   const since = Date.now() - (Date.parse(lastSent?.[0]?.sent_at ?? "") || 0), gapMs = (set.gap + Math.random() * 6) * 60e3;
   if (since < gapMs) return { tasks: [], paused: false, in_hours: true, left, sent_today: sentToday ?? 0, wait_min: Math.ceil((gapMs - since) / 60e3) };
   // 15 Nov: warm people (replied, commented, followed; queued by x-grow) go before cold DMs and follow-ups.
   const { data: pool } = await db.from("crm_x_tasks").select("*").eq("status", "ready").not("kind", "in", "(reply,close)").order("created_at").limit(200);
   // (16 Nov) Order: warm people, then follow-ups (they're due on a day), then cold first DMs.
-  const rank = (t: any) => (String(t.decided_by ?? "").startsWith("auto: warm") ? 0 : t.kind !== "dm" ? 1 : 2);
+  // (17 Nov) New founders get their share: until x_bot.daily_new (10) first DMs are out today, first DMs and follow-ups take turns.
+  const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+  const dailyNew = +((xb?.value as any)?.daily_new ?? 10) || 10, dmFirst = dmToday < dailyNew && fuToday >= dmToday;
+  const rank = (t: any) => (String(t.decided_by ?? "").startsWith("auto: warm") ? 0 : (t.kind === "dm") === dmFirst ? 1 : 2);
   const ready = [...(pool ?? [])].sort((a: any, b: any) => rank(a) - rank(b)).slice(0, 1);
   const tasks: any[] = [];
   for (const t of ready ?? []) {
