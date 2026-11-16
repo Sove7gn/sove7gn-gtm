@@ -241,23 +241,6 @@ async function sync(fromButton) {
     if (h.paused) { await log("Paused on LinkedIn > Outreach in the CRM."); return { paused: true }; }
 
     const step = (n) => api("x_job", { name: "linkedin", ok: true, note: n + " (" + new Date().toLocaleTimeString() + ")", version: VERSION }).catch(() => {});
-    // 1. Everyone who liked or commented on our posts (every 3 hours).
-    step("reading who engaged with our posts");
-    if (h.scan_engagers) {
-      let cqid = await commentsQid(me, h.extra_posts);
-      let e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
-      if (/graphql: GET graphql answered 4/.test(e.err || "")) {                     // query id went stale: learn it again
-        cqid = await commentsQid(me, h.extra_posts, true);
-        e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
-      }
-      const pc = await pageComments(me, e);
-      if (pc.err) e.err = (e.err ? e.err + "; " : "") + "comments: " + pc.err;
-      const r = await api("engagers", { items: e.items });
-      summary.engagers = r;
-      await log("Checked " + e.posts + " posts: " + e.items.filter((i) => i.type !== "post").length + " likes and comments. New ICP leads: " + (r.leads_added ?? 0) + (e.err ? ". Problem: " + e.err : ""), !!e.err);
-    }
-    // 1b. New sources: requests sent to us, people we tagged, profile viewers, commenters on founder posts we commented on.
-    await moreSources(me, h);
     step("reading new connections and chats");
     // 2. Accepts and replies.
     let conns = [], threads = [];
@@ -292,12 +275,42 @@ async function sync(fromButton) {
     if (!p.in_hours && fromButton) await log("Outside your sending hours, so nothing goes out right now.");
     chrome.action.setBadgeText({ text: (p.tasks || []).length ? String(p.tasks.length) : "" });
     chrome.action.setBadgeBackgroundColor({ color: "#0a66c2" });
+    setTimeout(() => engagersRun(me, h), 5000);                     // the slow post scan runs after, on its own
     return summary;
   } catch (e) {
     await log(String(e.message || e), true);
     try { await api("status", { error: String(e.message || e) }); } catch (_) {}
     return { error: String(e.message || e) };
   } finally { clearInterval(ka); busy = false; await store.set({ syncing: false }); }
+}
+
+// (16 Nov) Who engaged with our posts (every 3 hours) and the other sources. Slow, so it runs after the check that catches
+// replies and plans sends, as its own job: replies and sending never wait on it.
+async function engagersRun(me, h) {
+  if (!lockFree()) return;
+  busy = true; busyAt = Date.now(); const ka = keepAlive(); const summary = {};
+  const step = (n) => api("x_job", { name: "linkedin", ok: true, note: n + " (" + new Date().toLocaleTimeString() + ")", version: VERSION }).catch(() => {});
+  try {
+      // 1. Everyone who liked or commented on our posts (every 3 hours).
+      step("reading who engaged with our posts");
+      if (h.scan_engagers) {
+        let cqid = await commentsQid(me, h.extra_posts);
+        let e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
+        if (/graphql: GET graphql answered 4/.test(e.err || "")) {                     // query id went stale: learn it again
+          cqid = await commentsQid(me, h.extra_posts, true);
+          e = await op("engagers", { me, days: h.scan_days || 30, extra_posts: h.extra_posts || [], cqid });
+        }
+        const pc = await pageComments(me, e);
+        if (pc.err) e.err = (e.err ? e.err + "; " : "") + "comments: " + pc.err;
+        const r = await api("engagers", { items: e.items });
+        summary.engagers = r;
+        await log("Checked " + e.posts + " posts: " + e.items.filter((i) => i.type !== "post").length + " likes and comments. New ICP leads: " + (r.leads_added ?? 0) + (e.err ? ". Problem: " + e.err : ""), !!e.err);
+      }
+      // 1b. New sources: requests sent to us, people we tagged, profile viewers, commenters on founder posts we commented on.
+      await moreSources(me, h);
+    step("done: posts and sources checked");
+  } catch (e) { await log("Post scan: " + (e.message || e), true); }
+  finally { clearInterval(ka); busy = false; }
 }
 
 // One approved request or message at a time. Skips some ticks at random so the gaps aren't regular.
