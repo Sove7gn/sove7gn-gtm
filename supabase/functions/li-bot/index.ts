@@ -2283,6 +2283,7 @@ async function xAutoFollowups(): Promise<number> {
   for (const r of P.filter((x: any) => x.row > ph.row)) {
     const c = obj(ph, r); const name = c["Name"]; const handle = String(c["X handle"] ?? "").replace(/^@/, "");
     if (!name || !handle || c["Replied on"] || /^by hand/i.test(c["DM result"] || "") || /^(not specified|unknown)$/i.test(name.trim())) continue;
+    if (Object.values(c).some((v) => v === "Followed us")) continue;   // (16 Nov) people who only followed us get no follow-ups
     const st = c["Status"] || "", sent = sheetTime(c["Sent on"]), f1 = sheetTime(c["FU1 sent"]);
     let kind = "";
     if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";

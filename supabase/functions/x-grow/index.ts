@@ -582,7 +582,7 @@ async function warmDMs() {
   const week = Date.now() - 7 * 864e5;
   const MONS: Record<string, number> = Object.fromEntries(MON.map((m, i) => [m, i]));
   const when = (s: string) => { const m = String(s || "").match(/^(\d{1,2}) (\w{3}) (\d{4})/); return m ? Date.UTC(+m[3], MONS[m[2]] ?? 0, +m[1]) : 0; };
-  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return (c[15] || "To message") === "To message" && c[18] === "DM + reply" && c[12] === "Core buyer" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });   // (16 Nov) only the ICP (founder or C-suite at a funded B2B startup) gets an automatic DM; the rest stay on Engaged
+  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return c[4] !== "Followed" && (c[15] || "To message") === "To message" && c[18] === "DM + reply" && c[12] === "Core buyer" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });   // (16 Nov) only the ICP (founder or C-suite at a funded B2B startup) gets an automatic DM; the rest stay on Engaged
   if (!todo.length) return { queued: 0 };
   const { data: pl } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").gte("row", 4);
   const inPipe = new Set((pl ?? []).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase()).filter(Boolean));
@@ -658,7 +658,7 @@ async function newFollowers(given?: any[]) {
       const dm = noDash(o?.dm || "Hey " + first + ", thanks for the follow. What are you building right now, and how are you getting customers for it?");
       engagers.push([istStamp(now), ACCOUNT, "https://x.com/" + h, "(followed us)", "Followed", h, f.name || "", clip(String(f.description || ""), 200),
         String(f.followers_count ?? ""), f.can_dm ? "Yes" : "", "", "https://x.com/" + h, o?.fit || "Other", ACCOUNT, dm,
-        o?.verdict === "Skip" ? "Dismissed" : "To message", "", "", o?.verdict === "Reply only" ? "Reply only" : (o?.verdict || "DM + reply"), noDash(o?.why || "Followed us on X."), String(f.id)]);
+        o?.verdict === "Skip" ? "Dismissed" : "To message", "", "", o?.verdict === "Reply only" ? "Reply only" : (o?.verdict || "Reply only") /* (16 Nov) not judged = no DM */, noDash(o?.why || "Followed us on X."), String(f.id)]);
       if (o) people.push({ handle: String(h).toLowerCase(), name: f.name || "", bio: clip(String(f.description || ""), 300), followers: f.followers_count ?? null,
         fit: o.verdict === "DM + reply" ? "hot" : o.verdict === "Reply only" ? "warm" : "not a fit", why: noDash(o.why || ""), company: o.company || "",
         found_by: "followed", added: true, judged_at: now.toISOString() });
