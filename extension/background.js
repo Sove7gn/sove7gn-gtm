@@ -44,6 +44,7 @@ const X_GRAB = (kind) => {
       items.push({ url, handle: m[1], name, text: txt ? txt.innerText : "", time: t.getAttribute("datetime"), reply: /Replying to/i.test(a.innerText.slice(0, 300)), replies: pick("repl"), likes: pick("like"), views: pick("view") });
     }
   }
+  if (kind === "our_posts") { const f = [...document.querySelectorAll('a[href$="/verified_followers"], a[href$="/followers"]')].map((e) => e.innerText).find((t) => /follower/i.test(t)); if (f) items.push({ _followers: f.replace(/followers?/i, "").trim() }); }
   return items;
 };
 const X_CHAT = () => {
@@ -84,10 +85,12 @@ function setup() {
   chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 });
   chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 });
   chrome.alarms.create("recon", { periodInMinutes: 60, delayInMinutes: 4 });
+  chrome.alarms.create("selfupdate", { periodInMinutes: 3, delayInMinutes: 3 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : a.name === "recon" ? reconcileRun(false) : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : a.name === "recon" ? reconcileRun(false) : a.name === "selfupdate" ? selfUpdate() : tick()));
+chrome.alarms.get("selfupdate").then((a) => { if (!a) chrome.alarms.create("selfupdate", { periodInMinutes: 3, delayInMinutes: 3 }); });
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
 chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
@@ -588,6 +591,18 @@ async function xg(action, body = {}) {
 // marks them Replied, sorts the reply (interested, question, not now, not interested), drafts the answer and stops the follow-ups.
 // (16 Nov) Catch-up scan: the last week of LinkedIn chats (paging back) and recent connections, compared with the CRM by li-bot.
 // Anyone we messaged, who replied, or who connected without a message, and the CRM doesn't reflect it, lands in Needs you.
+// (16 Nov) Self-update: the extension runs from the project folder, and new versions land there. Every 3 minutes it reads its
+// own manifest from disk; when the version there is newer than the one running, it reloads itself (between jobs), so nobody has
+// to press reload in chrome://extensions again.
+async function selfUpdate() {
+  try {
+    const m = await (await fetch(chrome.runtime.getURL("manifest.json") + "?t=" + Date.now(), { cache: "no-store" })).json();
+    if (!m.version || m.version === VERSION) return;
+    if ((busy && Date.now() - busyAt < 10 * 60e3) || (xbusy && Date.now() - xbusyAt < 8 * 60e3)) return;   // wait for jobs to finish
+    await log("Updating the bot to " + m.version + " (was " + VERSION + ").");
+    chrome.runtime.reload();
+  } catch (_) {}
+}
 async function reconcileRun(force) {
   if (!lockFree()) return;
   const { key } = await store.get("key"); if (!key) return;

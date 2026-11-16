@@ -452,7 +452,7 @@ async function followSource(maxAdd = 10, given?: any[]) {
 //      leads:        raise / launch / GTM-hiring posts from the last week, every 3 hours -> ICP judge -> X > Pipeline > To approve.
 //      my_followers: our newest followers, every 6 hours -> judged -> Engaged (+ an automatic DM for Core buyers).
 //      follow_src:   followers of our client's founders (@ShreenabhA, @karanwalia_ai), until read to the end.
-const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60 };
+const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60, our_posts: 120 };
 const LEAD_QUERIES = [
   '("we raised" OR "just raised" OR "excited to announce" OR "thrilled to announce") ("seed round" OR "pre-seed" OR "Series A" OR "Series B") -filter:replies min_faves:5',
   '("launching today" OR "we\'re live" OR "just launched") ("YC" OR "Y Combinator" OR "(F26)" OR "(W26)" OR "(S26)") -filter:replies min_faves:5',
@@ -470,6 +470,36 @@ async function icpHandles(): Promise<string[]> {
   return [...new Set([...a, ...(xp ?? []).map((r) => r.handle), ...eng].map((h) => h.toLowerCase()).filter((h) => /^\w{2,15}$/.test(h) && h !== HANDLE.toLowerCase()))];
 }
 const searchUrl = (q: string) => "https://x.com/search?q=" + encodeURIComponent(q) + "&src=typed_query&f=live";
+// (16 Nov) Our posts' numbers (views, likes, replies) and our follower count, read off our profile by the extension, saved the way
+// the tracker always saved them (Post Tracking snapshots + the matching Our Posts rows), so Post metrics and the 10K line stay live.
+const istDate2 = (d: Date) => { const x = new Date(d.getTime() + 330 * 60e3); return x.getUTCDate() + " " + MON[x.getUTCMonth()] + " " + x.getUTCFullYear(); };
+const istTime2 = (d: Date) => { const x = new Date(d.getTime() + 330 * 60e3), H = x.getUTCHours(), M = x.getUTCMinutes(); return ((H % 12) || 12) + ":" + String(M).padStart(2, "0") + " " + (H < 12 ? "AM" : "PM"); };
+const snipKey2 = (s: string) => String(s || "").replace(/https?:\/\/\S+/g, "").replace(/@\w+/g, "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40);
+const dbSnip2 = (s: string) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 40);
+async function ourPostsDone(items: any[]) {
+  const fol = items.find((i) => i && i._followers); const followers = fol ? num(fol._followers) : null;
+  const posts = items.filter((i) => i && i.url && String(i.handle || "").toLowerCase() === HANDLE.toLowerCase() && !i.reply && Date.now() - (Date.parse(i.time || "") || 0) < 14 * 864e5);
+  const { data: op } = await db.from("crm_sheet").select("row,cells").eq("tab", "Our Posts").gte("row", 4).order("row");
+  const drafts = (op ?? []).filter((r: any) => (r.cells?.[3] || "") === ACCOUNT && !/linkedin/i.test(r.cells?.[4] || ""));
+  const used = new Set<number>(); const trackPosts: any[] = [], newPosts: any[] = [], snapshots: any[] = []; const now = new Date();
+  for (const t of posts) {
+    const L = String(t.url).split("?")[0];
+    let row = drafts.find((r: any) => String(r.cells?.[16] || "").toLowerCase().split("?")[0] === L.toLowerCase());
+    if (!row) row = drafts.find((r: any) => !r.cells?.[16] && !used.has(r.row) && snipKey2(r.cells?.[9]) && snipKey2(r.cells?.[9]) === snipKey2(t.text));
+    const nums = { views: num(t.views) ?? "", likes: num(t.likes) ?? 0, replies: num(t.replies) ?? 0, reposts: 0, quotes: 0, bookmarks: 0 };
+    if (row) { used.add(row.row); trackPosts.push({ row: row.row, link: L, snippet: dbSnip2(row.cells?.[9]), ...nums }); }
+    else { const d = new Date(t.time || now);
+      newPosts.push(["", istDate2(d), istTime2(d), ACCOUNT, "X", "", "Our own", "", "", t.text || "", "Posted straight on X", "", "", "", "Posted", "", L,
+        String(nums.views), String(nums.likes), String(nums.replies), "0", "0", "0", "", "", "", "", ""]); }
+    snapshots.push([istStamp(now), ACCOUNT, L, String(nums.views), String(nums.likes), String(nums.replies), "0", "0", "0", followers != null ? String(followers) : ""]);
+  }
+  if (!posts.length && followers != null) snapshots.push([istStamp(now), ACCOUNT, "https://x.com/" + HANDLE, "", "", "", "", "", "", String(followers)]);
+  const { data: res, error } = await db.rpc("crm_call", { body: { action: "track", posts: trackPosts, snapshots, newPosts, engagers: [] } });
+  if (error) throw error;
+  await db.from("crm_sync_runs").insert({ platform: "x", started_at: now.toISOString(), finished_at: new Date().toISOString(), ok: true, summary: { our_posts: posts.length, followers, matched: trackPosts.length, new_posts: newPosts.length } }).then(() => {}, () => {});
+  return { ok: true, posts: posts.length, followers, result: String(res ?? "") };
+}
+
 async function readPlan(b: any) {
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_read").maybeSingle();
   const s: any = st?.value ?? {}; s.at = s.at ?? {}; const now = Date.now();
@@ -493,7 +523,9 @@ async function readPlan(b: any) {
     await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((bs?.value as any) ?? {}), reply_short_reason: reason, reply_short_at: reason ? new Date().toISOString() : null } }, { onConflict: "key" });
   }
   let job: any = null;
-  if (due("replies")) {
+  // (16 Nov) our own posts and follower count, every 2 hours, off our profile page (the old X data service is off)
+  if (due("our_posts")) job = { kind: "our_posts", url: "https://x.com/" + HANDLE, scrolls: 6 };
+  if (!job && due("replies")) {
     const hs = await icpHandles(); const per = 14, chunks = Math.max(1, Math.ceil(hs.length / per)); const i = (s.reply_turn ?? 0) % chunks;
     const part = hs.slice(i * per, i * per + per);
     if (part.length) { job = { kind: "replies", url: searchUrl("(" + part.map((h) => "from:" + h).join(" OR ") + ") -filter:replies -filter:retweets"), scrolls: 3 }; s.reply_turn = i + 1; }
@@ -512,6 +544,7 @@ async function readPlan(b: any) {
 const num = (v: any) => { const m = String(v ?? "").replace(/,/g, "").match(/([\d.]+)\s*([KkMm])?/); if (!m) return null; return Math.round(+m[1] * (m[2] ? (/k/i.test(m[2]) ? 1e3 : 1e6) : 1)); };
 async function readDone(b: any) {
   const job = b.job ?? {}, items: any[] = Array.isArray(b.items) ? b.items.slice(0, 400) : [];
+  if (job.kind === "our_posts") return await ourPostsDone(items);
   if (job.kind === "replies") {
     const icp = new Set(await icpHandles()); const now = Date.now();
     const posts = items.filter((p) => p.url && p.handle && icp.has(String(p.handle).toLowerCase()) && !p.reply && p.time && now - Date.parse(p.time) < 6 * 3600e3 && String(p.text || "").trim().length > 15);
