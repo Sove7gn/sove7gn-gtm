@@ -1766,15 +1766,19 @@ async function buildCatchup(): Promise<number> {
   const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).filter(Boolean).length > 5);
   const obj = (r: any) => { const o: Record<string, string> = {}; ((h?.cells ?? []) as string[]).forEach((k, i) => { if (k) o[k] = String(r.cells?.[i] ?? ""); }); return o; };
   const pRows = h ? all.filter((r: any) => r.row > h.row).map((r: any) => ({ r, c: obj(r) })) : [];
+  const { data: oa } = await db.from("crm_x_tasks").select("row").in("kind", ["reply", "close"]).in("status", ["review", "ready", "sending"]).limit(1000);
+  const openAns = new Set((oa ?? []).map((t: any) => t.row));
   for (const d of (xv.rows ?? []) as any[]) {
     const lines = String(d.text ?? "").split("\n").map((x: string) => x.trim()).filter(Boolean); if (lines.length < 2) continue;
-    const name = lines[0]; const prev = [...lines].reverse().find((x: string) => !/^(\d+[smhdw]|now|yesterday|\d{1,2}:\d{2}( ?[ap]m)?|[A-Z][a-z]{2} \d{1,2}(, \d{4})?)$/i.test(x)) || "";
+    const name = lines[0];
+    if (/^(message requests?|start (a )?conversation|new (chat|message)|messages|chat|requests)$/i.test(name) || /^new chat$/i.test(lines[lines.length - 1])) continue;
+    const prev = [...lines].reverse().find((x: string) => !/^(\d+[smhdw]|now|yesterday|\d{1,2}:\d{2}( ?[ap]m)?|[A-Z][a-z]{2} \d{1,2}(, \d{4})?)$/i.test(x)) || "";
     if (prev === name) continue;
     const ids = String(d.href ?? "").match(/(\d{5,})[-:](\d{5,})/); const uid = ids ? (ids[1] === me ? ids[2] : ids[1]) : "";
     const handle = ((String(d.text).match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || "").toLowerCase();
     const pr = pRows.find((x: any) => (uid && String(x.c["X user ID"]) === uid) || (handle && String(x.c["X handle"]).replace(/^@/, "").toLowerCase() === handle) || nnm(x.c["Name"]) === nnm(name));
     const l = (handle && byH.get(handle)) || (pr ? byH.get(String(pr.c["X handle"]).replace(/^@/, "").toLowerCase()) : null) || byName.get(nnm(name));
-    if (l?.archived) continue;
+    if (l?.archived || (pr && openAns.has(pr.r.row))) continue;
     const mine = /^you:/i.test(prev); const st = pr?.c["Status"] || ""; const res = pr?.c["DM result"] || "";
     let why = "";
     if (!mine && !/by hand/i.test(res) && !(l?.fields?.x?.replied && (l.fields.x.answered || /^by hand/i.test(res)))) why = pr ? (/^(replied|call booked|customer)$/i.test(st) ? "They wrote, no answer yet" : "They wrote, the CRM shows no reply") : "They wrote, they're not in the CRM";
