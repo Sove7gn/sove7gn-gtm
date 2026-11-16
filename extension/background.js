@@ -677,8 +677,7 @@ async function xInboxTick() {
 }
 async function xReadTick() {
   const { key } = await store.get("key"); if (!key) return;
-  const { xqueue = [] } = await store.get("xqueue"); if (xqueue.length) return;   // DMs waiting go first
-  if (!(await xAcquire("reader", 20e3))) return;
+  if (!(await xAcquire("reader", 90e3))) return;                                   // takes its turn like the other X jobs
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
