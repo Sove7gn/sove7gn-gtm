@@ -2457,7 +2457,7 @@ async function x_done(b: any) {
   const { data: t } = await db.from("crm_x_tasks").select("*").eq("id", b.id).maybeSingle();
   if (!t) return { error: "No such task" };
   // (16 Nov) The extension finds their account on their profile page (the paid lookup is out of credits).
-  if (b.user_id && !t.user_id && t.handle) await db.from("crm_x_tasks").update({ user_id: String(b.user_id) }).eq("handle", t.handle).is("user_id", null);
+  if (/^\d+$/.test(String(b.user_id ?? "")) && !/^\d+$/.test(String(t.user_id ?? ""))) await db.from("crm_x_tasks").update({ user_id: String(b.user_id) }).eq(t.handle ? "handle" : "id", t.handle || t.id).or("user_id.is.null,user_id.like.h:%");
   if (b.no_account) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); return { ok: true }; }
   const c = await pipeRow(t.row); const now = new Date();
   const write = async (cells: Record<string, unknown>) => {

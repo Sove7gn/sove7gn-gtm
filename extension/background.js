@@ -472,8 +472,8 @@ async function xTick() {
     try {
       const c = await api("x_claim", { id: t.id });
       if (!c.ok) { if (c.why) await log("X: skipped " + t.name + " (" + c.why + ")."); return; }
-      if (!t.user_id) {
-        const f = await xFindId(t.handle);
+      if (!/^\d+$/.test(String(t.user_id || ""))) {                    // only the handle is known (or a placeholder "h:handle")
+        const f = await xFindId(t.handle || String(t.user_id || "").replace(/^h:/, ""));
         if (!f.id) { await api("x_done", { id: t.id, no_account: true }); await log("X: couldn't find @" + t.handle + "'s account" + (f.gone ? " (it doesn't exist)" : "") + "."); return; }
         t.user_id = f.id; await sleep(rand(2000, 5000));
       }
