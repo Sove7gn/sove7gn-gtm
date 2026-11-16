@@ -89,7 +89,7 @@ function setup() {
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : a.name === "xtick" ? xTick() : a.name === "xrtick" ? xReplyTick() : a.name === "xreadtick" ? xReadTick() : a.name === "xinbox" ? xInboxTick() : a.name === "recon" ? reconcileRun(false) : a.name === "selfupdate" ? selfUpdate() : tick()));
+chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : ["xtick", "xrtick", "xreadtick", "xinbox"].includes(a.name) ? xLoop() : a.name === "recon" ? reconcileRun(false) : a.name === "selfupdate" ? selfUpdate() : tick()));
 chrome.alarms.get("selfupdate").then((a) => { if (!a) chrome.alarms.create("selfupdate", { periodInMinutes: 3, delayInMinutes: 3 }); });
 // An extension updated in place keeps its old alarms; make sure the X one exists.
 chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
@@ -234,6 +234,7 @@ async function moreSources(me, h) {
 
 async function sync(fromButton) {
   if (!lockFree()) return { busy: true };
+  if (await updatePending()) return { updating: true };
   busy = true; busyAt = Date.now(); const ka = keepAlive(); const summary = {}; await store.set({ syncing: true });
   try {
     const me = await op("me");
@@ -461,7 +462,7 @@ async function inmailTest(t) {
 }
 
 async function xTick() {
-  if (!(await xAcquire("dms", 100e3))) return;
+  if (!(await xAcquire("dms", 5e3))) return;
   const ka = keepAlive();
   try {
     const { key } = await store.get("key"); if (!key) return;
@@ -514,7 +515,7 @@ async function xTick() {
 // opens X's reply box with the reply filled in and presses Post: the same clicks he would make, done by X's own page.
 async function xReplyTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("replies", 120e3))) return;
+  if (!(await xAcquire("replies", 5e3))) return;
   const ka = keepAlive();
   let task = null;
   try {
@@ -594,13 +595,31 @@ async function xg(action, body = {}) {
 // (16 Nov) Self-update: the extension runs from the project folder, and new versions land there. Every 3 minutes it reads its
 // own manifest from disk; when the version there is newer than the one running, it reloads itself (between jobs), so nobody has
 // to press reload in chrome://extensions again.
+// (16 Nov) One X scheduler: one X tab, so one job at a time, picked in a fixed order instead of four timers fighting over it.
+// Replies to our DMs every 10 minutes, approved post replies every 5, reading posts and our profile numbers every 6, DMs otherwise.
+async function xLoop() {
+  if (xbusy && Date.now() - xbusyAt < 8 * 60e3) return;
+  if (await updatePending()) return;
+  const { xl = {} } = await store.get("xl"); const now = Date.now();
+  const due = (k, min) => now - (xl[k] || 0) > min * 60e3;
+  const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 6) ? ["read", xReadTick] : ["dms", xTick];
+  xl[job[0]] = now; await store.set({ xl });
+  await job[1]();
+}
+// A newer version on disk is applied at the next moment no job is running (or after 20 minutes regardless).
+async function updatePending() {
+  const { updWant } = await store.get("updWant"); if (!updWant) return false;
+  if (!(busy && Date.now() - busyAt < 10 * 60e3) && !(xbusy && Date.now() - xbusyAt < 8 * 60e3) || Date.now() - updWant.at > 20 * 60e3) {
+    await store.set({ updWant: null }); await log("Updating the bot to " + updWant.v + " (was " + VERSION + ")."); chrome.runtime.reload(); return true; }
+  return false;
+}
 async function selfUpdate() {
   try {
     const m = await (await fetch(chrome.runtime.getURL("manifest.json") + "?t=" + Date.now(), { cache: "no-store" })).json();
     if (!m.version || m.version === VERSION) return;
-    if ((busy && Date.now() - busyAt < 10 * 60e3) || (xbusy && Date.now() - xbusyAt < 8 * 60e3)) return;   // wait for jobs to finish
-    await log("Updating the bot to " + m.version + " (was " + VERSION + ").");
-    chrome.runtime.reload();
+    const { updWant } = await store.get("updWant");
+    if (!updWant || updWant.v !== m.version) await store.set({ updWant: { v: m.version, at: Date.now() } });
+    await updatePending();
   } catch (_) {}
 }
 async function reconcileRun(force) {
@@ -627,7 +646,7 @@ async function reconcileRun(force) {
 }
 async function xInboxTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("inbox", 180e3))) return;
+  if (!(await xAcquire("inbox", 5e3))) return;
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
@@ -677,7 +696,7 @@ async function xInboxTick() {
 }
 async function xReadTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("reader", 90e3))) return;                                   // takes its turn like the other X jobs
+  if (!(await xAcquire("reader", 5e3))) return;                                   // takes its turn like the other X jobs
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
