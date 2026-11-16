@@ -1789,11 +1789,14 @@ async function buildCatchup(): Promise<number> {
       uid, row: pr?.r.row ?? null, href: d.href || "", last_from: mine ? "me" : "them", last_text: prev.replace(/^you:\s*/i, "").slice(0, 400), last_at: xv.at,
       funding_row: pr?.c["Funding stage"] || "", ...bg(l), funding: bg(l).funding || pr?.c["Funding stage"] || "" });
   }
-  const out = items.filter((x) => !decided[x.key]);
+  const { data: rm } = await db.from("crm_removed").select("lead_id,li_urn,x").limit(5000);
+  const rmL = new Set((rm ?? []).map((r: any) => r.lead_id).filter(Boolean)), rmU = new Set((rm ?? []).map((r: any) => r.li_urn).filter(Boolean)), rmX = new Set((rm ?? []).map((r: any) => r.x).filter(Boolean));
+  const out = items.filter((x) => !decided[x.key] && !(x.lead_id && rmL.has(x.lead_id)) && !(x.urn && rmU.has(String(x.urn).toLowerCase())) && !(x.handle && rmX.has(String(x.handle).toLowerCase())));
   await db.from("crm_lead_settings").upsert({ key: "catchup", value: { ...prev, at: new Date().toISOString(), items: out, decided } });
   return out.length;
 }
-async function catchup_apply(b: any) {
+async function catchup_apply(b0: any) {
+  const b = { ...b0, action: b0.what ?? b0.action };   // (16 Nov) the choice comes as "what" ("action" is the request's own name)
   const { data: cu } = await db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle();
   const v: any = cu?.value ?? {}; const it = (v.items ?? []).find((x: any) => x.key === b.key); if (!it) return { ok: false, error: "Already handled" };
   const decided = { ...(v.decided ?? {}), [it.key]: b.action }; const items = (v.items ?? []).filter((x: any) => x.key !== it.key);

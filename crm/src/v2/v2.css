@@ -549,3 +549,7 @@ body.panning,body.panning *{cursor:grabbing!important;user-select:none!important
 .mrow-a{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .pay{display:grid;grid-template-columns:150px 140px auto auto;gap:8px;align-items:center;margin-bottom:6px}
 .tb-day{padding:8px 16px;background:var(--rail);font-size:12px;font-weight:600;color:var(--ink-2);border-top:1px solid var(--line)}
+
+/* (16 Nov) trash icon on every person: remove into the Trash */
+.trash{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;padding:4px 6px;border-radius:6px;opacity:.45;transition:opacity .15s,background .15s;margin-left:4px}
+.trash:hover{opacity:1;background:#FEF3F2}

@@ -412,6 +412,7 @@ async function publicLoad(){
   if(!LBT.at||Date.now()-LBT.at>2*6e4){LBT.at=Date.now();lbtLoad()}
   if(!BR.at||Date.now()-BR.at>15*6e4){BR.at=Date.now();briefLoad()}
   if(!XT.at||Date.now()-XT.at>2*6e4){XT.at=Date.now();xtLoad()}
+  if(!RM.at||Date.now()-RM.at>5*6e4){RM.at=Date.now();rmLoad()}
 }
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
@@ -1140,6 +1141,34 @@ async function leadSave(id,patch){
 }
 // Archive, not delete: Undo brings it back.
 async function leadArchive(id,on=true){return leadSave(id,{archived:on})}
+/* Remove a person (16 Nov): into the Trash, and the bots and the CRM never touch them again. Database triggers keep them
+   out from then on (their lead stays archived; new LinkedIn/X tasks and post replies for them are skipped). Restore undoes it. */
+const RM={rows:[],at:0,loaded:false};
+async function rmLoad(){if(!sb||!session||!member)return;const {data,error}=await sb.from("crm_removed").select("*").order("removed_at",{ascending:false}).limit(2000);if(!error){RM.rows=data||[];RM.loaded=true;emit();}}
+const pidOf=u=>{const m=String(u||"").match(/linkedin\.com\/in\/([^\/?#]+)/i);return m?decodeURIComponent(m[1]).toLowerCase():"";};
+async function removePerson(p){
+  p=p||{};if(!sb||!canEdit())return false;
+  const l=p.lead_id?LD.rows.find(r=>r.id===p.lead_id):null;
+  const urn=String(p.urn||(l&&((l.fields||{}).li||{}).urn)||"").toLowerCase(),pid=pidOf(p.link||(l&&l.linkedin)),x=String(p.x||(l&&l.x_handle)||"").replace(/^@/,"").toLowerCase().trim();
+  if(!p.lead_id&&!urn&&!pid&&!x){toast("Couldn't tell who this is, so nothing was removed.",true);return false}
+  const row={lead_id:p.lead_id||null,li_urn:urn,li_pid:pid,x,name:String(p.name||(l&&l.name)||"").slice(0,200),why:String(p.why||"").slice(0,200),removed_by:meEmail()};
+  const {data,error}=await sb.from("crm_removed").insert(row).select().single();if(error){toast("Couldn't remove: "+error.message,true);return false}
+  RM.rows=[data,...RM.rows];if(l)l.archived=true;emit();
+  const jobs=[];
+  if(p.lead_id)jobs.push(sb.from("crm_leads").update({archived:true}).eq("id",p.lead_id),sb.from("crm_li_tasks").update({status:"skipped",error:"Removed from the CRM"}).eq("lead_id",p.lead_id).in("status",["review","ready","sending"]));
+  if(x){const hx="handle.ilike."+x+",handle.ilike.@"+x;jobs.push(sb.from("crm_x_tasks").update({status:"skipped",error:"Removed from the CRM"}).or(hx).in("status",["review","ready","sending"]),
+    sb.from("crm_x_reply").update({status:"skipped",error:"Removed from the CRM"}).ilike("author",x).in("status",["new","approved","sending"]));
+    XT.rows=XT.rows.map(t=>String(t.handle||"").replace(/^@/,"").toLowerCase()===x&&["review","ready","sending"].includes(t.status)?{...t,status:"skipped"}:t);}
+  await Promise.all(jobs.map(j=>j.then(()=>{},()=>{})));emit();
+  toast((row.name||"They")+" removed. The bots won't touch them again (restore from Trash).");return true}
+async function restorePerson(id){
+  if(!sb||!canEdit())return false;const r=RM.rows.find(x=>x.id===id);
+  const {error}=await sb.from("crm_removed").delete().eq("id",id);if(error){toast("Couldn't restore: "+error.message,true);return false}
+  RM.rows=RM.rows.filter(x=>x.id!==id);
+  if(r&&r.lead_id){const l=LD.rows.find(x=>x.id===r.lead_id);if(l)l.archived=false;await sb.from("crm_leads").update({archived:false}).eq("id",r.lead_id);}
+  emit();toast((r&&r.name||"They")+" restored. The bots can contact them again.");return true}
+function isRemoved(p){if(!p||!RM.rows.length)return false;const x=String(p.x||"").replace(/^@/,"").toLowerCase(),u=String(p.urn||"").toLowerCase(),pid=pidOf(p.link);
+  return RM.rows.some(r=>(p.lead_id&&r.lead_id===p.lead_id)||(x&&r.x===x)||(u&&r.li_urn===u)||(pid&&r.li_pid===pid));}
 /* LinkedIn steps (10 Nov): LinkedIn's API doesn't share invites or messages, so each step is one click on the lead card,
    kept in fields.li (req, note, acc, dm, inmail = when). A DM or InMail moves a New lead to Contacted. */
 async function liStep(id,step){
@@ -1395,7 +1424,8 @@ async function liFunding(){
 }
 // Signals review (14 Nov): find their LinkedIn and X, add to outreach (LinkedIn request + X Send today), trash, or restore.
 // (16 Nov) Any bot action from the CRM (catch-up add/ignore, scan): answers its JSON, or null with a toast.
-async function botCall(action,body){if(!sb||!canEdit())return null;try{const {data,error}=await sb.functions.invoke("li-bot",{body:{action,...(body||{})}});if(error)throw error;
+async function botCall(action,body){if(!sb||!canEdit())return null;try{const {data,error}=await sb.functions.invoke("li-bot",{body:{...(body||{}),action}});
+  if(error){let m=error.message||String(error);try{const j=await error.context.json();if(j&&j.error)m=j.error}catch(_){}throw new Error(m)}
   if(action.startsWith("catchup")){const {data:cu}=await sb.from("crm_lead_settings").select("key,value").eq("key","catchup").maybeSingle();if(cu){LD.settings={...LD.settings,catchup:cu.value};emit();}}
   return data}catch(e){toast("Couldn't reach the bot: "+(e.message||e),true);return null}}
 async function sigAct(what,id){
@@ -1792,7 +1822,7 @@ window.AK={
   NT,ntLoad,ntDesk,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
-  leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
+  leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,RM,rmLoad,removePerson,restorePerson,isRemoved,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
   // GTM intelligence (8 Nov): for the page and for scheduled jobs that enrich leads or log replies. Nothing here sends a message.
   gtm:{save:leadGtmSave,intel:gtmIntel,intelMany:gtmIntelMany,signal:gtmSignal,signalDel:gtmSignalDel,set:gtmSet,touch:gtmTouch,
     dupes:gtmDupes,find:gtmFind,merge:gtmMerge,classify:gtmClassify,cfg:gtmCfg,stageFor,
