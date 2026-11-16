@@ -1982,7 +1982,7 @@ async function x_inbox(b: any) {
       await db.from("crm_leads").update({ fields: { ...(l.fields ?? {}), x }, last_touch: answeredAt || iso, ...(answeredAt ? {} : R.move) }).eq("id", l.id);
       await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied on X (" + REPLY_LABEL[sr.label] + "): “" + clip(said, 600) + "”", by_email: "x" });
     }
-    if (R.status && !byHand && !answeredAt) await db.from("crm_x_tasks").insert({ row: r.row, name: c["Name"], company: c["Company"], handle, user_id: uid, kind: R.kind, text: R.text, status: R.status, decided_by: "auto: reply" });
+    if (R.status && !byHand && !answeredAt) await db.from("crm_x_tasks").insert({ row: r.row, name: c["Name"], company: c["Company"], handle, user_id: uid, kind: R.kind, text: R.text, status: "review", decided_by: "auto: reply" });   // (16 Nov) X answers: copied and sent by hand from Needs you
     replied++;
   }
   await db.from("crm_lead_settings").upsert({ key: "x_inbox", value: seen });
@@ -2338,7 +2338,7 @@ async function x_plan(b: any) {
   const since = Date.now() - (Date.parse(lastSent?.[0]?.sent_at ?? "") || 0), gapMs = (set.gap + Math.random() * 6) * 60e3;
   if (since < gapMs) return { tasks: [], paused: false, in_hours: true, left, sent_today: sentToday ?? 0, wait_min: Math.ceil((gapMs - since) / 60e3) };
   // 15 Nov: warm people (replied, commented, followed; queued by x-grow) go before cold DMs and follow-ups.
-  const { data: pool } = await db.from("crm_x_tasks").select("*").eq("status", "ready").order("created_at").limit(60);
+  const { data: pool } = await db.from("crm_x_tasks").select("*").eq("status", "ready").not("kind", "in", "(reply,close)").order("created_at").limit(60);
   const ready = [...(pool ?? [])].sort((a: any, b: any) => (String(b.decided_by ?? "").startsWith("auto: warm") ? 1 : 0) - (String(a.decided_by ?? "").startsWith("auto: warm") ? 1 : 0)).slice(0, 1);
   const tasks: any[] = [];
   for (const t of ready ?? []) {
@@ -2348,7 +2348,7 @@ async function x_plan(b: any) {
         if (r.ok) uid = String((await r.json())?.data?.id ?? ""); } catch (_) { /* tried below */ }
       if (uid) await db.from("crm_x_tasks").update({ user_id: uid }).eq("id", t.id);
     }
-    if (!uid) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); continue; }
+    if (!uid && !t.handle) { await db.from("crm_x_tasks").update({ status: "failed", error: "No X handle" }).eq("id", t.id); continue; }
     let text = String(t.text ?? "");
     if (t.kind !== "reply" && t.kind !== "close" && IDEAS_RE.test(text)) {
       const ld = await leadByHandle(t.handle);
@@ -2456,6 +2456,9 @@ async function x_claim(b: any) {
 async function x_done(b: any) {
   const { data: t } = await db.from("crm_x_tasks").select("*").eq("id", b.id).maybeSingle();
   if (!t) return { error: "No such task" };
+  // (16 Nov) The extension finds their account on their profile page (the paid lookup is out of credits).
+  if (b.user_id && !t.user_id && t.handle) await db.from("crm_x_tasks").update({ user_id: String(b.user_id) }).eq("handle", t.handle).is("user_id", null);
+  if (b.no_account) { await db.from("crm_x_tasks").update({ status: "failed", error: "Couldn't find their X account (@" + t.handle + ")" }).eq("id", t.id); return { ok: true }; }
   const c = await pipeRow(t.row); const now = new Date();
   const write = async (cells: Record<string, unknown>) => {
     if (!c) return "no row";

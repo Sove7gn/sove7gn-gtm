@@ -1,9 +1,11 @@
-// SOVE7GN Outreach Bot (LinkedIn + X): runs in your Chrome while it's open.
-// Every 20 minutes (sync): checks who engaged with our posts, who accepted, who replied, and asks the CRM what to send.
-// Every 2 minutes (tick): sends at most one approved LinkedIn request or message, with random gaps, so it looks like a person.
-// Every 2 minutes (xtick, 12 Nov): sends at most one approved X DM from its own pinned X tab (Send today > Send with bot).
-// Every 5 minutes (xrtick, 16 Nov): posts at most one approved reply (X > Outbound > Replies), 30 a day, 15+ minutes apart.
-// Every 6 minutes (xreadtick, 16 Nov): reads one X page the CRM asks for (ICP posts, raise posts, followers) and sends it back.
+// SOVE7GN Outreach Bot (LinkedIn + X): runs in your Chrome while it's open. Four jobs, two loops (one per site, one tab each):
+// 1. Read chats on LinkedIn and X: who accepted, who replied. Replies go to the CRM's Needs you with an answer ready to copy.
+// 2. X DMs and their follow-ups, one at a time.
+// 3. LinkedIn connection requests and follow-ups, one at a time.
+// 4. Replies to ICP founders' posts on X, 30 a day, and reading X for fresh posts to reply to.
+// LinkedIn loop, every 2 minutes: the chat check every 20 minutes, otherwise the next request/message; the slow extras
+// (who engaged with our posts, the daily catch-up) only when nothing is waiting.
+// X loop, every 2 minutes, one job a turn: read chats (every 10 min), post a reply (every 5), read posts (every 6), else DMs.
 import { liOp } from "./linkedin.js";
 import { xOp } from "./x.js";
 
@@ -12,7 +14,7 @@ const VERSION = chrome.runtime.getManifest().version;
 const store = chrome.storage.local;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (lo, hi) => lo + Math.random() * (hi - lo);
-let busy = false, busyAt = 0, xbusy = false, xbusyAt = 0, xbusyName = "";
+let busy = false, busyAt = 0, xbusy = false, xbusyAt = 0;
 // (16 Nov) Chrome freezes background tabs to save power; a script sent into a frozen tab waits forever and the bot stalled.
 // Every call into a bot tab now has a time limit, a frozen or sleeping tab is woken (reloaded), and a lock older than
 // 10 minutes is treated as stuck.
@@ -21,7 +23,8 @@ const lockFree = () => !busy || Date.now() - busyAt > 10 * 60e3;
 // (16 Nov) Background tabs only run their timers about once a minute, so a "wait and check again" loop inside the page could take
 // many minutes. Pages now get quick looks (pageRun) and every wait happens here in the extension.
 async function pageRun(id, func, args = [], all = false) {
-  const r = await within(chrome.scripting.executeScript({ target: { tabId: id, allFrames: all }, world: "MAIN", func, args }), 30e3, "The X tab didn't answer");
+  const run = () => within(chrome.scripting.executeScript({ target: { tabId: id, allFrames: all }, world: "MAIN", func, args }), 30e3, "The X tab didn't answer");
+  let r; try { r = await run(); } catch (e) { if (!/frame|removed|showing error page/i.test(String(e.message || e))) throw e; await sleep(1500); r = await run(); }
   return all ? (r || []).map((x) => x && x.result) : (r && r[0] && r[0].result);
 }
 const X_GRAB = (kind) => {
@@ -65,37 +68,22 @@ async function wake(t) {
   if (t.discarded || t.frozen) { await chrome.tabs.reload(t.id); await loaded(t.id); await sleep(2500); return true; }
   return false;
 }
-// (16 Nov) One X tab, one job at a time. Jobs wait their turn instead of skipping (sending DMs used to lose to the reader for
-// hours), and a lock older than 8 minutes is treated as stuck and taken over.
-async function xAcquire(name, waitMs) {
-  const t0 = Date.now();
-  while (xbusy && Date.now() - xbusyAt < 8 * 60e3) { if (Date.now() - t0 > waitMs) { await xReport(name, false, "waited for " + xbusyName); return false; } await sleep(2000); }
-  xbusy = true; xbusyAt = Date.now(); xbusyName = name; return true;
-}
+
 // What each X job last did, so the CRM's Bots page (and Claude) can see it.
 async function xReport(name, ok, note) { try { await api("x_job", { name, ok, note: String(note || "").slice(0, 300), version: VERSION }); } catch (_) {} }
 // A fresh worker means nothing is running (Chrome may have stopped the last one midway), so clear stale flags.
 store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test again."] } } : {}) }));
 
-function setup() {
-  chrome.alarms.create("sync", { periodInMinutes: 20, delayInMinutes: 1 });
-  chrome.alarms.create("tick", { periodInMinutes: 2, delayInMinutes: 2 });
-  chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 });
-  chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 });
-  chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 });
-  chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 });
-  chrome.alarms.create("recon", { periodInMinutes: 60, delayInMinutes: 4 });
-  chrome.alarms.create("selfupdate", { periodInMinutes: 3, delayInMinutes: 3 });
+// (16 Nov) Three alarms: the LinkedIn loop, the X loop, and the self-update check. Older versions' extra alarms are removed.
+const ALARMS = { li: 2, x: 2, selfupdate: 3 };
+async function setup() {
+  for (const a of await chrome.alarms.getAll()) if (!(a.name in ALARMS) || a.periodInMinutes !== ALARMS[a.name]) await chrome.alarms.clear(a.name);
+  for (const [n, m] of Object.entries(ALARMS)) if (!(await chrome.alarms.get(n))) chrome.alarms.create(n, { periodInMinutes: m, delayInMinutes: n === "x" ? 1 : 2 });
 }
 chrome.runtime.onInstalled.addListener(setup);
 chrome.runtime.onStartup.addListener(setup);
-chrome.alarms.onAlarm.addListener((a) => (a.name === "sync" ? sync(false) : ["xtick", "xrtick", "xreadtick", "xinbox"].includes(a.name) ? xLoop() : a.name === "recon" ? reconcileRun(false) : a.name === "selfupdate" ? selfUpdate() : tick()));
-chrome.alarms.get("selfupdate").then((a) => { if (!a) chrome.alarms.create("selfupdate", { periodInMinutes: 3, delayInMinutes: 3 }); });
-// An extension updated in place keeps its old alarms; make sure the X one exists.
-chrome.alarms.get("xtick").then((a) => { if (!a || a.periodInMinutes !== 2) chrome.alarms.create("xtick", { periodInMinutes: 2, delayInMinutes: 1 }); });
-chrome.alarms.get("xrtick").then((a) => { if (!a) chrome.alarms.create("xrtick", { periodInMinutes: 5, delayInMinutes: 3 }); });
-chrome.alarms.get("xreadtick").then((a) => { if (!a) chrome.alarms.create("xreadtick", { periodInMinutes: 6, delayInMinutes: 2 }); });
-chrome.alarms.get("xinbox").then((a) => { if (!a) chrome.alarms.create("xinbox", { periodInMinutes: 10, delayInMinutes: 2 }); });
+setup();
+chrome.alarms.onAlarm.addListener((a) => (a.name === "li" ? liLoop() : a.name === "x" ? xLoop() : a.name === "selfupdate" ? selfUpdate() : null));
 chrome.runtime.onMessage.addListener((m, _s, reply) => {
   if (m.cmd === "sync") { sync(true).then(reply); return true; }
   if (m.cmd === "test") { selfTest().then(reply, (e) => reply({ error: String(e.message || e) })); return true; }
@@ -279,7 +267,6 @@ async function sync(fromButton) {
     if (!p.in_hours && fromButton) await log("Outside your sending hours, so nothing goes out right now.");
     chrome.action.setBadgeText({ text: (p.tasks || []).length ? String(p.tasks.length) : "" });
     chrome.action.setBadgeBackgroundColor({ color: "#0a66c2" });
-    setTimeout(() => engagersRun(me, h), 5000);                     // the slow post scan runs after, on its own
     return summary;
   } catch (e) {
     await log(String(e.message || e), true);
@@ -290,11 +277,13 @@ async function sync(fromButton) {
 
 // (16 Nov) Who engaged with our posts (every 3 hours) and the other sources. Slow, so it runs after the check that catches
 // replies and plans sends, as its own job: replies and sending never wait on it.
-async function engagersRun(me, h) {
+async function engagersRun() {
   if (!lockFree()) return;
+  const { me } = await store.get("me"); if (!me || !me.signed_in) return;
   busy = true; busyAt = Date.now(); const ka = keepAlive(); const summary = {};
   const step = (n) => api("x_job", { name: "linkedin", ok: true, note: n + " (" + new Date().toLocaleTimeString() + ")", version: VERSION }).catch(() => {});
   try {
+      const h = await api("hello", { me, version: VERSION, signed_in: true });
       // 1. Everyone who liked or commented on our posts (every 3 hours).
       step("reading who engaged with our posts");
       if (h.scan_engagers) {
@@ -462,18 +451,9 @@ async function inmailTest(t) {
 }
 
 async function xTick() {
-  if (!(await xAcquire("dms", 5e3))) return;
   const ka = keepAlive();
   try {
     const { key } = await store.get("key"); if (!key) return;
-    // Refresh in the CRM (13 Nov): asked every 3 minutes; when it was pressed, read LinkedIn (post numbers, engagers) now.
-    const { pollAt = 0 } = await store.get("pollAt");
-    if (Date.now() - pollAt > 3 * 60e3) {
-      await store.set({ pollAt: Date.now() });
-      try { const r = await api("poll", {}); if (r.sync && !busy) setTimeout(() => sync(false), 1500);
-        if (r.inmail_test && !busy) setTimeout(() => inmailTest(r.inmail_test), 3000);
-        if (r.reconcile && !busy) setTimeout(() => reconcileRun(true), 4000); } catch (_) {}
-    }
     let { xqueue = [], xplanAt = 0 } = await store.get(["xqueue", "xplanAt"]);
     xqueue = xqueue.filter((t) => Date.now() - t.handed < 50 * 60e3);
     if (!xqueue.length && Date.now() - xplanAt > 6 * 60e3) {
@@ -492,11 +472,16 @@ async function xTick() {
     try {
       const c = await api("x_claim", { id: t.id });
       if (!c.ok) { if (c.why) await log("X: skipped " + t.name + " (" + c.why + ")."); return; }
+      if (!t.user_id) {
+        const f = await xFindId(t.handle);
+        if (!f.id) { await api("x_done", { id: t.id, no_account: true }); await log("X: couldn't find @" + t.handle + "'s account" + (f.gone ? " (it doesn't exist)" : "") + "."); return; }
+        t.user_id = f.id; await sleep(rand(2000, 5000));
+      }
       const perm = await xop("canDm", { user_id: t.user_id });
       if (perm && perm.known && !perm.can) { await api("x_done", { id: t.id, cant: true }); await log("X: " + t.name + "'s DMs are closed or need a passcode, so they're off today's list."); return; }
       await sleep(rand(3000, 9000));
       const r = await xop("send", { user_id: t.user_id, text: t.text });
-      await api("x_done", { id: t.id, ...r });
+      await api("x_done", { id: t.id, user_id: t.user_id, ...r });
       const what = { dm: "first DM", fu1: "follow-up 1", fu2: "follow-up 2" }[t.kind] || "DM";
       if (r.ok) { await log("X: sent " + what + " to " + t.name + "."); await xReport("dms", true, "sent " + what + " to " + t.name); }
       else if (r.cant) await log("X: " + t.name + "'s DMs are closed (" + r.error + "), so they're off today's list.");
@@ -506,7 +491,7 @@ async function xTick() {
       try { await api("x_done", { id: t.id, ok: false, error: String(e.message || e) }); } catch (_) {}
     }
   } catch (e) { await log("X: " + (e.message || e), true); }
-  finally { clearInterval(ka); xbusy = false; }
+  finally { clearInterval(ka); }
 }
 
 // ═════════ X replies (16 Nov) ═════════
@@ -515,7 +500,6 @@ async function xTick() {
 // opens X's reply box with the reply filled in and presses Post: the same clicks he would make, done by X's own page.
 async function xReplyTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("replies", 5e3))) return;
   const ka = keepAlive();
   let task = null;
   try {
@@ -573,7 +557,7 @@ async function xReplyTick() {
   } catch (e) {
     await log("X replies: " + (e.message || e), true);
     if (task) { try { await api("xr_done", { url: task.url, ok: false, error: String(e.message || e) }); } catch (_) {} }
-  } finally { clearInterval(ka); xbusy = false; }
+  } finally { clearInterval(ka); }
 }
 
 // ═════════ Reading X from your tab (16 Nov) ═════════
@@ -600,11 +584,49 @@ async function xg(action, body = {}) {
 async function xLoop() {
   if (xbusy && Date.now() - xbusyAt < 8 * 60e3) return;
   if (await updatePending()) return;
-  const { xl = {} } = await store.get("xl"); const now = Date.now();
-  const due = (k, min) => now - (xl[k] || 0) > min * 60e3;
-  const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 6) ? ["read", xReadTick] : ["dms", xTick];
-  xl[job[0]] = now; await store.set({ xl });
-  await job[1]();
+  const { key } = await store.get("key"); if (!key) return;
+  xbusy = true; xbusyAt = Date.now();
+  try {
+    const { xl = {} } = await store.get("xl"); const now = Date.now();
+    const due = (k, min) => now - (xl[k] || 0) > min * 60e3;
+    const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 6) ? ["read", xReadTick] : ["dms", xTick];
+    xl[job[0]] = now; await store.set({ xl });
+    await job[1]();
+  } finally { xbusy = false; }
+}
+// LinkedIn loop: the chat check every 20 minutes (or when Refresh is pressed in the CRM), else the next approved send; the slow
+// extras only when nothing is waiting to go out.
+async function liLoop() {
+  if (!lockFree()) return;
+  if (await updatePending()) return;
+  const { key } = await store.get("key"); if (!key) return;
+  const { ll = {}, queue = [] } = await store.get(["ll", "queue"]); const now = Date.now();
+  const due = (k, min) => now - (ll[k] || 0) > min * 60e3;
+  let force = false, recon = false;
+  if (due("poll", 3)) { ll.poll = now; try { const r = await api("poll", {}); force = !!r.sync; recon = !!r.reconcile; if (r.inmail_test) { await store.set({ ll }); return inmailTest(r.inmail_test); } } catch (_) {} }
+  const waiting = queue.some((t) => now - t.handed < 50 * 60e3);
+  let job = null;
+  if (force || due("check", 20)) job = ["check", () => sync(false)];
+  else if (waiting) job = ["send", tick];
+  else if (recon || due("recon", 20 * 60)) job = ["recon", () => reconcileRun(true)];
+  else if (due("posts", 180)) job = ["posts", engagersRun];
+  if (job) ll[job[0]] = now;
+  await store.set({ ll });
+  if (job) await job[1]();
+}
+// The X account id behind a handle, read off their profile page (the follow button carries it).
+async function xFindId(handle) {
+  const id = await xTab(); const h = String(handle || "").replace(/^@/, "").trim(); if (!h) return {};
+  await chrome.tabs.update(id, { url: "https://x.com/" + encodeURIComponent(h) }); await loaded(id); await sleep(rand(3000, 5000));
+  for (let i = 0; i < 20; i++) {
+    const v = await pageRun(id, () => {
+      const b = document.querySelector('[data-testid$="-follow"], [data-testid$="-unfollow"], [data-testid$="-block"], [data-testid$="-unblock"]');
+      const m = b && b.getAttribute("data-testid").match(/^(\d+)-/); if (m) return { id: m[1] };
+      if (/this account doesn.t exist|account suspended|hmm\.\.\.this page doesn.t exist/i.test(document.body.innerText)) return { gone: true };
+      return null; }).catch(() => null);
+    if (v) return v; await sleep(700);
+  }
+  return {};
 }
 // A newer version on disk is applied at the next moment no job is running (or after 20 minutes regardless).
 async function updatePending() {
@@ -646,7 +668,6 @@ async function reconcileRun(force) {
 }
 async function xInboxTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("inbox", 5e3))) return;
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
@@ -692,11 +713,10 @@ async function xInboxTick() {
     await xReport("inbox", true, (r.items || []).length + " inbox messages, " + (convs.length - 1) + " chats opened, " + dom.length + " chats read on x.com/i/chat, " + ((out && out.replied) || 0) + " new replies");
     if (out && out.replied) await log("X: " + out.replied + " new " + (out.replied === 1 ? "reply" : "replies") + " to our DMs, sorted with an answer ready in the CRM.");
   } catch (e) { await log("X inbox: " + (e.message || e), true); }
-  finally { xbusy = false; clearInterval(ka); }
+  finally { clearInterval(ka); }
 }
 async function xReadTick() {
   const { key } = await store.get("key"); if (!key) return;
-  if (!(await xAcquire("reader", 5e3))) return;                                   // takes its turn like the other X jobs
   const ka = keepAlive();
   try {
     const me = await xop("me"); if (!me.signed_in) return;
@@ -711,11 +731,11 @@ async function xReadTick() {
       if (v === "ok") ready = true; else if (v === "empty") break; else await sleep(600);
     }
     const out = new Map(); let still = 0, end = !ready;
-    const take = (got) => { let n = 0; for (const it of got || []) { const k = it.url || String(it.handle || "").toLowerCase(); if (k && !out.has(k)) { out.set(k, it); n++; } } return n; };
+    const take = (got) => { let n = 0; for (const it of got || []) { const k = it.url || String(it.handle || "").toLowerCase() || (it._followers ? "_followers" : ""); if (k && !out.has(k)) { out.set(k, it); n++; } } return n; };
     for (let i = 0; ready && i < (job.scrolls || 3); i++) {
       const n = take(await pageRun(id, X_GRAB, [job.kind]).catch(() => [])); still = n ? 0 : still + 1;
       if (still >= 4) { end = true; break; }
-      await pageRun(id, () => { window.scrollBy(0, window.innerHeight * (1.2 + Math.random() * 0.6)); return 1; }).catch(() => 0);
+      await pageRun(id, () => { const a = [...document.querySelectorAll('article[data-testid="tweet"]')].pop(); if (a) a.scrollIntoView({ block: "start" }); window.scrollBy(0, window.innerHeight * (1.2 + Math.random() * 0.6)); return 1; }).catch(() => 0);
       await sleep(1200 + Math.random() * 1300);
     }
     if (ready) take(await pageRun(id, X_GRAB, [job.kind]).catch(() => []));
@@ -725,5 +745,5 @@ async function xReadTick() {
     await log("X: read " + r.items.length + " " + what + (done.new != null ? ", " + done.new + " new to reply to" : done.added != null ? ", " + done.added + " added to the pipeline" : "") + ".");
     await chrome.tabs.update(id, { url: "https://x.com/settings/account" }).catch(() => {});
   } catch (e) { await log("X reading: " + (e.message || e), true); }
-  finally { clearInterval(ka); xbusy = false; }
+  finally { clearInterval(ka); }
 }
