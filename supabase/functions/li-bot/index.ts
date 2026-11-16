@@ -159,6 +159,48 @@ async function allowed(req: Request): Promise<boolean> {
   return !!data?.length;
 }
 
+// ───────── Competitor teardown (17 Nov): one competitor, read in depth, compared with us ─────────
+// Reads their website (several pages), what's on LinkedIn about them and their founders, their X posts we already read, and the
+// weekly intel; writes a breakdown: service, how it works, core USP, offer and price, who buys, each channel, what they do
+// differently from us, and how to copy what works into our system. Saved in comp_intel[name].analysis; the CRM shows it on click.
+const SOVE7GN_CTX = "SOVE7GN (us): a GTM studio for funded B2B startup founders (pre-seed to Series C, mostly US). We run organic inbound, midbound and outbound for them: " +
+  "founder content on LinkedIn and X (3 posts a day, posts that tag their buyers), automatic replies on ICP founders' posts, warm-signal DMs to people who engage, " +
+  "LinkedIn connection requests and X DMs that lead with 3 ideas written for each founder (value first, no pitch), a 5-step follow-up sequence, signals (raises, launches, " +
+  "GTM hiring), a CRM that ties every channel together, and call dossiers. Proof: a YC company got 100K+ views on X and 30 enterprise calls in 2 weeks. " +
+  "Offer: 25 calls in the first month, completely organic, or a full refund.";
+async function comp_analyze(b: any) {
+  const name = String(b.name ?? ""); if (!name) return { error: "name missing" };
+  const comps = await getSet<any[]>("competitors", []); const c = comps.find((x) => x.name === name) ?? { name };
+  const intel = await getSet<Record<string, any>>("comp_intel", {}); const it = intel[name] ?? {};
+  const dom = String(c.website ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "");
+  const grab = async (body: any) => { try { const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j: any = r.ok ? await r.json() : {}; return ((j.results ?? []) as any[]).map((x) => ({ url: x.url, title: x.title, text: String(x.text ?? "").slice(0, 2500) })); } catch { return []; } };
+  const [site, li, about] = await Promise.all([
+    dom ? grab({ query: name + " services pricing case studies how it works", includeDomains: [dom], numResults: 6, contents: { text: { maxCharacters: 2500 } } }) : Promise.resolve([]),
+    grab({ query: name + " " + ((c.founders ?? [])[0]?.name ?? "") + " LinkedIn post about lead generation, outbound, founder content", includeDomains: ["linkedin.com"], numResults: 6, contents: { text: { maxCharacters: 1500 } } }),
+    grab({ query: name + (dom ? " " + dom : "") + " agency review clients results", numResults: 5, contents: { text: { maxCharacters: 1500 } } }),
+  ]);
+  const posts = (await getSet<any[]>("comp_posts", [])).filter((p) => p.comp === name).slice(0, 12).map((p) => "- " + clip(String(p.text ?? ""), 260) + " (" + (p.likes ?? 0) + " likes, " + (p.replies ?? 0) + " replies)");
+  const block = (t: string, arr: any[]) => arr.length ? "\n\n## " + t + "\n" + arr.map((x) => "### " + (x.title ?? "") + " (" + x.url + ")\n" + x.text).join("\n\n") : "";
+  const facts = "Competitor: " + name + (c.website ? " (" + c.website + ")" : "") + "\nWhat we noted: " + [c.what, c.type, c.country].filter(Boolean).join(" · ") +
+    "\nFounders: " + ((c.founders ?? []) as any[]).map((f) => f.name + (f.role ? " (" + f.role + ")" : "")).join(", ") +
+    "\nWeekly intel: " + clip(JSON.stringify({ icp: it.icp, offer: it.offer, pricing: it.pricing, cta: it.cta, proof: it.proof, clients: (it.clients ?? []).map((x: any) => x.company) }), 1500) +
+    (posts.length ? "\n\n## Their recent X posts\n" + posts.join("\n") : "") + block("Their website", site) + block("LinkedIn", li) + block("Written about them", about);
+  const prompt = "You are a GTM strategist. Analyse this competitor for us and say how we can learn from them.\n\n" + SOVE7GN_CTX + "\n\n" + clip(facts, 16000) +
+    "\n\nAnswer with JSON only, plain words, no dashes as punctuation, no hype. Only claims the material supports; say 'not public' when unknown. Keys:\n" +
+    '{"summary": "2 sentences: who they are and what they sell", "service": ["what they deliver, one item each"], "how_it_works": "their process in 2-4 sentences", ' +
+    '"core_usp": "their single strongest selling point and why buyers pick them", "offer_pricing": "packages, price, guarantee, CTA", "who_buys": "their ICP and named clients", ' +
+    '"proof": ["results and case studies they show"], "channels": {"website": "what the site does well (structure, hooks, CTA, lead magnets)", "linkedin": "how they use LinkedIn (founder posts, formats, cadence, engagement)", "x": "how they use X", "other": "ads, newsletter, podcast, community, partnerships"}, ' +
+    '"different_from_us": ["what they do that we do not, or do differently"], "we_do_better": ["where SOVE7GN is stronger"], ' +
+    '"replicate": [{"what": "a specific thing to copy", "how": "exactly how to do it in our system (which channel, page or bot, and the first step)", "effort": "low|medium|high", "impact": "low|medium|high"}], ' +
+    '"quick_wins": ["3 things we can do this week"]}';
+  const r = await llmMany([{ id: "a", prompt }]).catch(() => ({} as Record<string, string>));
+  const a = parseJson(r.a ?? ""); if (!a || !a.summary) return { error: "The analysis couldn't be written this time. Try again in a minute." };
+  intel[name] = { ...it, analysis: { ...a, at: now(), sources: [...site, ...li, ...about].map((x) => x.url).slice(0, 15) } };
+  await putSet("comp_intel", intel);
+  return { ok: true, analysis: intel[name].analysis };
+}
+
 // ───────── Competitors (16 Nov, CRM > Competitors) ─────────
 // comp_daily runs off the 15-minute job, one small piece of work per run:
 //   ads    once a day: every competitor's Google and YouTube ads from Google's Ads Transparency Center (public, no login)
@@ -505,7 +547,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, comp_daily, comp_send } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, comp_daily, comp_send, comp_analyze } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {

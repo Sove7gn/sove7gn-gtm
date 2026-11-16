@@ -985,7 +985,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="../data.js?v=78570cc674"></script>
+<script src="../data.js?v=8e884b8bfb"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -3893,7 +3893,7 @@ function render(){
   paint('tbar',g?'':tbarHtml());if(!g)safe(replyAlerts);
   const anim=!!V.anim;V.anim=false;
   paint('col',pageHtml(g),el=>el.classList.toggle('anim',anim));
-  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml()+clientFormHtml()+compFormHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
+  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml()+clientFormHtml()+compFormHtml()+compDetailHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
   document.title=PAGE[V.page].label+' · '+(AK.BRAND||'SOVE7GN')+' CRM';
 }
 function railHtml(g){
@@ -4795,6 +4795,32 @@ function pgCompetitors(){
   if(cur==='ideas')h+=pgIdeas(true);
   return h+'</div>';
 }
+
+/* (17 Nov) Competitor breakdown, opened by clicking a competitor: service, how it works, core USP, offer, who buys, proof, each channel
+   (website, LinkedIn, X, other), what they do differently, where we're stronger, and how to copy what works into our system. */
+function compDetailHtml(){
+  const name=V.compD;if(!name)return '';const c=compsAll().find(x=>x.name===name)||{name};const it=compIntel()[name]||{};const a=it.analysis;const busy=!!(AK.CA&&AK.CA.busy[name]);
+  const close=()=>{V.compD=null;schedule();};const L1=x=>esc(String(x||'').trim()||'Not public');
+  const sec=(t,body)=>body?'<div class="blk" style="margin-top:14px"><h3>'+esc(t)+'</h3>'+body+'</div>':'';
+  const ul=arr=>(arr||[]).length?'<ul style="margin:6px 0 0 18px;line-height:1.55">'+arr.map(x=>'<li>'+esc(typeof x==='string'?x:JSON.stringify(x))+'</li>').join('')+'</ul>':'';
+  const p=t=>t?'<p style="margin:6px 0 0;line-height:1.55">'+esc(t)+'</p>':'';
+  const lvl=v=>'<span class="tg" style="color:'+(v==='high'?'#059669':v==='medium'?'#D97706':'#6B7280')+'">'+esc(v||'–')+'</span>';
+  let b='';
+  if(!a)b='<div class="empty" style="padding:24px">'+(busy?'Researching their website, LinkedIn and X posts… about a minute.':'No breakdown yet. Press <b>Write the breakdown</b>: it reads their website, LinkedIn and X posts, and compares them with us.')+'</div>';
+  else{
+    b+=p(a.summary)+'<div class="note" style="margin-top:4px">Written '+esc(since(a.at))+(a.sources&&a.sources.length?' from '+a.sources.length+' sources':'')+'</div>';
+    b+=sec('Core USP','<p style="margin:6px 0 0;font-weight:600;line-height:1.5">'+L1(a.core_usp)+'</p>');
+    b+=sec('What they sell',ul(a.service))+sec('How it works',p(a.how_it_works))+sec('Offer and price',p(a.offer_pricing))+sec('Who buys',p(a.who_buys))+sec('Proof they show',ul(a.proof));
+    const ch=a.channels||{};b+=sec('Their channels','<div class="kv" style="grid-template-columns:110px 1fr;row-gap:8px;margin-top:6px">'+[['Website',ch.website],['LinkedIn',ch.linkedin],['X',ch.x],['Other',ch.other]].map(([k,v])=>'<b>'+k+'</b><span style="line-height:1.5">'+L1(v)+'</span>').join('')+'</div>');
+    b+=sec('What they do differently from us',ul(a.different_from_us))+sec('Where we’re stronger',ul(a.we_do_better));
+    b+=sec('How we copy what works',(a.replicate||[]).length?'<div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">'+a.replicate.map(r=>'<div class="card" style="padding:10px 12px"><div class="bar"><b>'+esc(r.what||'')+'</b><span class="sp"></span><span class="meta">effort</span>'+lvl(r.effort)+'<span class="meta">impact</span>'+lvl(r.impact)+'</div><div style="margin-top:4px;line-height:1.5">'+esc(r.how||'')+'</div></div>').join('')+'</div>':'');
+    b+=sec('Quick wins this week',ul(a.quick_wins));
+    if(a.sources&&a.sources.length)b+='<details style="margin-top:14px"><summary class="meta" style="cursor:pointer">Sources</summary>'+a.sources.map(u=>'<div><a class="meta" href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(u)+'</a></div>').join('')+'</details>';
+  }
+  const links=[c.website?'<a href="'+esc(c.website)+'" target="_blank" rel="noopener">Website ↗</a>':'',c.linkedin?'<a href="'+esc(c.linkedin)+'" target="_blank" rel="noopener">LinkedIn ↗</a>':'',c.x?'<a href="https://x.com/'+esc(xh(c.x))+'" target="_blank" rel="noopener">X ↗</a>':''].filter(Boolean).join(' · ');
+  return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box" style="max-width:860px"><div class="mh"><h2>'+esc(name)+'</h2><span class="meta" style="margin-left:10px">'+links+'</span><span style="flex:1"></span>'
+    +(canEdit()?btn(busy?'Researching…':a?'Refresh':'Write the breakdown',()=>{if(!busy)AK.compAnalyze(name);},'sm'+(a?' ghost':' pri'))+btn('Edit',()=>{V.compD=null;compForm(c);},'sm ghost'):'')+btn('Close',close,'sm ghost')+'</div><div class="mb">'+b+'</div></div></div>';
+}
 /* 1. Competitors: price, website, who they sell to, their current clients */
 const wrap3=t=>'<div class="meta" title="'+esc(t)+'" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4">'+esc(t)+'</div>';
 function compListHtml(R){
@@ -4802,13 +4828,13 @@ function compListHtml(R){
   const sameIcp=it=>{const t=String((it&&it.icp)||'');if(!t)return '';const b2b=/b2b|saas|startup|founder/i.test(t),fund=/funded|seed|series|vc|venture|yc|y combinator/i.test(t);return b2b&&fund?'Yes':b2b?'Partly':'No';};
   return table('rivals',[['Competitor','minmax(0,1.2fr)'],['Price','120px'],['Who they sell to','minmax(0,2fr)'],['Current clients','minmax(0,1.6fr)'],['Same ICP as us?','120px']],
     R.map(c=>{const it=IN[c.name]||{};const cl=(it.clients||[]).map(x=>x.company).filter(Boolean);const s2=sameIcp(it);
-      return{open:()=>compForm(c),cells:[
+      return{open:()=>{V.compD=c.name;schedule();},cells:[
         '<div class="pc-t"><div class="ell nm"><b>'+esc(c.name)+'</b>'+(c.needs_info?' <span class="meta">(add details)</span>':'')+'</div>'+(c.website?'<a class="meta" href="'+esc(c.website)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(dom(c.website))+' ↗</a>':'<span class="meta">no website yet</span>')+'</div>',
         '<b>'+esc(shortPrice(it.pricing)||(it.at?'Not public':'…'))+'</b>',
         wrap3(it.icp||(it.at?'Not found':'Researching…')),
         wrap3(cl.length?cl.join(', '):(it.at?'None named publicly':'Researching…')),
         s2?tagc(s2,s2==='Yes'?'#059669':s2==='Partly'?'#D97706':'#6B7280'):'<span class="meta">…</span>']};}),'No competitors yet. Add one with + Add a competitor.')
-    +'<p class="note" style="margin-top:10px">Prices, buyers and clients come from their websites and case studies, refreshed weekly. Click a row to edit it.</p>';
+    +'<p class="note" style="margin-top:10px">Prices, buyers and clients come from their websites and case studies, refreshed weekly. Click a competitor for the full breakdown: their service, core USP, channels, what they do differently and how we copy it.</p>';
 }
 /* 2. Leads: everyone we found through competitors who fits our ICP */
 function compLeads(){
