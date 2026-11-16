@@ -355,6 +355,23 @@ async function dailyPosts(force = false) {
 //    they wait in X > Pipeline > To approve. Opener: they follow Shreenabh / Karan, and 3 quick ideas on offer. Never a pitch first.
 //    Settings and progress: crm_lead_settings "x_follow_src".
 const FOLLOW_SRC_DEFAULT = { client: "Aktoria", client_note: "Aktoria (YC S26), one of the founders we work with", accounts: { ShreenabhA: { name: "Shreenabh" }, karanwalia_ai: { name: "Karan" } } as Record<string, any> };
+// (16 Nov) Competitors (CRM > Competitors, setting "competitors"): their company and founders' X accounts. Their audience is our ICP,
+// so the extension reads their posts, the replies under their busiest posts and their followers; fits go to X > Pipeline > To approve
+// with our own value-first opener (the competitor is never mentioned). Everyone judged is listed on the Competitors page.
+async function compAccounts(): Promise<Record<string, any>> {
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "competitors").maybeSingle();
+  const out: Record<string, any> = {};
+  for (const c of (((data?.value as any) ?? []) as any[])) { if (c.archived) continue;
+    for (const h of [c.x, ...((c.founders ?? []) as any[]).map((f) => f.x)]) { const k = String(h ?? "").replace(/^@/, "").replace(/^https?:\/\/(x|twitter)\.com\//, "").replace(/[/?].*$/, "").trim();
+      if (/^\w{1,15}$/.test(k)) out[k] = { name: c.name, comp: c.name, ...(c.followers === false ? { dom_done: "not read: posts and replies only" } : {}) }; } }
+  return out;
+}
+async function compAudienceSave(rows: any[]) {
+  if (!rows.length) return;
+  const { data } = await db.from("crm_lead_settings").select("value").eq("key", "comp_audience").maybeSingle();
+  const have: any[] = Array.isArray(data?.value) ? (data!.value as any[]) : []; const seen = new Set(rows.map((r) => r.handle));
+  await db.from("crm_lead_settings").upsert({ key: "comp_audience", value: [...rows, ...have.filter((r) => !seen.has(r.handle))].slice(0, 600) }, { onConflict: "key" });
+}
 const F_FOUNDER = /(co-?founder|founder|\bceo\b|\bcto\b|\bcoo\b|\bcmo\b|\bcro\b|chief|building @|founding)/i;
 const F_NOT = /(crypto|web3|defi|nft|onchain|blockchain|\bvc\b|venture|investor|investing|angel|\bfund\b|capital|partner at|recruit|talent|hiring manager|student|intern|looking for (a )?(job|role)|open to work|journalist|reporter|newsletter|podcast|ghostwrit|clipping|agency|lead gen|outbound for|we help (startups|founders|b2b)|growth studio|marketing studio)/i;
 async function followSource(maxAdd = 10, given?: any[]) {
@@ -362,6 +379,7 @@ async function followSource(maxAdd = 10, given?: any[]) {
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
   const cfg: any = { ...FOLLOW_SRC_DEFAULT, ...(st?.value ?? {}) };
   for (const h of Object.keys(FOLLOW_SRC_DEFAULT.accounts)) cfg.accounts[h] = { ...FOLLOW_SRC_DEFAULT.accounts[h], ...(cfg.accounts?.[h] ?? {}) };
+  if (given) for (const [h, a] of Object.entries(await compAccounts().catch(() => ({})))) cfg.accounts[h] = { ...a, ...(cfg.accounts?.[h] ?? {}) };
   // 1. Next pages of followers (3 pages of 200 per account per run), skipping accounts already read to the end.
   const people = new Map<string, any>();
   for (const f of given ?? []) { const h = String(f.userName || ""); if (h && !people.has(h.toLowerCase())) people.set(h.toLowerCase(), f); }
@@ -384,7 +402,7 @@ async function followSource(maxAdd = 10, given?: any[]) {
   const cands = [...people.values()].filter((f) => { const h = String(f.userName || f.screen_name).toLowerCase(), bio = String(f.description || "");
     return h !== HANDLE.toLowerCase() && !Object.keys(cfg.accounts).some((a) => a.toLowerCase() === h) && !inPipe.has(h) && !seen.has(h) && f.can_dm !== false &&
       (f.followers_count == null || ((f.followers_count ?? 0) >= 40 && (f.followers_count ?? 0) <= 200000)) && !F_NOT.test(bio) &&
-      (F_FOUNDER.test(bio) || (!bio && f._via === "search" && /\b(we|our)\b/i.test(String(f._ctx || "")))); });   // raise/launch posts from a search come without a bio
+      (F_FOUNDER.test(bio) || (!bio && (f._via === "search" || String(f._via).startsWith("comp:")) && /\b(we|our|we're|i'm building|my startup)\b/i.test(String(f._ctx || "")))); });   // raise/launch posts from a search come without a bio
   // 3. Judge (Exa through exaFetch): only founders / C-suite at funded B2B startups, pre-seed to Series C, count.
   const schema = { type: "object", required: ["fit", "why", "company", "role", "what", "stage"], properties: {
     fit: { type: "string", enum: ["Core buyer", "Good fit", "Not a buyer"], description: "Core buyer = founder, co-founder or C-suite (CEO, CTO, COO, CMO, CRO) at a B2B or B2B2C software or deep tech startup that has raised pre-seed, seed, Series A, B or C (or is in YC or a top accelerator), roughly 2 to 100 people. Good fit = startup founder but not clearly funded or not B2B. Not a buyer = everyone else: investors, agencies, consultants, students, job seekers, big-company employees, consumer apps, crypto." },
@@ -421,18 +439,23 @@ async function followSource(maxAdd = 10, given?: any[]) {
     followers: x.f.followers_count ?? null, fit: x.o?.fit === "Core buyer" ? "hot" : x.o?.fit === "Good fit" ? "warm" : "not a fit", why: noDash(x.o?.why || "Could not judge"), role: x.o?.role || "", company: x.o?.company || "",
     company_what: x.o?.what || "", company_stage: x.o?.stage || "", found_by: x.f._via === "search" ? "x-search" : "follows:" + x.f._via, added: fi >= 0, judged_at: nowIso, tips: fi >= 0 ? noDash(String(tips[fi] || "")) : "" }; });
   if (rowsX.length) await db.from("crm_x_people").upsert(rowsX, { onConflict: "handle" });
+  const compRows = judged.filter((x) => String(x.f._via).startsWith("comp:") || cfg.accounts[x.f._via]?.comp).map((x) => ({ handle: String(x.f.userName || x.f.screen_name).toLowerCase(), name: x.f.name || "",
+    comp: String(x.f._via).startsWith("comp:") ? String(x.f._via).slice(5) : cfg.accounts[x.f._via]?.comp, how: String(x.f._via).startsWith("comp:") ? "replied" : "follows", text: clip(String(x.f._ctx || x.f.description || ""), 240),
+    url: x.f._url || "", fit: x.o?.fit || "Not judged", why: noDash(x.o?.why || ""), company: x.o?.company || "", role: x.o?.role || "", stage: x.o?.stage || "", added: fits.includes(x) && !!String(tips[fits.indexOf(x)] || "").trim(), at: new Date().toISOString() }));
+  await compAudienceSave(compRows).catch(() => {});
   let next = Math.max(3, ...(pl ?? []).map((r) => r.row)) + 1; const writes: any[] = []; const added: string[] = [];
   for (const [i, x] of fits.entries()) {
     if (!String(tips[i] || "").trim()) continue;   // the ideas must exist before we offer them
     const h = String(x.f.userName || x.f.screen_name), first = String(x.f.name || h).trim().split(/\s+/)[0], co = x.o.company && !/^unknown$/i.test(x.o.company) ? x.o.company : "your company";
     const via = cfg.accounts[x.f._via]?.name || x.f._via, fromSearch = x.f._via === "search";
+    const compName = String(x.f._via).startsWith("comp:") ? String(x.f._via).slice(5) : cfg.accounts[x.f._via]?.comp || "";
     const round = String(x.o.stage || "").split(",")[0].trim();
     // (16 Nov) found through a raise / launch post: the opener is about their post; otherwise about following our client's founder
-    const opener = fromSearch ? "Hey " + first + ", saw your post about " + co + (round && !/unknown/i.test(round) ? ", congrats on the " + round.replace(/^(pre-?seed|seed|series [a-c])$/i, (m) => m.toLowerCase().replace(/^series/, "Series")) : "") + ". I have 3 quick ideas that could lift your inbound on X, want me to send them over?"
+    const opener = compName ? "Hey " + first + ", had a look at what you're building at " + co + " and I have 3 quick ideas that could lift your inbound on X, want me to send them over?" : fromSearch ? "Hey " + first + ", saw your post about " + co + (round && !/unknown/i.test(round) ? ", congrats on the " + round.replace(/^(pre-?seed|seed|series [a-c])$/i, (m) => m.toLowerCase().replace(/^series/, "Series")) : "") + ". I have 3 quick ideas that could lift your inbound on X, want me to send them over?"
       : "Hey " + first + ", saw you follow " + via + " from " + cfg.client_note + ". Had a look at what you're building at " + co + " and I have 3 quick ideas that could lift your inbound on X, want me to send them over?";
     const row = next++;
-    writes.push({ row, col: 3, values: [[x.f.name || h, co, x.o.role || "Founder", ACCOUNT, "X DM", fromSearch ? "Cold" : "Warm", fromSearch ? "Raised recently" : "Follows " + cfg.client, "9", h, "", "",
-      fromSearch ? "Posted on X: " + clip(String(x.f._ctx || ""), 170) : "Follows @" + x.f._via + " (" + cfg.client + ", our client). " + clip(String(x.o.what || ""), 140), fromSearch ? (x.f._url || "https://x.com/" + h) : "https://x.com/" + h, istStamp(new Date()), "C1", opener, "To send", ""]] });
+    writes.push({ row, col: 3, values: [[x.f.name || h, co, x.o.role || "Founder", ACCOUNT, "X DM", fromSearch || compName ? "Cold" : "Warm", compName ? (String(x.f._via).startsWith("comp:") ? "Engages with " : "Follows ") + compName : fromSearch ? "Raised recently" : "Follows " + cfg.client, "9", h, "", "",
+      compName ? (String(x.f._via).startsWith("comp:") ? "Replied to " + compName + " (competitor): " + clip(String(x.f._ctx || ""), 150) : "Follows @" + x.f._via + " (" + compName + ", a competitor). " + clip(String(x.o.what || ""), 120)) : fromSearch ? "Posted on X: " + clip(String(x.f._ctx || ""), 170) : "Follows @" + x.f._via + " (" + cfg.client + ", our client). " + clip(String(x.o.what || ""), 140), fromSearch ? (x.f._url || "https://x.com/" + h) : "https://x.com/" + h, istStamp(new Date()), "C1", opener, "To send", ""]] });
     writes.push({ row, col: 28, values: [["Added by x-grow (" + (fromSearch ? "raise / launch post read from your X tab" : "followers of @" + x.f._via) + ") on " + istStamp(new Date()) + ". " + noDash(x.o.why || "") + (x.f.description ? " Bio: " + clip(String(x.f.description || ""), 160) : "")]] });
     writes.push({ row, col: 35, values: [[x.o.stage || ""]] });
     if (x.f.id) writes.push({ row, col: 38, values: [[String(x.f.id)]] });
@@ -452,7 +475,7 @@ async function followSource(maxAdd = 10, given?: any[]) {
 //      leads:        raise / launch / GTM-hiring posts from the last week, every 3 hours -> ICP judge -> X > Pipeline > To approve.
 //      my_followers: our newest followers, every 6 hours -> judged -> Engaged (+ an automatic DM for Core buyers).
 //      follow_src:   followers of our client's founders (@ShreenabhA, @karanwalia_ai), until read to the end.
-const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60, our_posts: 120 };
+const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60, our_posts: 120, comp_posts: 60, comp_replies: 90 };
 const LEAD_QUERIES = [
   '("we raised" OR "just raised" OR "excited to announce" OR "thrilled to announce") ("seed round" OR "pre-seed" OR "Series A" OR "Series B") -filter:replies min_faves:5',
   '("launching today" OR "we\'re live" OR "just launched") ("YC" OR "Y Combinator" OR "(F26)" OR "(W26)" OR "(S26)") -filter:replies min_faves:5',
@@ -533,9 +556,15 @@ async function readPlan(b: any) {
   if (!job && due("my_followers")) job = { kind: "my_followers", url: "https://x.com/" + HANDLE + "/followers", scrolls: 3 };
   if (!job && due("leads")) { const i = (s.lead_turn ?? 0) % LEAD_QUERIES.length; const since = new Date(now - 7 * 864e5).toISOString().slice(0, 10);
     job = { kind: "leads", url: searchUrl(LEAD_QUERIES[i] + " since:" + since), scrolls: 4 }; s.lead_turn = i + 1; }
+  if (!job && due("comp_posts")) { const ca = Object.keys(await compAccounts().catch(() => ({})));
+    if (ca.length) { const i = (s.comp_turn ?? 0) % ca.length; job = { kind: "comp_posts", url: "https://x.com/" + ca[i], scrolls: 3, via: ca[i] }; s.comp_turn = i + 1; } }
+  if (!job && due("comp_replies")) {
+    const { data: cp } = await db.from("crm_lead_settings").select("value").eq("key", "comp_posts").maybeSingle(); const read = new Set<string>(s.comp_read ?? []);
+    const best = (((cp?.value as any) ?? []) as any[]).filter((p) => !read.has(p.url) && Date.now() - Date.parse(p.time || "") < 7 * 864e5 && (num(p.replies) ?? 0) >= 3).sort((a, b) => (num(b.replies) ?? 0) - (num(a.replies) ?? 0))[0];
+    if (best) { job = { kind: "comp_replies", url: best.url, scrolls: 5, via: best.comp }; s.comp_read = [best.url, ...(s.comp_read ?? [])].slice(0, 300); } }
   if (!job && due("follow_src")) {
     const { data: fs } = await db.from("crm_lead_settings").select("value").eq("key", "x_follow_src").maybeSingle();
-    const acc = Object.entries<any>({ ...FOLLOW_SRC_DEFAULT.accounts, ...((fs?.value as any)?.accounts ?? {}) }).find(([, a]) => !a.dom_done);
+    const acc = Object.entries<any>({ ...FOLLOW_SRC_DEFAULT.accounts, ...(await compAccounts().catch(() => ({}))), ...((fs?.value as any)?.accounts ?? {}) }).find(([, a]) => !a.dom_done);
     if (acc) job = { kind: "follow_src", url: "https://x.com/" + acc[0] + "/followers", scrolls: 150, via: acc[0] };
   }
   if (job) { s.at[job.kind] = new Date().toISOString(); await db.from("crm_lead_settings").upsert({ key: "x_read", value: s }, { onConflict: "key" }); }
@@ -545,6 +574,23 @@ const num = (v: any) => { const m = String(v ?? "").replace(/,/g, "").match(/([\
 async function readDone(b: any) {
   const job = b.job ?? {}, items: any[] = Array.isArray(b.items) ? b.items.slice(0, 400) : [];
   if (job.kind === "our_posts") return await ourPostsDone(items);
+  if (job.kind === "comp_posts") {
+    const ca = await compAccounts().catch(() => ({} as Record<string, any>)); const comp = ca[job.via]?.comp || job.via;
+    const posts = items.filter((p) => p.url && String(p.handle).toLowerCase() === String(job.via).toLowerCase() && !p.reply).map((p) => ({ url: p.url, handle: p.handle, comp, text: String(p.text || "").slice(0, 1500),
+      time: p.time, likes: p.likes, replies: p.replies, views: p.views, reposts: p.reposts ?? null, seen: new Date().toISOString() }));
+    const { data } = await db.from("crm_lead_settings").select("value").eq("key", "comp_posts").maybeSingle();
+    const have: any[] = Array.isArray(data?.value) ? (data!.value as any[]) : []; const urls = new Set(posts.map((p) => p.url));
+    const all = [...posts, ...have.filter((p) => !urls.has(p.url))].sort((a, b) => Date.parse(b.time || "") - Date.parse(a.time || "")).slice(0, 500);
+    await db.from("crm_lead_settings").upsert({ key: "comp_posts", value: all }, { onConflict: "key" });
+    return { found: items.length, posts: posts.length };
+  }
+  if (job.kind === "comp_replies") {
+    const author = String((String(job.url).match(/x\.com\/(\w{1,15})\/status/) || [])[1] || "").toLowerCase();
+    const ca = await compAccounts().catch(() => ({} as Record<string, any>)); const compH = new Set(Object.keys(ca).map((h) => h.toLowerCase()));
+    const people = items.filter((u) => u.handle && String(u.handle).toLowerCase() !== author && !compH.has(String(u.handle).toLowerCase()) && String(u.handle).toLowerCase() !== HANDLE.toLowerCase())
+      .map((u) => ({ userName: u.handle, name: u.name || u.handle, description: "", followers_count: null, id: null, can_dm: true, _via: "comp:" + (job.via || author), _ctx: u.text || "", _url: u.url || "" }));
+    return await followSource(10, people);
+  }
   if (job.kind === "replies") {
     const icp = new Set(await icpHandles()); const now = Date.now();
     const posts = items.filter((p) => p.url && p.handle && icp.has(String(p.handle).toLowerCase()) && !p.reply && p.time && now - Date.parse(p.time) < 6 * 3600e3 && String(p.text || "").trim().length > 15);

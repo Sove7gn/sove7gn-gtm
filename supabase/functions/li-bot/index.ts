@@ -535,7 +535,7 @@ async function toXPipeline(l: any, opener = ""): Promise<string> {
   const used = (id: string) => P.filter((r: any) => r.row > hdr.row && r.cells?.[ix("Template")] === id).length;
   const tpl = live.sort((a: string, b: string) => used(a) - used(b))[0] ?? "";
   const next = Math.max(...P.map((r: any) => r.row)) + 1, sig = l.fields?.signal ?? {}, kind = sig.kind ?? l.fields?.li?.src ?? "";
-  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? "YC founder list" : kind === "from_li" ? "From LinkedIn" : "Launch";
+  const seg = kind === "funding" ? "Raised recently" : kind === "hiring" ? "Hiring signal" : kind === "list" ? clip(String(l.fields?.li?.list ?? "Founder list"), 40) : kind === "from_li" ? "From LinkedIn" : "Launch";
   const hook = kind === "funding" ? "Congrats on the " + ([sig.round, sig.amount].filter(Boolean).join(" ") || "raise") + "." : kind === "hiring" ? "Saw you're hiring a " + (sig.role || "growth lead") + "." : kind === "launch" ? "Congrats on the launch." : "";
   const ist = new Date(Date.now() + IST_MS); const stamp = ist.getUTCDate() + " " + MON3[ist.getUTCMonth()] + " " + ist.getUTCFullYear() + " " + String(ist.getUTCHours()).padStart(2, "0") + ":" + String(ist.getUTCMinutes()).padStart(2, "0");
   const via = kind === "from_li" ? "Added from LinkedIn (handle found by the bot) on " : "Added from Leads > Signals on ";
@@ -606,7 +606,7 @@ async function prospects(b: any) {
 async function import_list(b: any) {
   const rows = Array.isArray(b.rows) ? b.rows : []; const list = String(b.list ?? "Founder list");
   const out = { added: 0, merged: 0, x: 0, notes: 0, skipped: [] as string[] };
-  const { data: have } = await db.from("crm_leads").select("id,name,company,linkedin,fields,x_handle,stage").eq("source", "LinkedIn").limit(5000);
+  const { data: have } = await db.from("crm_leads").select("id,name,company,linkedin,fields,x_handle,stage,archived").eq("source", "LinkedIn").limit(8000);
   const slug = (u: unknown) => String(u ?? "").toLowerCase().replace(/^https?:\/\/([a-z]{2,3}\.)?(www\.)?linkedin\.com\/in\//, "").replace(/[/?#].*$/, "");
   const bySlug = new Map((have ?? []).map((l: any) => [slug(l.linkedin), l]));
   for (const r of rows) {
@@ -616,14 +616,25 @@ async function import_list(b: any) {
     const extra = { list, warm: r.warm ?? "", dm1, note: undefined as unknown };
     let l: any = bySlug.get(sg) ?? (have ?? []).find((h: any) => String(h.name ?? "").toLowerCase() === String(r.name ?? "").toLowerCase() && String(h.company ?? "").toLowerCase() === String(r.company ?? "").toLowerCase());
     const detail = list + ": " + [r.batch ? "YC " + r.batch : "", r.round, r.warm ? "follows " + r.warm + " from Aktoria" : ""].filter(Boolean).join(" · ");
+    // (16 Nov) Everything the list knows about them goes on their card: funding, investor, accelerator, team size, where, education.
+    const m = r.meta ?? {}; const day = now().slice(0, 10), src = String(m.source ?? "");
+    const iv = (v: unknown) => (v == null || v === "" ? undefined : { v, src, at: day, by: "list" });
+    const intel = Object.fromEntries(Object.entries({ accelerator: iv(m.accelerator), employees: iv(m.headcount ? +m.headcount || undefined : undefined), round: iv(m.round_std),
+      amount: iv(m.amount_usd || undefined), date: iv(m.announced), hq: iv(m.hq), description: iv(m.what), investors: iv(m.lead_investor), education: iv(m.education),
+      founder_location: iv(m.location), email: iv(m.email) }).filter(([, v]) => v));
+    const icp = { funding: m.funding ?? r.round ?? "", one_liner: clip(String(m.what ?? r.what ?? ""), 200), hq_city: m.hq_city ?? "", hq_country: m.hq_country ?? "", at: m.funding ? now() : undefined };
+    if (l && l.archived) { out.skipped.push(r.name + ": already in the CRM, archived (old flow), left alone"); continue; }
     if (l) {
       const li = { ...(l.fields?.li ?? {}), list, warm: r.warm ?? "", ...(l.fields?.li?.dm ? {} : { dm1 }) };
-      await db.from("crm_leads").update({ heat: "Hot", x_handle: l.x_handle || (x ? "@" + x : ""), fields: { ...(l.fields ?? {}), li, li_icp: { ...(l.fields?.li_icp ?? {}), funding: l.fields?.li_icp?.funding || r.round || "" } } }).eq("id", l.id);
+      const g0 = l.fields?.gtm ?? {};
+      await db.from("crm_leads").update({ heat: "Hot", x_handle: l.x_handle || (x ? "@" + x : ""), email: l.email || m.email || "", fields: { ...(l.fields ?? {}), li,
+        li_icp: { ...icp, ...Object.fromEntries(Object.entries(l.fields?.li_icp ?? {}).filter(([, v]) => v)) }, gtm: { ...g0, intel: { ...intel, ...(g0.intel ?? {}) } } } }).eq("id", l.id);
       await log(l.id, "Also on " + detail, "engaged"); out.merged++;
     } else {
       const ins = await db.from("crm_leads").insert({ name: r.name, company: r.company, role: r.role || "Founder", source: "LinkedIn", stage: "New", heat: "Hot", linkedin: li0, x_handle: x ? "@" + x : "",
-        origin_key: "li-src:list:" + sg, direction: "Outbound", source_detail: detail, notes: r.what ? r.company + ": " + r.what : "",
-        fields: { li: { src: "list", list, warm: r.warm ?? "", dm1 }, li_icp: { funding: r.round ?? "", one_liner: clip(String(r.what ?? ""), 200) } } }).select("*").maybeSingle();
+        origin_key: "li-src:list:" + sg, direction: "Outbound", source_detail: detail, notes: [r.what ? r.company + ": " + r.what : "", m.source ? "Source: " + m.source : ""].filter(Boolean).join("\n"),
+        email: m.email || "", website: m.website || "", group_name: list,
+        fields: { li: { src: "list", list, warm: r.warm ?? "", dm1 }, li_icp: icp, gtm: { intel } } }).select("*").maybeSingle();
       l = ins.data; if (!l) { out.skipped.push(r.name + ": " + (ins.error?.message ?? "not added")); continue; }
       out.added++;
     }

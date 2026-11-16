@@ -3742,7 +3742,7 @@ const V={page:(()=>{const h=hashPage();if(h)return h;try{return localStorage.get
 // Where the old pages live now. Pages not built yet open as a short note with links to the current CRM.
 const GO_MAP={home:'today',leads:'today',leadBrief:'today',notifs:'bots',leadSignals:'needs',gtmNow:'outbound',liPipe:'pipeline',pipeline:'pipeline',leadBoard:'pipeline',leadList:'pipeline',
   leadDossier:'calls',liOut:'bots',leadSetup:'settings',leadAdd:'settings',inbox:'needs',engaged:'midbound',replies:'replies',gtmEngage:'replies',xShared:'midbound',liPeople:'midbound',
-  liMid:'midbound',liInbox:'inbound',calendar:'calendar',tracker:'results',posts:'ideas',send:'outbound',scripts:'messages',growth:'results',comps:'ideas',pdm:'midbound'};
+  liMid:'midbound',liInbox:'inbound',calendar:'calendar',tracker:'results',posts:'competitors',send:'outbound',scripts:'messages',growth:'results',comps:'competitors',pdm:'midbound'};
 function intercept(p){
   if('plat' in p)delete p.plat;
   if('page' in p){const pg=p.page;delete p.page;nav(GO_MAP[pg]||pg,true);}
@@ -3755,9 +3755,9 @@ L.load=()=>{L.state.loading=false;L.state.entered=true;schedule();};
 
 const NAV=[
   {g:'',items:[['today','Home','⌂'],['needs','Needs you','✓'],['calendar','Calendar','▦'],['results','Post metrics','↗']]},
-  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['clients','Clients','$'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['ideas','Post ideas','✦'],['bots','Bots and messages','⚙']]}];
-const NAV_C={clients:'#059669',today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
-const PAGE=Object.fromEntries([...NAV,{g:'',items:[['settings','Settings','⚒'],['messages','Messages','✉'],['trash','Trash','🗑']]}].flatMap(g=>g.items.map(([id,label,ic,phase])=>[id,{id,label,ic,phase:phase||1,grp:g.g}])));
+  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['clients','Clients','$'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['competitors','Competitors','⚔'],['bots','Bots and messages','⚙']]}];
+const NAV_C={clients:'#059669',today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',competitors:'#DC2626',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
+const PAGE=Object.fromEntries([...NAV,{g:'',items:[['settings','Settings','⚒'],['messages','Messages','✉'],['trash','Trash','🗑'],['ideas','Post ideas','✦']]}].flatMap(g=>g.items.map(([id,label,ic,phase])=>[id,{id,label,ic,phase:phase||1,grp:g.g}])));
 if(!PAGE[V.page])V.page='today';
 const INFO={results:'How our posts do on LinkedIn and X.',ideas:'Drafts, posts to copy next and comment-a-word DMs.',today:'Your numbers against today’s goals, the calls coming up and whether the bots are running, on LinkedIn, X and Instagram together.',
   needs:'Everything waiting on you, every platform in one list: answer the people who wrote back, approve what the bots will send, then send the few things only you can.',
@@ -3893,7 +3893,7 @@ function render(){
   paint('tbar',g?'':tbarHtml());if(!g)safe(replyAlerts);
   const anim=!!V.anim;V.anim=false;
   paint('col',pageHtml(g),el=>el.classList.toggle('anim',anim));
-  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml()+clientFormHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
+  paint('ov',(g?'':panelHtml()+briefHtml()+calEditHtml()+editHtml()+clientFormHtml()+compFormHtml())+toastHtml()+(DRY?'<div class="dry">Dry run: nothing is saved or sent</div>':''));
   document.title=PAGE[V.page].label+' · '+(AK.BRAND||'SOVE7GN')+' CRM';
 }
 function railHtml(g){
@@ -3908,9 +3908,9 @@ function railHtml(g){
 function pageHtml(g){
   if(g){if(g.wait)return '<div class="empty" style="padding:80px 0">'+esc(g.title||'Loading…')+'</div>';
     return '<div class="card" style="margin-top:40px"><div class="sec-b"><h2 style="margin:0 0 6px;font-size:16px">'+esc(g.title)+'</h2><p class="note">'+esc(g.body||'')+'</p>'+(g.action==='retry'?btn('Try again',()=>location.reload(),'pri'):'')+'</div></div>';}
-  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,clients:pgClients,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings,trash:pgTrash}[V.page];
+  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,clients:pgClients,competitors:pgCompetitors,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings,trash:pgTrash}[V.page];
   const ld=AK.leadsState();
-  if(f&&!ld.loaded&&!['calendar','results','ideas','bots','settings','messages','replies'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
+  if(f&&!ld.loaded&&!['calendar','results','ideas','competitors','bots','settings','messages','replies'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
   if(f)return safe(f,'<div class="errline">This page couldn’t be drawn. Open the current CRM while it’s fixed.</div>');
   return pgSoon(V.page);
 }
@@ -4371,11 +4371,11 @@ function pgReplies(){
 }
 
 /* ---------- Post ideas: our draft next to the post it copies ---------- */
-function pgIdeas(){
+function pgIdeas(embedded){
   const gr=safe(()=>L.growthVals(L.allPeople()),{})||{};
   const drafts=(AK.M.ours||[]).filter(p=>p['Our version']&&!/posted/i.test(p.Status||''));const next=safe(()=>AK.copyNext(15),[])||[];const asks=safe(()=>AK.founderAsks(),[])||[];
   const comps=(AK.M.comps||[]);const cur=V.f.ideas||'drafts';
-  let h=head('Post ideas','Each draft next to the competitor post it copies, the best posts to copy next, and what to DM when someone comments a word.');
+  let h=embedded?'':head('Post ideas','Each draft next to the competitor post it copies, the best posts to copy next, and what to DM when someone comments a word.');
   h+=tabsBar('ideas',[['drafts','Drafts',drafts.length],['next','To copy next',next.length],['comps','Competitors',comps.length],['asks','Questions for the founders',asks.length],['kw','Comment-a-word DMs',(gr.kw||[]).length],['kit','Profile kit',(gr.kit||[]).length]]);
   h+='<div style="margin-top:14px">';
   const nums=t=>[['Views',AK.fmtK(safe(()=>AK.viewsOf(t),0)||0)],['Likes',t.Likes],['Replies',t.Replies]].filter(x=>x[1]&&x[1]!=='0').map(([l,v])=>'<span><b>'+esc(v)+'</b> '+l+'</span>').join('');
@@ -4691,19 +4691,28 @@ function catchupHtml(){
 const money=n=>'$'+Math.round(+n||0).toLocaleString('en-US');
 function clientsAll(){return (AK.leadSetting('clients')||[]).slice();}
 function saveClients(arr){return AK.leadSettingSave('clients',arr);}
-function clientForm(c){V.cform={id:'c'+Date.now(),status:'Active',start:new Date().toISOString().slice(0,10),mrr:'',cost:'',setup:'',payments:[],...(c||{})};schedule();}
+/* (16 Nov) Clients in USD or INR. Each client's amounts are in its own currency; totals show in the one picked at the top. */
+const fxRate=()=>+((AK.leadSetting('fx')||{}).usd_inr)||84;
+const CUR_SYM={USD:'$',INR:'₹'};
+const curOf=c=>c&&c.currency==='INR'?'INR':'USD';
+const conv=(v,from,to)=>{v=+v||0;if(from===to)return v;return from==='USD'?v*fxRate():v/fxRate();};
+const fmtC=(v,cur)=>(CUR_SYM[cur]||'$')+Math.round(+v||0).toLocaleString(cur==='INR'?'en-IN':'en-US');
+const dispCur=()=>V.f.cliCur==='INR'?'INR':'USD';
+const inDisp=(v,c)=>conv(v,curOf(c),dispCur());
+function clientForm(c){V.cform={id:'c'+Date.now(),currency:'USD',status:'Active',start:new Date().toISOString().slice(0,10),mrr:'',cost:'',setup:'',payments:[],...(c||{})};schedule();}
 function clientFormHtml(){
   const f=V.cform;if(!f)return '';const close=()=>{V.cform=null;schedule();};
   const inpF=(k,label,type,ph)=>'<label>'+esc(label)+'</label><input class="in" type="'+(type||'text')+'" value="'+esc(f[k]??'')+'" placeholder="'+esc(ph||'')+'"'+inp(e=>{V.cform[k]=e.target.value;})+'>';
-  const sel=(k,label,opts)=>'<label>'+esc(label)+'</label><select class="in"'+chg(e=>{V.cform[k]=e.target.value;})+'>'+opts.map(o=>'<option'+(f[k]===o?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
+  const sel=(k,label,opts)=>'<label>'+esc(label)+'</label><select class="in"'+chg(e=>{V.cform[k]=e.target.value;if(k==='currency')schedule();})+'>'+opts.map(o=>'<option'+(f[k]===o?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
   const mrr=+f.mrr||0,cost=+f.cost||0;
   return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh"><h2>'+(f.name?esc(f.name):'New client')+'</h2><span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb"><div class="kv">'
     +inpF('name','Company','text','Acme')+inpF('contact','Main contact','text','Founder name')+inpF('email','Email','email')+inpF('service','What we do for them','text','Inbound + outbound GTM')
     +sel('source','Came from',['LinkedIn','X','Inbound','Referral','Email','Other'])+sel('status','Status',['Active','Paused','Ended'])
     +inpF('start','Start date','date')+inpF('end','End date (if ended)','date')
-    +inpF('mrr','Monthly revenue (USD)','number','20000')+inpF('cost','Our monthly cost to deliver (USD)','number','4000')+inpF('setup','One-time setup fee (USD)','number','0')
+    +sel('currency','Currency they pay in',['USD','INR'])
+    +inpF('mrr','Monthly revenue ('+curOf(f)+')','number',curOf(f)==='INR'?'150000':'2000')+inpF('cost','Our monthly cost to deliver ('+curOf(f)+')','number',curOf(f)==='INR'?'30000':'400')+inpF('setup','One-time setup fee ('+curOf(f)+')','number','0')
     +'<label>Notes</label><textarea class="in" rows="3"'+inp(e=>{V.cform.notes=e.target.value;})+'>'+esc(f.notes||'')+'</textarea></div>'
-    +'<div class="note" style="margin-top:10px">Margin: <b>'+(mrr?Math.round((mrr-cost)/mrr*100)+'%':'–')+'</b> · profit '+money(mrr-cost)+' a month</div>'
+    +'<div class="note" style="margin-top:10px">Margin: <b>'+(mrr?Math.round((mrr-cost)/mrr*100)+'%':'–')+'</b> · profit '+fmtC(mrr-cost,curOf(f))+' a month'+(mrr?' ('+fmtC(conv(mrr-cost,curOf(f),curOf(f)==='USD'?'INR':'USD'),curOf(f)==='USD'?'INR':'USD')+')':'')+'</div>'
     +'<div class="blk" style="margin-top:14px"><h3>Payments<span class="sp"></span>'+btn('+ Payment',()=>{V.cform.payments=[...(V.cform.payments||[]),{date:new Date().toISOString().slice(0,10),amount:V.cform.mrr||'',paid:false}];schedule();},'sm ghost')+'</h3>'
     +(f.payments||[]).map((p,i)=>'<div class="pay"><input class="in" type="date" value="'+esc(p.date)+'"'+inp(e=>{V.cform.payments[i].date=e.target.value;})+'><input class="in" type="number" placeholder="Amount" value="'+esc(p.amount)+'"'+inp(e=>{V.cform.payments[i].amount=e.target.value;})+'>'
       +'<button type="button" class="chip'+(p.paid?' on':'')+'"'+act(()=>{V.cform.payments[i].paid=!p.paid;schedule();})+'>'+(p.paid?'Paid':'Not paid')+'</button><button type="button" class="btn ghost sm"'+act(()=>{V.cform.payments.splice(i,1);schedule();})+'>×</button></div>').join('')+'</div>'
@@ -4711,25 +4720,98 @@ function clientFormHtml(){
       +(clientsAll().some(x=>x.id===f.id)?btn('Delete',()=>{if(!confirm('Delete '+(f.name||'this client')+'?'))return;saveClients(clientsAll().filter(x=>x.id!==f.id));V.cform=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
 }
 function pgClients(){
-  const C=clientsAll();const act0=C.filter(c=>c.status==='Active');const mrr=act0.reduce((s,c)=>s+(+c.mrr||0),0),cost=act0.reduce((s,c)=>s+(+c.cost||0),0);
-  const paid=C.flatMap(c=>(c.payments||[]).filter(p=>p.paid)).reduce((s,p)=>s+(+p.amount||0),0),due=C.flatMap(c=>(c.payments||[]).filter(p=>!p.paid)).reduce((s,p)=>s+(+p.amount||0),0);
+  const C=clientsAll();const act0=C.filter(c=>c.status==='Active');const mrr=act0.reduce((s,c)=>s+inDisp(c.mrr,c),0),cost=act0.reduce((s,c)=>s+inDisp(c.cost,c),0);
+  const paid=C.flatMap(c=>(c.payments||[]).filter(p=>p.paid).map(p=>inDisp(p.amount,c))).reduce((s,v)=>s+v,0),due=C.flatMap(c=>(c.payments||[]).filter(p=>!p.paid).map(p=>inDisp(p.amount,c))).reduce((s,v)=>s+v,0);
+  const money=v=>fmtC(v,dispCur());
   const won=leadsOpen().filter(l=>/^won$/i.test(l.stage||'')),lost=(AK.LD.rows||[]).filter(l=>/^(lost|cold lead)$/i.test(l.stage||'')&&!l.archived);
   const cur=V.f.cli||'clients';
-  let h=head('Clients','Every client: what they pay, what they cost us to deliver, the margin, and payments. Wins and losses from the pipeline below.',canEdit()?btn('+ Add a client',()=>clientForm(),'pri sm'):'');
+  let h=head('Clients','Every client: what they pay, what they cost us to deliver, the margin, and payments. Each client is in USD or INR; totals show in the currency picked here.',canEdit()?btn('+ Add a client',()=>clientForm(),'pri sm'):'');
+  h+='<div class="bar" style="margin:-4px 0 12px">'+['USD','INR'].map(k=>'<button type="button" class="chip'+(dispCur()===k?' on':'')+'"'+act(()=>{V.f.cliCur=k;schedule();})+'>Show in '+k+'</button>').join('')
+    +'<span class="note" style="margin-left:10px">1 USD = ₹</span><input class="in" type="number" style="width:80px" value="'+esc(fxRate())+'"'+chg(e=>{const v=+e.target.value;if(v>0&&canEdit())AK.leadSettingSave('fx',{...(AK.leadSetting('fx')||{}),usd_inr:v}).then(()=>schedule());})+'></div>';
   h+=strip([['MRR',money(mrr),act0.length+' active '+(act0.length===1?'client':'clients'),'#059669'],['Monthly profit',money(mrr-cost),'after delivery cost','#2563EB'],['Margin',mrr?Math.round((mrr-cost)/mrr*100)+'%':'–','profit ÷ revenue','#7C3AED'],
     ['ARR',money(mrr*12),'MRR × 12','#0D9488'],['Collected',money(paid),due?money(due)+' still to collect':'nothing outstanding','#D97706']]);
   // MRR over the last 6 months
   const months=[...Array(6)].map((_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-5+i);return d;});
-  const mAt=(d,k)=>C.filter(c=>c.start&&new Date(c.start)<=new Date(d.getFullYear(),d.getMonth()+1,0)&&(!c.end||new Date(c.end)>=d)&&c.status!=='Paused').reduce((s,c)=>s+(+c[k]||0),0);
+  const mAt=(d,k)=>C.filter(c=>c.start&&new Date(c.start)<=new Date(d.getFullYear(),d.getMonth()+1,0)&&(!c.end||new Date(c.end)>=d)&&c.status!=='Paused').reduce((s,c)=>s+inDisp(c[k],c),0);
   if(C.length)h+='<div class="card sec-b" style="margin-bottom:16px"><h3 class="ch">Revenue and profit by month</h3>'+barChart([{n:'Revenue',c:'#059669',data:months.map(d=>mAt(d,'mrr'))},{n:'Profit',c:'#2563EB',data:months.map(d=>mAt(d,'mrr')-mAt(d,'cost'))}],months.map(d=>AK.MON[d.getMonth()]),120)+'</div>';
   h+=tabsBar('cli',[['clients','Clients',C.length],['won','Won',won.length],['lost','Lost',lost.length]])+'<div style="margin-top:12px">';
   if(cur==='clients')h+=table('cli',[['Client','minmax(0,1.6fr)'],['Status','90px'],['MRR','100px'],['Cost','100px'],['Margin','80px'],['Since','110px'],['Paid / due','minmax(0,1fr)']],
-    C.sort((a,b)=>(b.status==='Active')-(a.status==='Active')||(+b.mrr||0)-(+a.mrr||0)).map(c=>{const m=+c.mrr||0,k=+c.cost||0;const pd=(c.payments||[]).filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),du=(c.payments||[]).filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0);
-      return{open:()=>clientForm(c),cells:[pcell(c.name||'(no name)',[c.contact,c.service].filter(Boolean).join(' · '),null),tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280'),'<b class="num">'+money(m)+'</b>','<span class="num meta">'+money(k)+'</span>',
+    C.sort((a,b)=>(b.status==='Active')-(a.status==='Active')||inDisp(b.mrr,b)-inDisp(a.mrr,a)).map(c=>{const m=+c.mrr||0,k=+c.cost||0,cu=curOf(c),own=v=>fmtC(v,cu);const pd=(c.payments||[]).filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),du=(c.payments||[]).filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0);
+      const money=own;const alt=cu!==dispCur()?'<div class="meta" style="font-size:11px">'+fmtC(conv(m,cu,dispCur()),dispCur())+'</div>':'';
+      return{open:()=>clientForm(c),cells:[pcell(c.name||'(no name)',[c.contact,c.service,cu].filter(Boolean).join(' · '),null),tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280'),'<b class="num">'+money(m)+'</b>'+alt,'<span class="num meta">'+money(k)+'</span>',
         '<span class="num" style="color:'+(m&&(m-k)/m>=0.5?'#059669':'#B45309')+';font-weight:600">'+(m?Math.round((m-k)/m*100)+'%':'–')+'</span>','<span class="meta">'+esc(c.start||'')+'</span>','<span class="meta">'+money(pd)+(du?' · <span style="color:#B45309">'+money(du)+' due</span>':'')+'</span>']};}),'No clients yet. Add the first one with + Add a client.');
   if(cur==='won')h+=table('won',[['Who','minmax(0,2fr)'],['From','100px'],['Won','110px'],['Value','100px'],['','auto']],won.map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),'<span class="meta">'+esc(l.source||'')+'</span>','<span class="meta">'+esc(since(l.stage_at))+'</span>','<span class="num">'+(l.price?money(l.price):'–')+'</span>',
     ACTS(canEdit()&&!clientsAll().some(c=>c.lead_id===l.id)?['Add as client',()=>clientForm({name:l.company||l.name,contact:l.name,email:l.email||'',source:l.source,lead_id:l.id,mrr:l.price||''})]:null)]})),'No wins yet. People you move to Won show here.');
   if(cur==='lost')h+=table('lost',[['Who','minmax(0,2fr)'],['Stage','110px'],['Why','minmax(0,2fr)'],['When','110px']],lost.sort((a,b)=>ms(b.stage_at)-ms(a.stage_at)).map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),tagp(l.stage,'#6B7280'),ell(LIo(l).reply_label==='not_interested'?'Said no: '+(LIo(l).reply_text||''):LIo(l).stop==='no reply'?'No reply after all follow-ups':l.closed_for||l.next_step||'','meta'),'<span class="meta">'+esc(since(l.stage_at))+'</span>']})),'Nothing lost.');
+  return h+'</div>';
+}
+
+
+/* ================= Competitors (16 Nov): who sells what we sell, what they post, and who engages with them ================= */
+// Setting "competitors": [{id,name,website,type,country,what,how,x,linkedin,founders:[{name,role,x,linkedin}],followers,notes,archived}].
+// x-grow reads their posts (comp_posts), the replies under their busiest posts and their followers (direct ones only) through the
+// extension; everyone judged lands in comp_audience, and fits go to X > Pipeline > To approve with our own value-first opener.
+const compsAll=()=>(AK.leadSetting('competitors')||[]).slice();
+const compPosts=()=>(AK.leadSetting('comp_posts')||[]);
+const compAud=()=>(AK.leadSetting('comp_audience')||[]);
+const xh=h=>String(h||'').replace(/^@/,'').replace(/^https?:\/\/(x|twitter)\.com\//,'').replace(/[/?].*$/,'').trim();
+function compForm(c){V.compF={id:'c'+Date.now(),type:'Agency',followers:true,founders:[],...(c||{})};V.compF.fText=(V.compF.founders||[]).map(f=>[f.name,f.role,f.x?'@'+xh(f.x):'',f.linkedin].join(' | ')).join('\n');schedule();}
+function compFormHtml(){
+  const f=V.compF;if(!f)return '';const close=()=>{V.compF=null;schedule();};
+  const F=(k,label,ph)=>'<label>'+esc(label)+'</label><input class="in" value="'+esc(f[k]??'')+'" placeholder="'+esc(ph||'')+'"'+inp(e=>{V.compF[k]=e.target.value;})+'>';
+  const save=()=>{const fo=String(f.fText||'').split('\n').map(l=>l.split('|').map(x=>x.trim())).filter(a=>a[0]).map(([name,role,x,linkedin])=>({name,role:role||'',x:xh(x),linkedin:linkedin||''}));
+    const c={...f,x:xh(f.x),founders:fo,updated_at:new Date().toISOString()};delete c.fText;const arr=compsAll().filter(x=>x.id!==f.id);arr.push(c);
+    AK.leadSettingSave('competitors',arr).then(()=>L.toast('Saved '+(c.name||'the competitor')+'. Their X posts and audience are read within the hour.'));V.compF=null;schedule();};
+  return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh"><h2>'+(f.name?esc(f.name):'New competitor')+'</h2><span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb"><div class="kv">'
+    +F('name','Name','Roger')+F('website','Website','https://…')+F('type','Type','Agency / AI tool / Ghostwriting agency')+F('country','Country','USA, UK, India…')
+    +F('what','What they sell','One line')+F('how','How close to us','Same thing as us / Overlaps on…')+F('x','Company X account','@handle')+F('linkedin','Company LinkedIn page','https://linkedin.com/company/…')
+    +'<label>Founders</label><textarea class="in" rows="4" placeholder="Name | Role | @x | LinkedIn URL (one per line)"'+inp(e=>{V.compF.fText=e.target.value;})+'>'+esc(f.fText||'')+'</textarea>'
+    +'<label>Read their audience</label><button type="button" class="chip'+(f.followers!==false?' on':'')+'"'+act(()=>{V.compF.followers=f.followers===false;schedule();})+'>'+(f.followers!==false?'Followers + replies':'Replies only')+'</button>'
+    +'<label>Notes</label><textarea class="in" rows="2"'+inp(e=>{V.compF.notes=e.target.value;})+'>'+esc(f.notes||'')+'</textarea></div>'
+    +'<div class="note" style="margin-top:8px">The bot reads every X account here (company and founders) through your X tab: their posts, the people replying to them, and (direct competitors) their followers. People who fit our ICP go to X › Pipeline › To approve, with our own opener. The competitor is never mentioned.</div>'
+    +'<div class="under">'+(canEdit()?btn('Save',save,'pri sm')+(compsAll().some(x=>x.id===f.id)?btn(f.archived?'Restore':'Stop tracking',()=>{const arr=compsAll().map(x=>x.id===f.id?{...x,archived:!f.archived}:x);AK.leadSettingSave('competitors',arr);V.compF=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
+}
+function pgCompetitors(){
+  const C=compsAll().filter(c=>!c.archived),P=compPosts(),A=compAud();const cur=V.f.comp||'list';const wk=Date.now()-7*D;
+  const postsOf=c=>P.filter(p=>p.comp===c.name),audOf=c=>A.filter(a=>a.comp===c.name);
+  const direct=C.filter(c=>c.followers!==false),creators=C.filter(c=>c.followers===false);
+  let h=head('Competitors','Who sells what we sell (agencies, AI tools, founders) and how they compare, what they post, and who engages with them. Their audience is our ICP: the fits go to X › Pipeline › To approve.',canEdit()?btn('+ Add a competitor',()=>compForm(),'pri sm'):'');
+  const added=A.filter(a=>a.added).length,core=A.filter(a=>a.fit==='Core buyer').length;
+  h+=strip([['Tracked',String(C.length),direct.length+' direct · '+creators.length+' creators','#DC2626'],['Their posts read',String(P.length),P.filter(p=>ms(p.time)>wk).length+' this week','#2563EB'],
+    ['Their audience judged',String(A.length),core+' core buyers','#7C3AED'],['Added to our pipeline',String(added),'X › To approve','#059669']]);
+  h+=tabsBar('comp',[['list','Competitors',C.length],['posts','Their posts',P.length],['aud','Their audience',A.length],['ideas','Post ideas','']])+'<div style="margin-top:12px">';
+  if(cur==='list'){
+    const fl=V.f.compF||'direct';const L0=fl==='direct'?direct:fl==='creators'?creators:C;
+    h+='<div class="bar" style="margin-bottom:10px">'+[['direct','Direct competitors',direct.length],['creators','Agency founders & creators',creators.length],['all','All',C.length]].map(([k,l,n])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compF=k;schedule();})+'>'+esc(l)+' '+n+'</button>').join('')+'</div>';
+    h+=table('comps',[['Competitor','minmax(0,1.6fr)'],['Type','130px'],['Where','120px'],['Founders','minmax(0,1.4fr)'],['X / LinkedIn','120px'],['Posts (7d)','90px'],['Avg likes','80px'],['Audience','110px']],
+      L0.sort((a,b)=>postsOf(b).length-postsOf(a).length||String(a.name).localeCompare(b.name)).map(c=>{const ps=postsOf(c),p7=ps.filter(p=>ms(p.time)>wk),au=audOf(c);
+        const lk=ps.length?Math.round(ps.reduce((s2,p)=>s2+(+String(p.likes||0).replace(/[^0-9.]/g,'')||0)*(/K/i.test(p.likes||'')?1000:1),0)/ps.length):0;
+        const fo=(c.founders||[]).map(f=>esc(f.name)+(f.role?' <span class="meta">('+esc(f.role)+')</span>':'')+(f.linkedin?' <a href="'+esc(f.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">in</a>':'')+(f.x?' <a href="https://x.com/'+esc(xh(f.x))+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">𝕏</a>':'')).join(', ');
+        const links=[c.x?'<a href="https://x.com/'+esc(xh(c.x))+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">@'+esc(xh(c.x))+'</a>':'',c.linkedin?'<a href="'+esc(c.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">LinkedIn</a>':''].filter(Boolean).join(' · ');
+        return{open:()=>compForm(c),cells:[pcell(c.name+(c.needs_info?' ⚠':''),[c.what,c.website].filter(Boolean).join(' · '),null),tagp(c.type||'—','#6B7280'),'<span class="meta">'+esc(c.country||'—')+'</span>',
+          '<span class="meta" style="white-space:normal">'+(fo||'<span style="color:#9CA3AF">Add founders</span>')+'</span>','<span class="meta">'+(links||'—')+'</span>','<span class="num">'+p7.length+'</span>','<span class="num meta">'+(lk||'–')+'</span>',
+          '<span class="meta">'+(au.length?au.length+' · '+au.filter(a=>a.added).length+' added':'—')+'</span>']};}),'No competitors yet. Add one with + Add a competitor.');
+    h+='<p class="note" style="margin-top:10px">⚠ = needs details. Founders with an X account are read too. LinkedIn: their founders and pages are linked here; reading who engages with their LinkedIn posts needs the extension, which isn’t switched on for this.</p>';
+  }
+  if(cur==='posts'){
+    const names=[...new Set(P.map(p=>p.comp))].sort();const pick=V.f.compP||'';const sort=V.f.compS||'new';
+    let L0=P.filter(p=>!pick||p.comp===pick);const n=v=>{const t=String(v||'');return (+t.replace(/[^0-9.]/g,'')||0)*(/K/i.test(t)?1e3:/M/i.test(t)?1e6:1);};
+    L0=sort==='top'?L0.slice().sort((a,b)=>n(b.likes)+n(b.replies)*3-(n(a.likes)+n(a.replies)*3)):L0;
+    h+='<div class="bar" style="margin-bottom:10px"><select class="in" style="width:220px"'+chg(e=>{V.f.compP=e.target.value;schedule();})+'><option value="">Everyone</option>'+names.map(x=>'<option'+(x===pick?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>'
+      +['new','top'].map(k=>'<button type="button" class="chip'+(sort===k?' on':'')+'"'+act(()=>{V.f.compS=k;schedule();})+'>'+(k==='new'?'Newest':'Most engagement')+'</button>').join('')+'</div>';
+    h+=L0.length?L0.slice(0,V.more.compP?400:60).map(p=>'<div class="card" style="margin-bottom:8px;padding:12px 14px"><div class="bar"><b>'+esc(p.comp)+'</b><span class="meta">@'+esc(p.handle)+' · '+esc(since(p.time))+'</span><span class="sp"></span><span class="meta">♥ '+esc(p.likes||0)+' · 💬 '+esc(p.replies||0)+(p.views?' · 👁 '+esc(p.views):'')+'</span><a class="lnk" href="'+esc(p.url)+'" target="_blank" rel="noopener">Open ↗</a></div><div style="margin-top:6px;white-space:pre-wrap;font-size:13px;line-height:1.45">'+esc(String(p.text||'').slice(0,600))+'</div></div>').join('')
+      +(L0.length>60&&!V.more.compP?btn('Show all '+L0.length,()=>{V.more.compP=true;schedule();},'sm ghost'):''):'<div class="empty">No posts read yet. The bot reads one competitor’s X profile an hour through your X tab, so they fill in over the day.</div>';
+  }
+  if(cur==='aud'){
+    const fl=V.f.compA||'core';const L0=A.filter(a=>fl==='all'||(fl==='core'?a.fit==='Core buyer':fl==='added'?a.added:a.fit!=='Core buyer'));
+    h+='<div class="bar" style="margin-bottom:10px">'+[['core','Core buyers',A.filter(a=>a.fit==='Core buyer').length],['added','Added to our pipeline',A.filter(a=>a.added).length],['rest','Not a fit',A.filter(a=>a.fit!=='Core buyer').length],['all','All',A.length]].map(([k,l,n2])=>'<button type="button" class="chip'+(fl===k?' on':'')+'"'+act(()=>{V.f.compA=k;schedule();})+'>'+esc(l)+' '+n2+'</button>').join('')+'</div>';
+    h+=table('caud',[['Person','minmax(0,1.5fr)'],['Found via','minmax(0,1fr)'],['Fit','110px'],['Why','minmax(0,2fr)'],['Status','150px']],
+      L0.map(a=>({open:()=>window.open('https://x.com/'+a.handle,'_blank','noopener'),cells:[pcell(a.name||'@'+a.handle,'@'+a.handle+(a.company?' · '+[a.role,a.company].filter(Boolean).join(' at '):''),'X'),
+        '<span class="meta">'+esc((a.how==='replied'?'Replied to ':'Follows ')+(a.comp||''))+'</span>',tagp(a.fit||'—',a.fit==='Core buyer'?'#059669':a.fit==='Good fit'?'#D97706':'#6B7280'),
+        ell([a.stage&&!/unknown/i.test(a.stage)?a.stage:'',a.why].filter(Boolean).join(' · ')||a.text||'','meta'),'<span class="meta">'+(a.added?'In X › To approve':a.fit==='Core buyer'?'Fit, ideas not written':'—')+'</span>']})),
+      'Nobody yet. As the bot reads who replies to and follows your competitors, they show here, judged, and the fits go to X › To approve.');
+  }
+  if(cur==='ideas')h+=pgIdeas(true);
   return h+'</div>';
 }
 
