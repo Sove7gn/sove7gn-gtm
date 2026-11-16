@@ -534,8 +534,15 @@ async function saveStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
   await db.from("crm_lead_settings").upsert({ key: "li_bot_status", value: { ...(data?.value ?? {}), ...patch }, updated_at: now() });
 }
+// (17 Nov, Reyansh) The bots work when SF / US / Canada are awake: hours, daily caps and weekends run on US Pacific time (DST aware).
+function ptParts(t = Date.now()) {
+  const o: Record<string, string> = {}; for (const p of new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" }).formatToParts(new Date(t))) o[p.type] = p.value;
+  const h = +o.hour % 24, offMs = Date.UTC(+o.year, +o.month - 1, +o.day, h, +o.minute) - Math.floor(t / 60e3) * 60e3;
+  return { hour: h + +o.minute / 60, weekend: o.weekday === "Sat" || o.weekday === "Sun", dayStartIso: new Date(Date.UTC(+o.year, +o.month - 1, +o.day) - offMs).toISOString() };
+}
+const ptHour = () => ptParts().hour, ptDayStart = () => ptParts().dayStartIso;
 const istHour = () => { const d = new Date(Date.now() + 5.5 * 3600e3); return d.getUTCHours() + d.getUTCMinutes() / 60; };
-const inHours = (h: { from: number; to: number }) => { const x = istHour(); return h.from <= h.to ? x >= h.from && x < h.to : x >= h.from || x < h.to; };
+const inHours = (h: { from: number; to: number }) => { const x = ptHour(); return h.from <= h.to ? x >= h.from && x < h.to : x >= h.from || x < h.to; };
 
 async function hello(b: any) {
   const set = await settings();
@@ -894,7 +901,7 @@ async function toXPipeline(l: any, opener = ""): Promise<string> {
 // today than the target, an ICP search on LinkedIn profiles fills the gap with founders at B2B startups, seed to Series C.
 // They go through the same research and fit check; their requests wait for Reyansh's OK like any other first touch.
 async function dayStats() {
-  const ist = new Date(Date.now() + IST_MS), dayStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - IST_MS).toISOString();
+  const dayStart = ptDayStart();
   const { data: bs } = await db.from("crm_lead_settings").select("key,value").in("key", ["li_bot", "x_bot"]);
   const v = (k: string) => (bs ?? []).find((r: any) => r.key === k)?.value ?? {};
   const liT = +(v("li_bot").daily_new ?? 20) || 20, xT = +(v("x_bot").daily_new ?? 10) || 10;
@@ -1554,7 +1561,7 @@ async function plan(_b: any) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
     // (17 Nov) Human pace: at most 2 requests and 2 messages handed out per 20-minute check, and daily caps (60% on weekends).
-    const ist0 = new Date(Date.now() + IST_MS), dayStartLi = new Date(Date.UTC(ist0.getUTCFullYear(), ist0.getUTCMonth(), ist0.getUTCDate()) - IST_MS).toISOString();
+    const dayStartLi = ptDayStart();
     const { count: invToday } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", dayStartLi);
     const { count: msgToday } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).neq("kind", "invite").eq("status", "sent").gte("sent_at", dayStartLi);
     const lb: any = (await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle()).data?.value ?? {};
@@ -2705,7 +2712,8 @@ async function tips(b: any) {
 // Settings: crm_lead_settings x_bot { paused, cap }. Status for the CRM: x_bot_status.
 const IST_MS = 330 * 60e3;
 // (17 Nov, Reyansh: don't get banned) People do less on weekends: every daily cap is 60% on Saturday and Sunday (IST).
-const weekendFactor = () => { const d = new Date(Date.now() + 330 * 60e3).getUTCDay(); return d === 0 || d === 6 ? 0.6 : 1; };
+const weekendFactor = () => (ptParts().weekend ? 0.6 : 1);
+const inHoursPT = (from: number, to: number) => { const x = ptHour(); return from <= to ? x >= from && x < to : x >= from || x < to; };
 const sheetSerial = (d: Date, withTime: boolean) => {       // the CRM keeps sheet dates as day serials in IST, like Google Sheets
   const t = new Date(d.getTime() + IST_MS);
   const ms = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), withTime ? t.getUTCHours() : 0, withTime ? t.getUTCMinutes() : 0);
@@ -2883,13 +2891,12 @@ async function x_plan(b: any) {
   const autoFu = await xAutoFollowups().catch(() => 0);
   await xStatus({ seen: new Date().toISOString(), me: b.me ?? null, version: b.version ?? "" });
   await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
-  const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
-  const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
+  const dayStart = ptDayStart();
   // (17 Nov) Replies to posts have their own cap (x_bot.reply_cap), so only DMs and follow-ups count here.
   const { data: sentRows } = await db.from("crm_x_tasks").select("kind").eq("status", "sent").gte("sent_at", dayStart).not("kind", "in", "(reply,close)").limit(500);
   const sentToday = (sentRows ?? []).length, dmToday = (sentRows ?? []).filter((r: any) => r.kind === "dm").length, fuToday = sentToday - dmToday;
   const left = Math.max(0, set.cap - (sentToday ?? 0));
-  const inHours = hr >= set.from && hr < set.to;
+  const inHours = inHoursPT(set.from, set.to);
   if (set.paused || !inHours || !left || !b.me?.signed_in) return { tasks: [], paused: set.paused, in_hours: inHours, left, sent_today: sentToday ?? 0 };
   const { data: lastSent } = await db.from("crm_x_tasks").select("sent_at").eq("status", "sent").not("kind", "in", "(reply,close)").order("sent_at", { ascending: false }).limit(1);
   const since = Date.now() - (Date.parse(lastSent?.[0]?.sent_at ?? "") || 0), gapMs = (set.gap + Math.random() * 6) * 60e3;
@@ -2954,13 +2961,12 @@ async function xr_plan(b: any) {
   const cap = Math.max(0, Math.floor(Math.min(60, +(v.reply_cap ?? 30)) * weekendFactor())), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
   await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("status", "sending").lt("claimed_at", new Date(now - 30 * 60e3).toISOString());
   await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("status", "approved").lt("posted_at", new Date(now - 20 * 3600e3).toISOString());
-  const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
-  const dayStart = new Date(Date.UTC(h.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()) - IST_MS).toISOString();
+  const dayStart = ptDayStart();
   const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").eq("done_by", "x bot").gte("done_at", dayStart);
   const { count: waiting } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "approved");
   const base = { posted_today: postedToday ?? 0, cap, waiting: waiting ?? 0, paused: xs.paused || !!v.replies_paused };
   if (!b.me?.signed_in || xs.paused || v.replies_paused || !cap || (postedToday ?? 0) >= cap) return { ...base, tasks: [] };
-  if (!(hr >= xs.from && hr < xs.to)) return { ...base, tasks: [], in_hours: false };
+  if (!inHoursPT(xs.from, xs.to)) return { ...base, tasks: [], in_hours: false };
   const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "done").eq("done_by", "x bot").order("done_at", { ascending: false }).limit(1);
   const since = now - (Date.parse(last?.[0]?.done_at ?? "") || 0);
   const wait = (gap + Math.random() * 10) * 60e3;

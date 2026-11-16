@@ -1346,7 +1346,7 @@ class Component extends DCLogic {
     const pend=[...(L.ts||[]),...(L.fu||[])].filter(p=>p&&p.c&&p.c._row&&!AK.xtActive(p.c._row,this.xKind(p)));
     const seen=xs.seen?Date.parse(xs.seen):0;const live=seen&&Date.now()-seen<20*60e3;
     const text=!AK.XT.loaded?'Checking the X bot…':!seen?'The X bot hasn’t checked in yet. Reload the extension in chrome://extensions (it’s now called SOVE7GN Outreach Bot) and allow it on x.com.':
-      (cfg.paused?'X bot paused. ':live?'X bot is on. ':'X bot last checked in '+this.since(xs.seen)+' (is Chrome open?). ')+q+' queued · '+sent+' sent today of '+(cfg.cap||40)+' · sends '+((h=>h==null?'':String(Math.floor(h)).padStart(2,'0')+':'+(h%1?'30':'00'))(cfg.from??9))+' to '+((h=>String(Math.floor(h)).padStart(2,'0')+':'+(h%1?'30':'00'))(cfg.to??23.5))+' IST, one every few minutes'+(failed.length?' · '+failed.length+' failed today: '+clip(String(failed[0].error||''),80):'');
+      (cfg.paused?'X bot paused. ':live?'X bot is on. ':'X bot last checked in '+this.since(xs.seen)+' (is Chrome open?). ')+q+' queued · '+sent+' sent today of '+(cfg.cap||40)+' · sends '+((h=>h==null?'':String(Math.floor(h)).padStart(2,'0')+':'+(h%1?'30':'00'))(cfg.from??9))+' to '+((h=>String(Math.floor(h)).padStart(2,'0')+':'+(h%1?'30':'00'))(cfg.to??21))+' Pacific (US), one every 18+ minutes'+(failed.length?' · '+failed.length+' failed today: '+clip(String(failed[0].error||''),80):'');
     return{text,dot:cfg.paused||!live?'var(--warn)':'var(--ok)',canAll:AK.canEdit()&&pend.length>0,allLabel:'Send all with bot ('+pend.length+')',all:()=>this.xQueue(pend),
       pauseLabel:cfg.paused?'Resume X bot':'Pause X bot',pause:()=>AK.canEdit()&&AK.xtPause(!cfg.paused),canEdit:AK.canEdit()};}
   markSent(id){const p=this.findP(id);if(!p)return;
@@ -4138,12 +4138,12 @@ function botsHealth(){
       'Last checked in '+esc(since(lst.seen)||'never')+(lst.signed_in===false?' · <b>Chrome is signed out of LinkedIn</b>':''),
       'First messages: <b>'+(li.mode==='auto'?'sent on their own':'wait for your OK')+'</b>',
       'Connection requests this week: <b>'+invWk+' of '+(li.week_cap||150)+'</b> · notes this month: <b>'+notes+' of '+(li.notes_month||250)+'</b>',
-      'Sending hours: '+esc(((li.hours||{}).from??10)+':00 to '+((li.hours||{}).to??24)+':00 IST'),
+      'Sending hours: '+esc(((li.hours||{}).from??8)+':00 to '+((li.hours||{}).to??20)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
       ...(lst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(lst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(li.mode==='auto'?'Ask me first instead':'Send on its own',()=>saveLi({mode:li.mode==='auto'?'review':'auto'}),'sm')+btn(li.paused?'Resume':'Pause',()=>saveLi({paused:!li.paused}),li.paused?'pri sm':'sm ghost'):'')
     +card('X','X bot',seen(xst.seen),xs.paused,[
       'Last checked in '+esc(since(xst.seen)||'never'),'DMs: up to <b>'+(xs.cap||40)+' a day</b>, '+(xs.gap_min||12)+'+ min apart · replies on posts: up to <b>'+(xs.reply_cap||30)+' a day</b>',
-      'Sending hours: '+esc((xs.from??9)+':00 to '+(xs.to??23)+':30 IST'),
+      'Sending hours: '+esc((xs.from??8)+':00 to '+(xs.to??21)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
       ...(ms(xs.cooldown_until)>Date.now()?['<span style="color:var(--warn)">X asked us to slow down: paused until '+esc(new Date(ms(xs.cooldown_until)).toLocaleString())+'</span>']:[]),
       ...(xst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(xst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(xs.paused?'Resume':'Pause',()=>AK.xtPause(!xs.paused),xs.paused?'pri sm':'sm ghost'):'')+'</div>';

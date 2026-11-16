@@ -530,25 +530,32 @@ async function ourPostsDone(items: any[]) {
   return { ok: true, posts: posts.length, followers, result: String(res ?? "") };
 }
 
+// (17 Nov, Reyansh) The bots work when SF / US / Canada are awake: hours, daily caps and weekends run on US Pacific time (DST aware).
+function ptParts(t = Date.now()) {
+  const o: Record<string, string> = {}; for (const p of new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" }).formatToParts(new Date(t))) o[p.type] = p.value;
+  const h = +o.hour % 24, offMs = Date.UTC(+o.year, +o.month - 1, +o.day, h, +o.minute) - Math.floor(t / 60e3) * 60e3;
+  return { hour: h + +o.minute / 60, weekend: o.weekday === "Sat" || o.weekday === "Sun", dayStartIso: new Date(Date.UTC(+o.year, +o.month - 1, +o.day) - offMs).toISOString() };
+}
+const ptHour = () => ptParts().hour, ptDayStart = () => ptParts().dayStartIso;
 async function readPlan(b: any) {
   const { data: st } = await db.from("crm_lead_settings").select("value").eq("key", "x_read").maybeSingle();
   const s: any = st?.value ?? {}; s.at = s.at ?? {}; const now = Date.now();
   // (16 Nov) 30 replies on ICP posts a day: compare what's posted + queued with the pace for this hour (IST day)
-  const ist = new Date(now + 330 * 60e3), dayStart = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate()) - 330 * 60e3).toISOString();
-  const hr = ist.getUTCHours() + ist.getUTCMinutes() / 60;
+  // (17 Nov) paced over the US Pacific working day (8:00 to 21:00 PT), when our buyers are online
+  const pt = ptParts(now), dayStart = pt.dayStartIso, hr = pt.hour;
   const { count: doneToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").eq("done_by", "x bot").gte("done_at", dayStart);
   const { count: queued } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).in("status", ["approved", "sending"]);
-  const have = (doneToday ?? 0) + (queued ?? 0), pace = Math.ceil(30 * Math.min(1, (hr + 2) / 24));
+  const have = (doneToday ?? 0) + (queued ?? 0), pace = Math.ceil(30 * Math.min(1, Math.max(0, hr - 8 + 2) / 13));
   const behind = have < pace;
   const every: Record<string, number> = { ...READ_EVERY, ...(behind ? { replies: 10, leads: 90, follow_src: 30 } : {}) };
   const due = (k: string) => now - (Date.parse(s.at[k] ?? "") || 0) > every[k] * 60e3;
-  if (hr >= 20) {   // after 20:00 IST: can we still reach 30? one reply per 15+ minutes until midnight
-    const canStill = (doneToday ?? 0) + Math.min(queued ?? 0, Math.floor((24 - hr) * 60 / 15));
+  if (hr >= 18) {   // after 18:00 PT: can we still reach 30? one reply per 15+ minutes until 21:00 PT
+    const canStill = (doneToday ?? 0) + Math.min(queued ?? 0, Math.floor(Math.max(0, 21 - hr) * 60 / 15));
     const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
     const cool = Date.parse((xb?.value as any)?.cooldown_until ?? "") > now;
     const reason = canStill >= 30 ? null : cool ? "X asked us to slow down (cooldown until " + String((xb?.value as any)?.cooldown_until).slice(0, 16).replace("T", " ") + " UTC), so replies are paused"
       : (queued ?? 0) === 0 ? "Ran out of fresh posts by ICP founders today: " + (doneToday ?? 0) + " replies posted, nothing left to reply to. The reader is widening (more raise/launch and YC searches, followers of our client's founders)"
-      : "Not enough time left: " + (doneToday ?? 0) + " posted and " + (queued ?? 0) + " queued, but only " + Math.floor((24 - hr) * 60 / 15) + " more fit before midnight at 15+ minutes apart";
+      : "Not enough time left: " + (doneToday ?? 0) + " posted and " + (queued ?? 0) + " queued, but only " + Math.floor(Math.max(0, 21 - hr) * 60 / 15) + " more fit before midnight at 15+ minutes apart";
     const { data: bs } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
     await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((bs?.value as any) ?? {}), reply_short_reason: reason, reply_short_at: reason ? new Date().toISOString() : null } }, { onConflict: "key" });
   }

@@ -430,12 +430,12 @@ function botsHealth(){
       'Last checked in '+esc(since(lst.seen)||'never')+(lst.signed_in===false?' · <b>Chrome is signed out of LinkedIn</b>':''),
       'First messages: <b>'+(li.mode==='auto'?'sent on their own':'wait for your OK')+'</b>',
       'Connection requests this week: <b>'+invWk+' of '+(li.week_cap||150)+'</b> · notes this month: <b>'+notes+' of '+(li.notes_month||250)+'</b>',
-      'Sending hours: '+esc(((li.hours||{}).from??10)+':00 to '+((li.hours||{}).to??24)+':00 IST'),
+      'Sending hours: '+esc(((li.hours||{}).from??8)+':00 to '+((li.hours||{}).to??20)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
       ...(lst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(lst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(li.mode==='auto'?'Ask me first instead':'Send on its own',()=>saveLi({mode:li.mode==='auto'?'review':'auto'}),'sm')+btn(li.paused?'Resume':'Pause',()=>saveLi({paused:!li.paused}),li.paused?'pri sm':'sm ghost'):'')
     +card('X','X bot',seen(xst.seen),xs.paused,[
       'Last checked in '+esc(since(xst.seen)||'never'),'DMs: up to <b>'+(xs.cap||40)+' a day</b>, '+(xs.gap_min||12)+'+ min apart · replies on posts: up to <b>'+(xs.reply_cap||30)+' a day</b>',
-      'Sending hours: '+esc((xs.from??9)+':00 to '+(xs.to??23)+':30 IST'),
+      'Sending hours: '+esc((xs.from??8)+':00 to '+(xs.to??21)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
       ...(ms(xs.cooldown_until)>Date.now()?['<span style="color:var(--warn)">X asked us to slow down: paused until '+esc(new Date(ms(xs.cooldown_until)).toLocaleString())+'</span>']:[]),
       ...(xst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(xst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(xs.paused?'Resume':'Pause',()=>AK.xtPause(!xs.paused),xs.paused?'pri sm':'sm ghost'):'')+'</div>';
