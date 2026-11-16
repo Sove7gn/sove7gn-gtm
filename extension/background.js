@@ -547,9 +547,26 @@ async function xReplyTick() {
         if (/automated|try again later|rate limit|over capacity|temporarily/i.test(a)) return { ok: false, limit: true, error: "X: " + a.slice(0, 200) };
         if (/already said that|something went wrong|can.t reply|isn.t available|restricted who can reply/i.test(a)) return { ok: false, error: "X: " + a.slice(0, 200) };
         const bx = document.querySelector('[role="dialog"] [data-testid="tweetTextarea_0"]') || document.querySelector('[data-testid="tweetTextarea_0"]');
+        const v = document.querySelector('[data-testid="toast"] a[href*="/status/"]'); if (v) return { ok: true, link: v.getAttribute("href") };
         if (!bx || bx.innerText.trim().length < 2 || /your post was sent|reply was sent/i.test(a)) return { ok: true }; return null; }).catch(() => null);
     }
     if (!r) r = { ok: false, error: "Pressed Reply but X didn't confirm within 12 seconds" };
+    // (16 Nov) Proof before it counts: unless X showed the new reply's link, reopen their post and look for our reply under it.
+    if (r.ok && !r.link) {
+      const snip = String(task.text).replace(/\s+/g, " ").trim().slice(0, 24).toLowerCase(); let seen = false;
+      for (let k = 0; k < 2 && !seen; k++) {
+        await sleep(k ? 8000 : 3000);
+        await chrome.tabs.update(id, { url: task.url }); await loaded(id); await sleep(4000);
+        for (let i = 0; i < 12 && !seen; i++) {
+          seen = await pageRun(id, (me, sn) => [...document.querySelectorAll('article[data-testid="tweet"]')].some((a) => {
+            const un = a.querySelector('[data-testid="User-Name"]'); const tx = a.querySelector('[data-testid="tweetText"]');
+            return un && un.innerText.toLowerCase().includes("@" + me) && tx && tx.innerText.replace(/\s+/g, " ").trim().toLowerCase().startsWith(sn.slice(0, 16)); }) || (window.scrollBy(0, 700), false),
+            [X_ME, snip]).catch(() => false);
+          if (!seen) await sleep(800);
+        }
+      }
+      if (!seen) r = { ok: false, error: "Pressed Reply, but our reply isn't under their post (X didn't post it)" };
+    }
     await api("xr_done", { url: task.url, ok: r.ok, error: r.error, limit: r.limit, liked: like.liked });
     if (r.ok) await log("X: replied to " + task.name + (like.liked ? " (and liked the post)." : "."));
     else await log("X: couldn't reply to " + task.name + ": " + r.error, true);
@@ -564,6 +581,7 @@ async function xReplyTick() {
 // twitterapi.io ran out of credits and Exa no longer indexes X, so the bot reads X itself, in its own X tab, like you scrolling:
 // every 6 minutes (xreadtick) it asks the CRM's x-grow job for one page to read (fresh posts by ICP founders to reply to, raise and
 // launch posts for new leads, our newest followers, or the followers of our client's founders), scrolls it and sends back what X shows.
+const X_ME = "r3yanshjuneja";                    // our X handle, lower case (to find our own replies)
 const XG_FN = FN.replace(/\/li-bot$/, "/x-grow");
 async function xg(action, body = {}) {
   const { key } = await store.get("key");

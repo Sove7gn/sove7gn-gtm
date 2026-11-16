@@ -2338,8 +2338,10 @@ async function x_plan(b: any) {
   const since = Date.now() - (Date.parse(lastSent?.[0]?.sent_at ?? "") || 0), gapMs = (set.gap + Math.random() * 6) * 60e3;
   if (since < gapMs) return { tasks: [], paused: false, in_hours: true, left, sent_today: sentToday ?? 0, wait_min: Math.ceil((gapMs - since) / 60e3) };
   // 15 Nov: warm people (replied, commented, followed; queued by x-grow) go before cold DMs and follow-ups.
-  const { data: pool } = await db.from("crm_x_tasks").select("*").eq("status", "ready").not("kind", "in", "(reply,close)").order("created_at").limit(60);
-  const ready = [...(pool ?? [])].sort((a: any, b: any) => (String(b.decided_by ?? "").startsWith("auto: warm") ? 1 : 0) - (String(a.decided_by ?? "").startsWith("auto: warm") ? 1 : 0)).slice(0, 1);
+  const { data: pool } = await db.from("crm_x_tasks").select("*").eq("status", "ready").not("kind", "in", "(reply,close)").order("created_at").limit(200);
+  // (16 Nov) Order: warm people, then follow-ups (they're due on a day), then cold first DMs.
+  const rank = (t: any) => (String(t.decided_by ?? "").startsWith("auto: warm") ? 0 : t.kind !== "dm" ? 1 : 2);
+  const ready = [...(pool ?? [])].sort((a: any, b: any) => rank(a) - rank(b)).slice(0, 1);
   const tasks: any[] = [];
   for (const t of ready ?? []) {
     let uid = String(t.user_id ?? "");
