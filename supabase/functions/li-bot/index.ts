@@ -1724,8 +1724,12 @@ async function buildCatchup(): Promise<number> {
     db.from("crm_lead_settings").select("value").eq("key", "li_chats").maybeSingle(), db.from("crm_lead_settings").select("value").eq("key", "x_chats").maybeSingle(),
     db.from("crm_lead_settings").select("value").eq("key", "catchup").maybeSingle()]);
   const prev: any = cu?.value ?? {}; const decided: Record<string, string> = prev.decided ?? {};
-  const { data: leads } = await db.from("crm_leads").select("id,name,company,role,stage,source,x_handle,linkedin,fields,archived").limit(5000);
-  const L = (leads ?? []) as any[];
+  // the database answers at most 1,000 rows at a time: read every lead, page by page
+  const L: any[] = [];
+  for (let from = 0; from < 20000; from += 1000) {
+    const { data: pg } = await db.from("crm_leads").select("id,name,company,role,stage,source,x_handle,linkedin,fields,archived").order("created_at").range(from, from + 999);
+    L.push(...(pg ?? [])); if (!pg || pg.length < 1000) break;
+  }
   const byUrn = new Map<string, any>(), byName = new Map<string, any>(), byH = new Map<string, any>();
   for (const l of L) { const li = l.fields?.li ?? {}; for (const k of [li.urn, li.pid]) if (k) byUrn.set(String(k).toLowerCase(), l);
     const n = nnm(l.name); if (n && !byName.has(n)) byName.set(n, l); const h = String(l.x_handle ?? "").replace(/^@/, "").toLowerCase(); if (h) byH.set(h, l); }
