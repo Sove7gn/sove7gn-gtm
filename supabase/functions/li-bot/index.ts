@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -642,6 +642,33 @@ async function import_list(b: any) {
 // gets their X handle looked up (twitterapi.io, once each) and a row in the X DM Pipeline, which puts them in X > Pipeline > To
 // approve. The opener follows the same pattern as everywhere: offer the 3 ideas (follow-up 1 sends them, then the booking link,
 // then the VSL), never pitch first; anyone who already got the ideas on LinkedIn gets the call ask instead (x_plan rewrites it).
+// (16 Nov) First DMs waiting in X > Pipeline > To approve get their v2 opener written ahead (ideas saved, Opener column
+// rewritten, Template X2), so what Reyansh approves is exactly what goes out. A few rows per run (every 15 minutes).
+async function xv2_prepare(b: any) {
+  const { data: rows } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").order("row").limit(4000);
+  const all = rows ?? []; const h = all.find((r: any) => (r.cells ?? []).includes("X handle")); if (!h) return { done: 0 };
+  const T2 = await xv2Texts(); let done = 0; const max = +(b.max ?? 6);
+  const { data: q } = await db.from("crm_x_tasks").select("row").eq("kind", "dm").in("status", ["ready", "sending"]);
+  const queued = new Set((q ?? []).map((t: any) => t.row));
+  for (const r of all.filter((x: any) => x.row > h.row)) {
+    if (done >= max) break;
+    const c: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) c[k] = String(r.cells?.[i] ?? ""); });
+    if (!c["Name"] || !c["X handle"] || !/^(to send|)$/i.test(c["Status"] || "") || /^X2/.test(c["Template"] || "") || queued.has(r.row)) continue;
+    if (Object.values(c).some((v) => v === "Followed us")) continue;
+    const ld = await leadByHandle(c["X handle"]); const gotLi = !!(ld && (ld.fields?.tips?.sent_at || ld.fields?.li?.tips_dm));
+    const ideas = gotLi ? [] : await xIdeasFor(c["X handle"], c).catch(() => []); if (!gotLi && !ideas.length) continue;
+    const text = xv2Fill(gotLi ? T2.first_li : T2.first, c, ideas);
+    await db.rpc("crm_call", { body: { action: "pipeline", row: r.row, name: c["Name"], company: c["Company"], cells: { Template: gotLi ? "X2L" : "X2", "Opener (30-40 words)": text } } });
+    done++;
+  }
+  return { done };
+}
+// (16 Nov) What a DM Pipeline row's X v2 opener and follow-ups would say (nothing is sent; the ideas get saved for later).
+async function xv2_preview(b: any) {
+  const c = await pipeRow(+b.row); if (!c) return { error: "no such row" };
+  const T2 = await xv2Texts(); const ideas = await xIdeasFor(c["X handle"], c);
+  return { name: c["Name"], company: c["Company"], ideas, first: xv2Fill(T2.first, c, ideas), fu: T2.fu.map((f: string) => xv2Fill(f, c, ideas)) };
+}
 async function x_from_li(b: any) {
   const leads = await pool(await settings());
   const live = leads.filter((l) => /^li-(person|src):/.test(String(l.origin_key ?? "")) && !/^(won|lost|cold lead)$/i.test(String(l.stage ?? "")) && !notFit(l) &&
@@ -2208,7 +2235,8 @@ async function briefs(b: any) {
   // The 15 minute job also writes the 3 tips for anyone who said yes to them.
   const tp: any = b.force_id ? {} : await tips({ limit: 4 }).catch(() => ({}));
   if (!b.force_id) await li_move({}).catch(() => ({}));
-  if (!b.force_id) await x_from_li({ max: 6 }).catch(() => ({}));       // (15 Nov) LinkedIn leads into the X pipeline, X handle found by the bot
+  if (!b.force_id) await x_from_li({ max: 6 }).catch(() => ({}));
+  if (!b.force_id) await xv2_prepare({ max: 6 }).catch(() => ({}));    // (16 Nov) X first DMs get their v2 opener ahead       // (15 Nov) LinkedIn leads into the X pipeline, X handle found by the bot
   if (!b.force_id) await magnets_check({}).catch(() => ({}));            // LinkedIn posts moved on the calendar, still to write to the sheet
   return { made, waiting: gtm.filter((l: any) => !l.fields?.brief?.at).length - made, tips: tp.made ?? 0 };
 }
@@ -2328,6 +2356,51 @@ const X_FU_MORE = [
   "Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}.",
 ];
 const X_FU_KINDS = ["fu3", "fu4", "fu5", "fu6", "fu7"];
+// ───────── X sequence v2 (16 Nov, Reyansh): the same shape as LinkedIn v2, with no request first ─────────
+// Day 0 the first DM goes straight in with value: one idea written for them + one question, and the other two offered.
+// Day 3 the question alone. Day 5 ideas 2 and 3, no ask. Day 8 a client story. Day 12 a clean close, then stop.
+// A reply stops it. Rows on it carry Template "X2" (or "X2L" when they already got the 3 ideas on LinkedIn) in the DM Pipeline.
+// Texts: x_bot.v2 { first, first_li, fu[4] } override these; {first} {company} {company_s} {is_company} {idea1..3} fill in.
+const XV2_DAYS = [3, 5, 8, 12], XV2_KINDS = ["fu1", "fu2", "fu3", "fu4"];
+const XV2_DEFAULT = {
+  first: "Hey {first}, was researching {company} and had one inbound idea you could use this week:\n\n{idea1}\n\nI've got 2 more for you. Quick q so they actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_li: "Hey {first}, we're connected on LinkedIn too, I sent you 3 ideas for {company_s} inbound there. Quick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  fu: [
+    "Curious, is most of {company_s} pipeline coming from referrals right now?",
+    "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
+    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up.",
+  ],
+  fu2_li: "Did any of the 3 ideas I sent on LinkedIn land for {company}? Happy to go deeper on whichever fits best.",
+};
+const splitIdeas = (raw: string) => String(raw ?? "").replace(/\r/g, "").split(/\n+/).map((p) => p.trim()).filter((p) => /^\d[.)]\s/.test(p))
+  .map((p) => p.replace(/^\d[.)]\s*/, "").replace(/\s*\([^()]{2,60}\)\s*$/, "").replace(/\s*[—–]\s*/g, ", ").trim()).slice(0, 3);
+// Their 3 ideas: from their lead (LinkedIn tips), else crm_x_people, else written now from what the DM Pipeline row says, and saved.
+async function xIdeasFor(handle: string, c: Record<string, string>): Promise<string[]> {
+  const h = String(handle ?? "").replace(/^@/, "").toLowerCase(); if (!h) return [];
+  const ld = await leadByHandle(h);
+  const fromLead = ld ? ideasOf(ld as Lead) : []; if (fromLead.length >= 3) return fromLead;
+  const { data: xp } = await db.from("crm_x_people").select("handle,tips").eq("handle", h).maybeSingle();
+  const fromX = splitIdeas(String((xp as any)?.tips ?? "")); if (fromX.length >= 3) return fromX;
+  const co = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "";
+  const facts = ["Founder: " + (c["Name"] ?? ""), c["Role"] ? "Role: " + c["Role"] : "", co ? "Company: " + co : "", c["Signal (why now)"] ? "Why now: " + clip(String(c["Signal (why now)"]), 300) : "",
+    c["Notes"] ? "Notes: " + clip(String(c["Notes"]), 300) : "", c["Funding stage"] ? "Funding: " + c["Funding stage"] : ""].filter(Boolean).join("\n");
+  const r = await llmMany([{ id: "i", prompt: "Write 3 short, specific ideas for how this B2B startup could get more inbound from X and LinkedIn. About them:\n" + facts +
+    "\n\nEach idea is 1 or 2 plain sentences about THEIR buyers and THEIR product (name the kind of accounts to tag, the post to write, the people to follow up with). No pitch, no links, no dashes as punctuation, no emojis. Answer with exactly 3 lines, numbered 1. 2. 3." }]).catch(() => ({} as Record<string, string>));
+  const ideas = splitIdeas(String(r.i ?? "")); if (ideas.length < 3) return ideas;
+  const tips = ideas.map((x, i) => (i + 1) + ". " + x).join("\n");
+  if (xp) await db.from("crm_x_people").update({ tips }).eq("handle", h);
+  else await db.from("crm_x_people").insert({ handle: h, name: c["Name"] ?? "", bio: "", fit: "", why: "", role: c["Role"] ?? "", company: co, company_what: "", company_stage: "", found_by: "x-dm", added: false, tips }).then(() => {}, () => {});
+  return ideas;
+}
+function xv2Fill(text: string, c: Record<string, string>, ideas: string[]): string {
+  const co = c["Company"] && !/^unknown$/i.test(c["Company"]) ? c["Company"] : "";
+  return String(text ?? "").replace(/\{idea1\}/g, ideas[0] ?? "").replace(/\{idea2\}/g, ideas[1] ?? "").replace(/\{idea3\}/g, ideas[2] ?? "")
+    .replace(/\{is_company\}/g, co ? "is " + co : "are you").replace(/\{company_s\}/g, co ? co + (/s$/i.test(co) ? "'" : "'s") : "your")
+    .replace(/\{company\}/g, co || "your company").replace(/\{first\}/g, String(c["Name"] ?? "").trim().split(/\s+/)[0] || "there").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function xv2Texts() { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle(); const v: any = (data?.value as any)?.v2 ?? {};
+  return { ...XV2_DEFAULT, ...v, fu: XV2_DEFAULT.fu.map((d, i) => String((v.fu ?? [])[i] || d)) }; }
 async function xStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot_status").maybeSingle();
   await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((data?.value as any) ?? {}), ...patch } });
@@ -2363,13 +2436,27 @@ async function xAutoFollowups(): Promise<number> {
   const { data: had } = await db.from("crm_x_tasks").select("row,kind,status,sent_at").in("kind", ["fu1", "fu2", ...X_FU_KINDS]).limit(10000);
   const done = new Set((had ?? []).map((t: any) => t.row + ":" + t.kind));
   const sentAt = new Map((had ?? []).filter((t: any) => t.status === "sent").map((t: any) => [t.row + ":" + t.kind, Date.parse(t.sent_at) || 0]));
-  const more = (await xSettings()).fu;
+  const more = (await xSettings()).fu; let v2t: any = null;
   const now = Date.now(), add: any[] = [];
   for (const r of P.filter((x: any) => x.row > ph.row)) {
     const c = obj(ph, r); const name = c["Name"]; const handle = String(c["X handle"] ?? "").replace(/^@/, "");
     if (!name || !handle || c["Replied on"] || /^by hand/i.test(c["DM result"] || "") || /^(not specified|unknown)$/i.test(name.trim())) continue;
     if (Object.values(c).some((v) => v === "Followed us")) continue;   // (16 Nov) people who only followed us get no follow-ups
     const st = c["Status"] || "", sent = sheetTime(c["Sent on"]), f1 = sheetTime(c["FU1 sent"]);
+    if (/^X2/.test(c["Template"] || "")) {
+      if (!sent || !/^(sent|fu1 sent|fu2 sent)$/i.test(st)) continue;
+      const i = XV2_KINDS.findIndex((k) => !done.has(r.row + ":" + k)); if (i < 0) continue;
+      const lastAt = i === 0 ? sent : (sentAt.get(r.row + ":" + XV2_KINDS[i - 1]) ?? 0);
+      if (!lastAt || now < sent + XV2_DAYS[i] * 864e5 - 2 * 3600e3 || now - lastAt < 20 * 3600e3) continue;
+      const T2 = v2t ?? (v2t = await xv2Texts());
+      const viaLi = c["Template"] === "X2L";
+      const ideas = i === 1 && !viaLi ? await xIdeasFor(handle, c).catch(() => []) : [];
+      const raw = i === 1 && (viaLi || ideas.length < 3) ? T2.fu2_li : T2.fu[i];
+      const text = xv2Fill(raw, c, ideas); if (!text) continue;
+      add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind: XV2_KINDS[i], text, status: "ready", decided_by: "auto: v2 follow-up" });
+      if (add.length >= 30) break;
+      continue;
+    }
     let kind = "";
     if (/^sent$/i.test(st) && !c["FU1 sent"] && sent && now - sent >= 24 * 3600e3) kind = "fu1";
     else if (/^fu1 sent$/i.test(st) && !c["FU2 sent"] && f1 && now - f1 >= 24 * 3600e3) kind = "fu2";   // FU1 is a day, so this is the next day or later
@@ -2451,6 +2538,20 @@ async function x_plan(b: any) {
           : "Just bumping this up in case it got buried, " + first + ".";
         await db.from("crm_x_tasks").update({ text }).eq("id", t.id);
       }
+    }
+    if (t.kind === "dm" && !/v2/.test(String(t.decided_by ?? ""))) {
+      try {
+        const c = await pipeRow(t.row);
+        if (c && /^(to send|)$/i.test(c["Status"] || "") && !/^X2/.test(c["Template"] || "")) {
+          const ld = await leadByHandle(t.handle); const gotLi = !!(ld && (ld.fields?.tips?.sent_at || ld.fields?.li?.tips_dm));
+          const T2 = await xv2Texts(); const ideas = gotLi ? [] : await xIdeasFor(t.handle, c).catch(() => []);
+          if (gotLi || ideas.length) {
+            text = xv2Fill(gotLi ? T2.first_li : T2.first, c, ideas);
+            await db.from("crm_x_tasks").update({ text, decided_by: String(t.decided_by ?? "") + " v2" }).eq("id", t.id);
+            await db.rpc("crm_call", { body: { action: "pipeline", row: t.row, name: c["Name"], company: c["Company"], cells: { Template: gotLi ? "X2L" : "X2" } } });
+          }
+        }
+      } catch (_) { /* the DM goes out as it was */ }
     }
     tasks.push({ id: t.id, name: t.name, handle: t.handle, user_id: uid, kind: t.kind, text });
   }
