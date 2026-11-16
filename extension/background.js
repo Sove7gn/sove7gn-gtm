@@ -5,7 +5,7 @@
 // 4. Replies to ICP founders' posts on X, 30 a day, and reading X for fresh posts to reply to.
 // LinkedIn loop, every 2 minutes: the chat check every 20 minutes, otherwise the next request/message; the slow extras
 // (who engaged with our posts, the daily catch-up) only when nothing is waiting.
-// X loop, every 2 minutes, one job a turn: read chats (every 10 min), post a reply (every 5), read posts (every 6), else DMs.
+// X loop, every minute, one job a turn: read chats (every 10 min), post a reply (every 5), read posts (every 10), else DMs.
 import { liOp } from "./linkedin.js";
 import { xOp } from "./x.js";
 
@@ -75,7 +75,7 @@ async function xReport(name, ok, note) { try { await api("x_job", { name, ok, no
 store.get("test").then(({ test }) => store.set({ syncing: false, ...(test && test.running ? { test: { ...test, running: false, lines: ["The last test was cut off. Press Test again."] } } : {}) }));
 
 // (16 Nov) Three alarms: the LinkedIn loop, the X loop, and the self-update check. Older versions' extra alarms are removed.
-const ALARMS = { li: 2, x: 2, selfupdate: 3 };
+const ALARMS = { li: 2, x: 1, selfupdate: 3 };
 async function setup() {
   for (const a of await chrome.alarms.getAll()) if (!(a.name in ALARMS) || a.periodInMinutes !== ALARMS[a.name]) await chrome.alarms.clear(a.name);
   for (const [n, m] of Object.entries(ALARMS)) if (!(await chrome.alarms.get(n))) chrome.alarms.create(n, { periodInMinutes: m, delayInMinutes: n === "x" ? 1 : 2 });
@@ -589,7 +589,7 @@ async function xLoop() {
   try {
     const { xl = {} } = await store.get("xl"); const now = Date.now();
     const due = (k, min) => now - (xl[k] || 0) > min * 60e3;
-    const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 6) ? ["read", xReadTick] : ["dms", xTick];
+    const job = due("inbox", 10) ? ["inbox", xInboxTick] : due("replies", 5) ? ["replies", xReplyTick] : due("read", 10) ? ["read", xReadTick] : ["dms", xTick];
     xl[job[0]] = now; await store.set({ xl });
     await job[1]();
   } finally { xbusy = false; }
