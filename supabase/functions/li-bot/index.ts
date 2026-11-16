@@ -965,6 +965,11 @@ async function state(b: any) {
     if (R.status && li.stop !== "by hand") await db.from("crm_li_tasks").insert({ lead_id: l.id, kind: R.kind, step: 0, text: R.text, subject: "", status: R.status });
     replied++;
   }
+  // (16 Nov) What this run saw, for the Bots page and for checking reply detection: chats read, chats with a message from
+  // them, how many matched a lead, and a few unmatched ids.
+  const th = (b.threads ?? []) as any[], withThem = th.filter((t) => t.them_at), matched = withThem.filter((t) => find(t));
+  await saveStatus({ last_state: now(), state_seen: { chats: th.length, from_them: withThem.length, matched: matched.length,
+    newest_them: withThem.map((t) => t.them_at).sort().pop() ?? null, unmatched: withThem.filter((t) => !find(t)).slice(0, 5).map((t) => ({ urn: t.urn, pid: t.pid ?? "", name: t.name ?? "" })) } }).catch(() => {});
   return { accepted, replied, asked };
 }
 
@@ -1028,8 +1033,10 @@ async function plan(_b: any) {
       if (notFit(l) || twin(l, "dm")) continue;
       const t = had("accept");
       if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
-      if (!t) { const angle = await nextAngle(sc, angleLeads); li.angle = angle; await saveLi(l, li); angleLeads.push(l);
-        newRows.push({ lead_id: l.id, kind: "accept", step: 0, text: firstDM(sc, l, angle), status }); }
+      if (!t) {
+        if (!ideasOf(l).length) { tipsWanted.push(l.id); continue; }       // (16 Nov) v2 for inbound too: the idea first, never the old pitch
+        await saveLi(l, { ...li, seq: 2 });
+        newRows.push({ lead_id: l.id, kind: "accept", step: 0, subject: "v2", text: v2Fill(set.v2.first_np, l), status }); }
       continue;
     }
     if (!li.req && !li.acc && !li.dm) {                                    // (12 Nov) anyone already messaged goes on to follow-ups
@@ -1072,6 +1079,9 @@ async function plan(_b: any) {
       newRows.push({ lead_id: l.id, kind: "followup", step, subject: "v2-" + n, text: v2Fill(set.v2.fu[n - 1], l), status: "ready" });
       continue;
     }
+    // (16 Nov, Reyansh) The old LinkedIn sequence is stopped for good: anyone it reached stays where they are and gets nothing
+    // more from the bot (no late 3 ideas, no booking link, no VSL, no old follow-ups). Only sequence v2 above sends messages.
+    continue;
     if (li.acc && !tipsGot(l) && !twin(l, "dm") && (promised(l) || (!li.dm && (isOurs(l) || li.req)))) {
       const t = had("dm", li.dm ? 1 : 0);
       if (t?.status === "skipped" && /here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) {
