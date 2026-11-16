@@ -1553,7 +1553,14 @@ async function plan(_b: any) {
   if (!set.paused && inHours(set.hours)) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
-    const invitesLeft = Math.max(0, Math.min(12, set.week_cap - (weekSent ?? 0)));   // (12 Nov) 12 per 20 minute check, was 6
+    // (17 Nov) Human pace: at most 2 requests and 2 messages handed out per 20-minute check, and daily caps (60% on weekends).
+    const ist0 = new Date(Date.now() + IST_MS), dayStartLi = new Date(Date.UTC(ist0.getUTCFullYear(), ist0.getUTCMonth(), ist0.getUTCDate()) - IST_MS).toISOString();
+    const { count: invToday } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", dayStartLi);
+    const { count: msgToday } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).neq("kind", "invite").eq("status", "sent").gte("sent_at", dayStartLi);
+    const lb: any = (await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle()).data?.value ?? {};
+    const dayInv = Math.floor((+lb.day_invites || 20) * weekendFactor()), dayMsg = Math.floor((+lb.day_msgs || 30) * weekendFactor());
+    const invitesLeft = Math.max(0, Math.min(2, set.week_cap - (weekSent ?? 0), dayInv - (invToday ?? 0)));
+    const msgsLeft = Math.max(0, Math.min(2, dayMsg - (msgToday ?? 0)));
     // (16 Nov) A request that failed on the warm touch (LinkedIn's tab too slow to like their post) goes again without it.
     await db.from("crm_li_tasks").update({ status: "ready", error: "no warm touch (it timed out)" }).eq("kind", "invite").eq("status", "failed").ilike("error", "%likeLatest%");
     const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").order("created_at").limit(40);
@@ -1569,7 +1576,7 @@ async function plan(_b: any) {
     // as a plain message, fail, and mark them not connected.
     const pv = String(_b?.version ?? "0").split(".").map((x: string) => +x || 0), canIm = pv[0] > 1 || (pv[0] === 1 && (pv[1] > 2 || (pv[1] === 2 && pv[2] >= 8)));
     const ims = canIm ? (ready ?? []).filter((t) => t.kind === "inmail" && ok(t)).slice(0, imLeft) : [];
-    const msg = [...(ready ?? []).filter((t) => t.kind !== "invite" && t.kind !== "inmail" && ok(t)).slice(0, 10), ...ims];
+    const msg = [...(ready ?? []).filter((t) => t.kind !== "invite" && t.kind !== "inmail" && ok(t)).slice(0, msgsLeft), ...ims];
     tasks = [...msg, ...inv];
     if (tasks.length) {
       // A request goes out at least 45 minutes after the warm touch (12 Nov, was 3 hours) (visit their profile, like their latest post).
@@ -2697,6 +2704,8 @@ async function tips(b: any) {
 // (no reply, not sent by hand meanwhile). x_done writes the DM Pipeline row exactly like Mark sent / Can't DM do in the CRM.
 // Settings: crm_lead_settings x_bot { paused, cap }. Status for the CRM: x_bot_status.
 const IST_MS = 330 * 60e3;
+// (17 Nov, Reyansh: don't get banned) People do less on weekends: every daily cap is 60% on Saturday and Sunday (IST).
+const weekendFactor = () => { const d = new Date(Date.now() + 330 * 60e3).getUTCDay(); return d === 0 || d === 6 ? 0.6 : 1; };
 const sheetSerial = (d: Date, withTime: boolean) => {       // the CRM keeps sheet dates as day serials in IST, like Google Sheets
   const t = new Date(d.getTime() + IST_MS);
   const ms = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), withTime ? t.getUTCHours() : 0, withTime ? t.getUTCMinutes() : 0);
@@ -2709,7 +2718,7 @@ async function xSettings() {
   // (14 Nov) X said "this request looks like it might be automated": after that the bot holds off for 24 hours by itself
   // (cooldown_until), and it sends at most one DM every gap_min minutes (default 12, plus a random few) so it never bursts.
   const cool = Date.parse(v.cooldown_until ?? "") > Date.now();
-  return { paused: !!v.paused || cool, cooling: cool, cooldown_until: v.cooldown_until ?? null, cap: Math.max(1, Math.min(80, +(v.cap ?? 40) || 40)), gap: Math.max(5, +(v.gap_min ?? 12) || 12), from: +(v.from ?? 9), to: +(v.to ?? 23.5),
+  return { paused: !!v.paused || cool, cooling: cool, cooldown_until: v.cooldown_until ?? null, cap: Math.max(1, Math.floor(Math.min(80, +(v.cap ?? 40) || 40) * weekendFactor())), gap: Math.max(5, +(v.gap_min ?? 12) || 12), from: +(v.from ?? 9), to: +(v.to ?? 23.5),
     fu: X_FU_MORE.map((d, i) => String((Array.isArray(v.fu) ? v.fu[i] : "") || d)) };
 }
 // X follow-ups 3 to 7 (13 Nov; 1 and 2 come from each DM Templates version). One a day after follow-up 2, until they reply.
@@ -2942,7 +2951,7 @@ async function xr_plan(b: any) {
   const xs = await xSettings(), now = Date.now();
   const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
   const v: any = xb?.value ?? {};
-  const cap = Math.max(0, Math.min(60, +(v.reply_cap ?? 30))), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
+  const cap = Math.max(0, Math.floor(Math.min(60, +(v.reply_cap ?? 30)) * weekendFactor())), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
   await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("status", "sending").lt("claimed_at", new Date(now - 30 * 60e3).toISOString());
   await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("status", "approved").lt("posted_at", new Date(now - 20 * 3600e3).toISOString());
   const h = new Date(now + IST_MS); const hr = h.getUTCHours() + h.getUTCMinutes() / 60;
