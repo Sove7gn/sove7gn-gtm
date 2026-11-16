@@ -572,7 +572,8 @@ async function prospects(b: any) {
   // Uncontacted fits already waiting in the pool count too: the next plan run writes their requests.
   const leads = await pool(await settings());
   const ready = leads.filter((l) => !l.fields?.li?.req && !l.fields?.li?.dm && !l.fields?.li?.stop && !notFit(l)).length;
-  const need = Math.max(0, d.li_target - d.li_sent - d.li_waiting - ready);
+  // (16 Nov) Fits not written up yet don't count: Leads found always gets topped up to today's target with new founders.
+  const need = Math.max(0, d.li_target - d.li_sent - d.li_waiting);
   if (!need && !b.force) return { need: 0, ...d, ready };
   const K = await knownLeads(); const added: string[] = []; let cost = 0, tried = 0;
   const startQ = new Date().getUTCDate() % ICP_QUERIES.length;
@@ -1200,7 +1201,9 @@ async function plan(_b: any) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
     const invitesLeft = Math.max(0, Math.min(12, set.week_cap - (weekSent ?? 0)));   // (12 Nov) 12 per 20 minute check, was 6
-    const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject").eq("status", "ready").order("created_at").limit(40);
+    // (16 Nov) A request that failed on the warm touch (LinkedIn's tab too slow to like their post) goes again without it.
+    await db.from("crm_li_tasks").update({ status: "ready", error: "no warm touch (it timed out)" }).eq("kind", "invite").eq("status", "failed").ilike("error", "%likeLatest%");
+    const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").order("created_at").limit(40);
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
     const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && l.fields?.li?.stop !== "by hand" && (t.kind === "magnet" || t.kind === "reply" || t.kind === "close" || (!l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)))); };
@@ -1218,7 +1221,7 @@ async function plan(_b: any) {
     if (tasks.length) {
       // A request goes out at least 45 minutes after the warm touch (12 Nov, was 3 hours) (visit their profile, like their latest post).
       tasks = tasks.filter((t) => { const w = Date.parse(L.get(t.lead_id)?.fields?.li?.warm ?? "") || 0; return t.kind !== "invite" || !w || Date.now() - w > (set.rush ? 0.5 : 0.75) * 3600e3; })
-        .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, warm: t.kind === "invite" && !l.fields?.li?.warm, inv: l.fields?.li?.inv ?? null }; });
+        .map((t) => { const l: any = L.get(t.lead_id); return { ...t, name: l.name, urn: urnOf(l), pid: pidOf(l), profile: l.linkedin, warm: t.kind === "invite" && !l.fields?.li?.warm && !/no warm touch/.test(String(t.error ?? "")), inv: l.fields?.li?.inv ?? null }; });
       if (tasks.length) await db.from("crm_li_tasks").update({ status: "sending" }).in("id", tasks.map((t) => t.id));
     }
   }
