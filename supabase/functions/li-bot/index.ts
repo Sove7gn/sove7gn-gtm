@@ -1285,6 +1285,13 @@ async function saveLi(l: Lead, li: any, extra: Record<string, unknown> = {}) {
   if (error) throw error;
 }
 const log = (lead_id: string, text: string, kind = "message") => db.from("crm_lead_events").insert({ lead_id, kind, text, by_email: BY });
+// (17 Nov) When someone accepts, LinkedIn shows our connection note in the chat as a fresh message from us, timed at the accept,
+// so a "message from you" whose text is something the bot sent (the note, a DM) is the bot's, not Reyansh taking over.
+async function botSentText(leadId: string, text: string) {
+  const f = (x: string) => String(x ?? "").replace(/\s+/g, " ").trim().toLowerCase(); const p = f(text).slice(0, 50); if (p.length < 12) return false;
+  const { data } = await db.from("crm_li_tasks").select("text").eq("lead_id", leadId).eq("status", "sent").limit(50);
+  return (data ?? []).some((t: any) => { const s2 = f(t.text); return s2.includes(p) || p.includes(s2.slice(0, 50)); });
+}
 async function botSentNear(leadId: string, at: string) {
   const t = Date.parse(at); if (!t) return false;
   const { count } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("lead_id", leadId).eq("status", "sent")
@@ -1309,7 +1316,7 @@ async function guard(b: any) {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "They just replied" }).eq("id", t.id).in("status", ["sending", "ready"]);
     return { stop: true, why: "they just replied, so the reply is sorted and the answer is waiting for your OK" };
   }
-  if (th.me_at && Date.parse(th.me_at) > lastBot + 3 * 60e3 && !(await botSentNear(l.id, th.me_at))) {
+  if (th.me_at && Date.parse(th.me_at) > lastBot + 3 * 60e3 && !(await botSentNear(l.id, th.me_at)) && !(th.last_from === "me" && await botSentText(l.id, th.last_text))) {
     await saveLi(l as Lead, { ...li, prev_stop: li.stop ?? null, stop: "by hand", hand_at: th.me_at });
     await stopTasks(l.id, "You messaged them yourself");
     await log(l.id, "You messaged them yourself on LinkedIn, so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", "note");
@@ -1370,7 +1377,7 @@ async function state(b: any) {
     }
     // (16 Nov, Reyansh's rule) A message he sent himself means he has taken this person over: the bots never message them again
     // until he presses "Resume follow-ups" in the CRM. Bot-sent messages are told apart by a task sent within 5 minutes.
-    if (li.stop !== "by hand" && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 3 * 60e3 && !(await botSentNear(l.id, t.me_at))) {
+    if (li.stop !== "by hand" && since && t.me_at && Date.parse(t.me_at) > (Date.parse(li.last || "") || 0) + 3 * 60e3 && !(await botSentNear(l.id, t.me_at)) && !(t.last_from === "me" && await botSentText(l.id, t.last_text))) {
       await saveLi(l, { ...li, prev_stop: li.stop ?? null, stop: "by hand", hand_at: t.me_at, answered: li.replied ? t.me_at : li.answered });
       await stopTasks(l.id, "You messaged them yourself");
       await log(l.id, "You messaged them yourself on LinkedIn, so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", "note");
@@ -2426,7 +2433,8 @@ async function x_inbox(b: any) {
   const items = raw.filter((m: any) => m.from !== me);
   // (16 Nov) Rows read off the Messages page (new X chats are encrypted, so only the page shows them): a row whose last
   // message isn't ours ("You: ...") and that we haven't seen before counts as their reply, matched by @handle or chat link.
-  const domRows = (b.dom ?? []).filter((d: any) => d && d.text);
+  const domSeen = new Set<string>();   // (17 Nov) the same chat row can arrive twice in one scan: keep it once
+  const domRows = (b.dom ?? []).filter((d: any) => { if (!d || !d.text) return false; const k = String(d.href || "") + "|" + String(d.text).replace(/\s+/g, " ").trim(); if (domSeen.has(k)) return false; domSeen.add(k); return true; });
   const domHits: { handle: string; uid: string; name?: string; text: string }[] = [];
   for (const d of domRows) {
     const lines = String(d.text).split("\n").map((x: string) => x.trim()).filter(Boolean);
@@ -2459,7 +2467,10 @@ async function x_inbox(b: any) {
   const sentRows = new Set((xt ?? []).filter((t: any) => t.status === "sent").map((t: any) => t.row));
   const byName = new Map<string, any>(); for (const r of all) if (r.row > h.row && sentRows.has(r.row)) { const n = nn(obj(r)["Name"]); if (n && n.length > 3) byName.set(n, r); }
   const { data: ours } = await db.from("crm_x_tasks").select("row,text").eq("status", "sent").limit(10000);
-  const ourText = (row: number, t: string) => (ours ?? []).some((o: any) => o.row === row && String(o.text ?? "").replace(/\s+/g, " ").slice(0, 40).toLowerCase() === t.replace(/\s+/g, " ").slice(0, 40).toLowerCase());
+  // (17 Nov) X's chat list doesn't put "You:" before our own message and may show a later line of it ("Follow up with warm
+  // signals..." from our first DM to Adam), so a preview that appears anywhere in something we sent them is ours, not a reply
+  const flat = (x: string) => String(x ?? "").replace(/[…]|\.{3}$/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+  const ourText = (row: number, t: string) => { const p = flat(t).slice(0, 60); return !!p && (ours ?? []).some((o: any) => o.row === row && (flat(o.text).includes(p) || flat(o.text).slice(0, 40) === p.slice(0, 40))); };
   for (const d of domHits) {
     const r = (d.uid && byUid.get(d.uid)) || (d.handle && byHandle.get(d.handle)) || (d.name && byName.get(d.name)); if (!r) continue;
     const uid = d.uid || String(obj(r)["X user ID"] ?? "") || [...byUid.entries()].find(([, v]) => v === r)?.[0] || "";

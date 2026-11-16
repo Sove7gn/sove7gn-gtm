@@ -985,7 +985,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="../data.js?v=8e884b8bfb"></script>
+<script src="../data.js?v=c686b5133c"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -4616,7 +4616,7 @@ function activityHtml(key,ids,withBots){
     if(k){const l=byId.get(e.lead_id)||{};out.push({k,at:e.at,who:l.name||'Someone',plat:/on X|X\b/.test(t)?'X':l.source==='Instagram'?'Instagram':'LinkedIn',text:t.replace(/^[^:“]*[:“]\s*/,'').replace(/”$/,''),open:()=>L.openLead(l.id)});}}
   if(withBots)for(const e of (AK.NT.items||[])){if(!e.ok||/^Repl/.test(e.what||''))continue;if(e.lead&&!ids.has(e.lead))continue;const w=String(e.what||'');
     const k=/request/i.test(w)?'req':/follow/i.test(w)?'fu':/answer|closing/i.test(w)?'answer':/first|dm|message|ideas/i.test(w)?'first':'other';
-    out.push({k,at:e.at,who:e.who||'Someone',plat:e.chan==='X'?'X':'LinkedIn',text:e.text||e.sub||w,open:e.lead?()=>L.openLead(e.lead):null});}
+    out.push({k,at:e.at,who:(e.lead&&(byId.get(e.lead)||{}).name)||(e.who!=='Someone'&&e.who)||'Someone',plat:e.chan==='X'?'X':'LinkedIn',text:e.text||e.sub||w,open:e.lead?()=>L.openLead(e.lead):null});}
   out.sort((a,b)=>ms(b.at)-ms(a.at));
   const cur=V.f['act:'+key]||'all';const list=out.filter(x=>cur==='all'||x.k===cur);const n=V.more['act:'+key]?60:8;
   const cnt=k=>out.filter(x=>x.k===k&&ms(x.at)>Date.now()-D).length;
@@ -4632,18 +4632,21 @@ function activityHtml(key,ids,withBots){
 const cleanName=n=>String(n||'').replace(/\s+(Premium|Verified)( Profile)?\b.*$/i,'').replace(/\s*[•·]?\s*(1st|2nd|3rd\+?)\s*$/i,'').trim()||String(n||'');
 
 /* Midbound: one list for LinkedIn and X; each row says what they actually wrote, so you can decide: reply, DM or ignore */
+/* (17 Nov) the old comment reader sometimes saved a person's headline as their comment (when LinkedIn repeated the name line) */
+const nmKey=s=>String(s||'').replace(/\s+(Premium|Verified)\b.*$/i,'').replace(/\s*[•·]?\s*(1st|2nd|3rd\+?)\s*$/i,'').replace(/\s+/g,' ').trim().toLowerCase();
+const fakeComment=(said,p)=>{said=String(said||'').trim();const hk=nmKey(p.headline);return !said||said===String(p.headline||'').trim()||(!!hk&&hk===nmKey(p.name)&&(/\s[|·]\s/.test(said)||/^[^.!?]{0,160}\b(founder|co-founder|ceo|cto|coo|engineer|director|head of|vp|manager|partner|consultant)\b[^.!?]*$/i.test(said)));};
 function pgMidbound(){
   const rows=[];const nowT=Date.now();
-  for(const x of safe(()=>L.socPeople(),[])||[]){const p=x.p;if(!['hot','warm'].includes(p.fit))continue;const c=x.acts.find(z=>z.kind==='commented'&&z.said);const a=c||x.acts[0]||{};
+  for(const x of safe(()=>L.socPeople(),[])||[]){const p=x.p;if(!['hot','warm'].includes(p.fit))continue;const cAny=x.acts.find(z=>z.kind==='commented');const c=x.acts.find(z=>z.kind==='commented'&&!fakeComment(z.said,p));const a=c||cAny||x.acts[0]||{};
     const nm=cleanName(p.name);const hl=p.headline&&cleanName(p.headline)!==nm?p.headline:[p.role,p.company].filter(Boolean).join(' · ');
-    rows.push({plat:'LinkedIn',kind:c?'comment':'like',name:nm||'Someone',sub:hl,said:c?c.said:'',post:(a.post||{}).text||'',postUrl:(a.post||{}).url||'',at:x.last,fit:p.fit,lead:p.lead_id,url:p.profile_url||'',person:p,
+    rows.push({plat:'LinkedIn',kind:cAny?'comment':'like',name:nm||'Someone',sub:hl,said:c?c.said:'',unread:!!cAny&&!c,idea:c&&c.reply_idea||'',post:(a.post||{}).text||'',postUrl:(a.post||{}).url||'',ideaKey:'li'+String(p.person_key||'').slice(-24),at:x.last,fit:p.fit,lead:p.lead_id,url:p.profile_url||'',person:p,
       extra:[x.liked?x.liked+(x.liked===1?' like':' likes'):'',x.commented?x.commented+(x.commented===1?' comment':' comments'):''].filter(Boolean).join(' · ')});}
   for(const l of leadsOpen()){const s=srcOf(l);if(!['viewed','site','magnet','inbound'].includes(s))continue;
     rows.push({plat:'LinkedIn',kind:s==='inbound'?'dm':s==='viewed'?'view':s==='site'?'site':'magnet',name:cleanName(l.name)||'Someone',sub:[l.role,l.company].filter(Boolean).join(' · '),said:LIo(l).reply_text||(s==='inbound'?l.source_detail||'':''),at:ms(l.created_at),lead:l.id,fitN:fitN(l),url:l.linkedin||''});}
   for(const e of (AK.M.engagers||[])){if((e.Status||'To message')!=='To message')continue;const how=String(e.How||'');
     const k=/quot/i.test(how)?'quote':/follow/i.test(how)?'follow':/tag|mention/i.test(how)?'mention':'comment';
     const at=e['Found on']?(Date.parse(String(e['Found on']).replace(/^(\d{1,2}) (\w{3}) (\d{4})/,'$2 $1 $3'))||0):0;
-    rows.push({plat:'X',kind:k,name:e.Name||e.Handle,sub:'@'+String(e.Handle||'').replace(/^@/,'')+(e.Bio?' · '+e.Bio:''),said:e['What they said']||'',post:e['Our post']||'',postUrl:e['Their link']||e['Our post link']||'',at,e,fitX:e.Fit});}
+    rows.push({plat:'X',kind:k,name:e.Name||e.Handle,sub:'@'+String(e.Handle||'').replace(/^@/,'')+(e.Bio?' · '+e.Bio:''),said:e['What they said']||'',idea:k==='comment'||k==='quote'||k==='mention'?e['Our reply']||'':'',ideaKey:'eg'+e._row,post:e['Our post']||'',postUrl:e['Their link']||e['Our post link']||'',at,e,fitX:e.Fit});}
   const K={comment:'Commented or replied',like:'Liked',quote:'Quoted',follow:'Followed',mention:'Tagged or mentioned',dm:'DMed us',view:'Viewed profile',site:'Visited site',magnet:'Lead magnet'};
   const KC={comment:'#7C3AED',like:'#DB2777',quote:'#2563EB',follow:'#059669',mention:'#0EA5E9',dm:'#D97706',view:'#6B7280',site:'#6B7280',magnet:'#EA580C'};
   for(const r of rows)r.rm=r.lead?rmFor(r.lead):r.person?{lead_id:r.person.lead_id||null,name:r.name,link:r.url,urn:/^urn:|^ACo/i.test(String(r.person.person_key||''))?String(r.person.person_key).replace(/^urn:li:fsd_profile:/,''):''}:r.e?{x:String(r.e.Handle||'').replace(/^@/,''),name:r.name}:null;
@@ -4657,12 +4660,16 @@ function pgMidbound(){
   h+=chipsBar('mid',[['comment',K.comment,cnt.comment||0],['all','All',rows.length],...Object.keys(K).filter(k=>k!=='comment').map(k=>[k,K[k],cnt[k]||0])]);
   h+='<div class="mrows">'+(list.slice(0,V.more.mid?400:40).map(r=>{const e=r.e;const reply=e&&e['Our reply']||'';
     const open=r.lead?()=>L.openLead(r.lead):null;
-    const acts=e?[btn('Reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their post.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');},'pri sm'),canEdit()?btn('DM them',()=>AK.engagerToPipeline(e),'sm'):'',canEdit()?btn('Ignore',()=>AK.saveEngager(e,'Dismissed'),'sm ghost'):'']
-      :[r.postUrl?btn('Reply',()=>window.open(r.postUrl,'_blank','noopener'),'pri sm'):'',r.url?btn('DM them',()=>window.open(r.url,'_blank','noopener'),'sm'):'',
+    const openC=()=>{const u=AK.safeUrl(r.postUrl);if(u)window.open(u,'_blank','noopener');};
+    const acts=e?[btn(reply?'Copy reply & open':'Open their reply',()=>{if(reply)L.copy(reply,'eg'+e._row,'Reply copied. Paste it under their reply.');const u=AK.safeUrl(e['Their link']);if(u)window.open(u,'_blank','noopener');},'pri sm'),canEdit()?btn('DM them',()=>AK.engagerToPipeline(e),'sm'):'',canEdit()?btn('Ignore',()=>AK.saveEngager(e,'Dismissed'),'sm ghost'):'']
+      :[r.postUrl?btn(r.idea?'Copy reply & open':r.kind==='comment'?'Open their comment':'Open our post',()=>{if(r.idea)L.copy(r.idea,r.ideaKey,'Reply copied. Paste it under their comment.');openC();},'pri sm'):'',r.url?btn('DM them',()=>window.open(r.url,'_blank','noopener'),'sm'):'',
         r.person&&!r.lead&&canEdit()?btn('Add to pipeline',()=>AK.personToLead(r.person),'sm'):'',r.person&&canEdit()?btn('Ignore',()=>AK.setPersonFit(r.person.platform,r.person.person_key,'not a fit'),'sm ghost'):''];
     const fitH=r.fitN?fitPill(r.fitN):r.fit?tagp(r.fit==='hot'?'Great fit':'Good fit',r.fit==='hot'?'#059669':'#2563EB'):r.fitX?tagp(r.fitX,/core|good/i.test(r.fitX)?'#2563EB':'#6B7280'):'';
     return '<div class="mrow"><div class="mrow-h">'+pcell(r.name,r.sub,r.plat)+'<span class="sp"></span>'+tagp(K[r.kind],KC[r.kind])+fitH+'<span class="faint" style="font-size:12px">'+esc(r.at?AK.ago(r.at):'')+'</span></div>'
-      +(r.said?'<div class="mrow-said">“'+esc(r.said)+'”</div>':r.extra?'<div class="meta" style="margin-top:6px">'+esc(r.extra)+'</div>':'')
+      +(r.said?'<div class="mrow-said"><span class="faint" style="font-size:11.5px;font-weight:600;letter-spacing:.02em">'+(r.kind==='comment'?(r.plat==='X'?'THEY REPLIED':'THEY COMMENTED'):r.kind==='quote'?'THEY QUOTED':r.kind==='dm'?'THEY SAID':'THEY WROTE')+'</span><br>“'+esc(r.said)+'”</div>'
+        :r.unread?'<div class="meta" style="margin-top:6px">They commented, but the comment text didn’t load. Open their comment to read it.</div>'
+        :r.extra?'<div class="meta" style="margin-top:6px">'+esc(r.extra)+'</div>':'')
+      +(r.idea?'<div class="mrow-said" style="border-left-color:#059669;background:rgba(5,150,105,.06)"><span style="font-size:11.5px;font-weight:600;letter-spacing:.02em;color:#059669">IDEA REPLY</span><br>'+esc(r.idea)+'</div>':'')
       +(r.post?'<div class="mrow-post">On our post: '+esc(String(r.post).replace(/\s+/g,' ').slice(0,140))+'</div>':'')
       +'<div class="mrow-a">'+acts.join('')+(open?btn('Open',open,'sm ghost'):'')+'<span class="sp"></span>'+trashBtn(r.rm)+'</div></div>';}).join('')||'<div class="tb"><div class="empty">Nobody here yet.</div></div>')+'</div>'
     +(list.length>40&&!V.more.mid?'<div style="margin-top:10px">'+btn('Show '+(list.length-40)+' more',()=>{V.more.mid=true;schedule();},'ghost sm')+'</div>':'');

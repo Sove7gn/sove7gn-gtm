@@ -92,6 +92,7 @@ Deno.serve(async (req) => {
     if (both || body.replies) out.replies = await replyTargets().catch((e) => ({ error: String((e as Error).message ?? e) }));
     if (both || body.followers) out.followers = await newFollowers().catch((e) => ({ error: String((e as Error).message ?? e) }));   // twitterapi.io may be out of credits: the extension reads followers too
     if (both || body.followers || body.warm) out.warm = await warmDMs();
+    if (both || body.li_ideas) out.li_ideas = await liReplyIdeas().catch((e) => ({ error: String((e as Error).message ?? e) }));
     if (body.follow_src) out.follow_src = await followSource(+(body.max ?? 10) || 10);
     if (run) await db.from("crm_sync_runs").update({ finished_at: new Date().toISOString(), ok: true, summary: out }).eq("id", run.id);
     return json(out);
@@ -101,6 +102,45 @@ Deno.serve(async (req) => {
     return json({ error, ...out }, 500);
   }
 });
+
+// A "comment" that is really their headline (the old reader put the name where the headline goes, then the headline where the comment goes).
+const cleanNm = (s: string) => String(s || "").replace(/\s+(Premium|Verified)\b.*$/i, "").replace(/\s*[•·]?\s*(1st|2nd|3rd\+?)\s*$/i, "").replace(/\s+/g, " ").trim().toLowerCase();
+const headlineLike = (said: string, p: any) => !!cleanNm(p.headline) && cleanNm(p.headline) === cleanNm(p.name) &&
+  (/\s[|·]\s/.test(said) || /^[^.!?]{0,160}\b(founder|co-founder|ceo|cto|coo|engineer|director|head of|vp|manager|partner|consultant)\b[^.!?]*$/i.test(said));
+// (17 Nov) Midbound: a suggested answer for each new comment on our LinkedIn posts, so Reyansh can reply under it in one go.
+async function liReplyIdeas() {
+  const { data: es } = await db.from("crm_social_engagements").select("post_id,person_key,said").eq("platform", "linkedin").eq("kind", "commented")
+    .is("reply_idea", null).neq("said", "").gte("first_seen", new Date(Date.now() - 21 * 864e5).toISOString()).order("first_seen", { ascending: false }).limit(12);
+  if (!es?.length) return { written: 0 };
+  const { data: ppl } = await db.from("crm_social_people").select("person_key,name,headline,is_self").eq("platform", "linkedin").in("person_key", es.map((e) => e.person_key));
+  const { data: pos } = await db.from("crm_social_posts").select("post_id,text").eq("platform", "linkedin").in("post_id", [...new Set(es.map((e) => e.post_id))]);
+  const pm = new Map((ppl ?? []).map((p) => [p.person_key, p])), tm = new Map((pos ?? []).map((p) => [p.post_id, p.text]));
+  const mark = (e: any, v: string) => db.from("crm_social_engagements").update({ reply_idea: v }).eq("platform", "linkedin").eq("post_id", e.post_id).eq("person_key", e.person_key).eq("kind", "commented");
+  const todo: any[] = [];
+  for (const e of es) {
+    const p: any = pm.get(e.person_key) ?? {};
+    const said = String(e.said || "").trim();
+    // Comments read before the 17 Nov reader fix sometimes hold the person's headline instead; those get no idea.
+    if (p.is_self || said === String(p.headline || "").trim() || said === String(p.name || "").trim() || headlineLike(said, p)) { await mark(e, ""); continue; }
+    todo.push({ e, p });
+  }
+  if (!todo.length) return { written: 0 };
+  const outs = await llm(todo.map(({ e, p }) =>
+    "You are Reyansh, founder of SOVE7GN (done-for-you GTM for B2B startups). Someone commented under your LinkedIn post. Write the reply you'd post under their comment.\n" +
+    "Your post: \"" + clip(tm.get(e.post_id) ?? "", 600) + "\"\n" +
+    "Their name: " + (String(p.name || "").split(" ")[0] || "there") + ". Their headline: " + clip(p.headline ?? "", 120) + "\n" +
+    "Their comment: \"" + clip(e.said, 500) + "\"\n" +
+    "Rules: 1-2 short sentences, under 40 words, casual and human, react to their exact point (agree, add one concrete detail, or a light pushback). " +
+    "At most one simple question, only if it keeps the chat going naturally. Never pitch, never mention SOVE7GN, no hashtags, no emojis, no dashes. Start with their first name. Reply with the text only."));
+  let written = 0;
+  for (let i = 0; i < todo.length; i++) {
+    const t = clip(outs[i] ?? "", 400);
+    if (!t) continue;
+    await mark(todo[i].e, t);
+    written++;
+  }
+  return { written };
+}
 
 const clip = (s: string, n: number) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; };
 const noDash = (s: string) => String(s || "").replace(/\s*[—–]\s*/g, ", ").replace(/\s+,/g, ",");

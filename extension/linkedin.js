@@ -201,7 +201,11 @@ export async function liOp(op, a = {}) {
       const lines = el.innerText.split("\n").map((t) => t.trim()).filter(Boolean);
       const junk = /^(like|reply|replies|\d+\s*(m|h|d|w|mo|yr)s?|\d+|•|·|edited|author|follow|connect|see translation|…more|more|\d+(st|nd|rd|th)\+?|1st|2nd|3rd\+?|· (1st|2nd|3rd\+?))$/i;
       const name = (lines[0] || info.name).split("\n")[0].replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").slice(0, 120);
-      const rest = lines.slice(1).filter((t) => !junk.test(t) && t !== name);
+      // (17 Nov) LinkedIn often repeats the name on a second line ("Josh Burwick" then "View Josh Burwick's profile"); without this the
+      // headline was read as the comment.
+      const nm = (t) => String(t).replace(/^View\s+/i, "").replace(/[’']s\s+profile.*$/i, "").replace(/\s+(Premium|Verified)\b.*$/i, "").replace(/\s*[•·]?\s*(1st|2nd|3rd\+?)\s*$/i, "").trim().toLowerCase();
+      const names = new Set([nm(name), nm(info.name)].filter(Boolean));
+      const rest = lines.slice(1).filter((t) => !junk.test(t) && t !== name && !names.has(nm(t)));
       const headline = rest[0] || "";
       const text = rest.slice(1).sort((p, q) => q.length - p.length)[0] || "";
       const id = acoa(info.href), pid = vanity(info.href);
