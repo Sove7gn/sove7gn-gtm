@@ -796,6 +796,22 @@ function rulesHtml(){
       +(k==='not_interested'?'<div class="fs-m" style="margin-top:8px"'+act(()=>editOpen('Closing message (they said no)','Sent when someone says no thanks. {first} and {company} fill in.',R.close_text||CLOSE_DEFAULT,v=>{const cur=AK.leadSetting('reply_rules')||{};AK.leadSettingSave('reply_rules',{...cur,close_text:v});}))+'>'+esc(R.close_text||CLOSE_DEFAULT)+' <span class="pen sm">✎</span></div>'
         :'<div class="note" style="margin-top:8px">'+(k==='interested'?'If they said yes to the 3 ideas, the answer is their 3 ideas. Otherwise a short answer with the booking link.':k==='not_now'?'Thanks them and checks back in a month.':'A short answer written for them.')+'</div>')+'</div>';}).join('')+'</div>';
 }
+/* (16 Nov) LinkedIn sequence v2: no greetings, one question per message, help before any ask, no booking link until they reply.
+   Same defaults as li-bot (V2_DEFAULT); edits save to li_bot.v2. */
+const LI_V2_DEFAULT={first:"Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  fu:["Curious, is most of {company_s} pipeline coming from referrals right now?",
+    "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
+    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up."]};
+function liV2Steps(li,saveLi){
+  const v=li.v2||{};const first=v.first||LI_V2_DEFAULT.first;const fu=LI_V2_DEFAULT.fu.map((d,i)=>String((v.fu||[])[i]||d));
+  const save=(k,val)=>{const cur=(AK.LD.settings.li_bot||{}).v2||{};saveLi('v2',{...cur,[k]:val});};
+  const tip='{idea1}, {idea2}, {idea3} are their 3 ideas (written for each person). {company} is their company, {company_s} is "Acme’s", {is_company} is "is Acme" (or "are you" when we don’t know it). No greetings, one question at most.';
+  const DAYS=[['Day 3','The question on its own'],['Day 5','Ideas 2 and 3, nothing asked'],['Day 8','A client story'],['Day 12','The clean close']];
+  return flowStep({who:'bot',ic:'✉',t:'Idea 1 + one question',when:'The moment they accept',d:'Sent on its own. No greeting, no link.',msg:first,edit:()=>editOpen('Idea 1 + one question',tip,first,val=>save('first',val))})
+    +fu.map((t,i)=>flowStep({who:'bot',ic:String(i+1),t:DAYS[i][1],when:DAYS[i][0]+' after they accept, if no reply',msg:t,edit:()=>editOpen(DAYS[i][1]+' ('+DAYS[i][0]+')',tip,t,val=>{const a=fu.slice();a[i]=val;save('fu',a);})})).join('')
+    +flowStep({who:'you',ic:'☏',t:'The call ask, only after they reply',d:'Worth a quick 15 minutes? If it’s not a fit, I’ll tell you straight. Does Tuesday 4pm or Wednesday 11am IST work better? Two real times, never a cold booking link. Written into the answer in Needs you.'});
+}
 function pgBots(){
   const cur=V.f.bots||'li';
   let h=head('Bots','How the bots work, step by step. Click ✎ on any message to change it; every message not sent yet uses the new text.');
@@ -810,11 +826,11 @@ function pgBots(){
         extra:canEdit()?'<div class="under">'+btn(auto?'Ask me first instead':'Let it send on its own',()=>saveLi('mode',auto?'review':'auto'),'sm')+'</div>':''})
       +flowStep({who:'bot',ic:'+',t:'Connection request with a note',when:'Up to '+(li.week_cap||150)+' a week, '+(li.notes_month||250)+' notes a month',msg:li.note||'',edit:()=>editOpen('Connection note','Goes with the request. 300 characters max. {first} and {company} fill in.',li.note,v=>saveLi('note',v),300)})
       +flowStep({who:'them',ic:'?',t:'They accept',d:'Not accepted in 3 weeks: the request is withdrawn and they leave the pipeline.'})
-      +flowStep({who:'bot',ic:'✉',t:'First message',d:'If their connection note promised 3 ideas, their 3 ideas (written for them) go first instead.',when:'Right after they accept',msg:li.dm1||'',edit:()=>editOpen('First message','After they accept. The 3 ideas are written for each person. {first} and {company} fill in.',li.dm1,v=>saveLi('dm1',v))})
-      +(li.fu||[]).map((t,i)=>flowStep({who:'bot',ic:String(i+1),t:'Follow-up '+(i+1),when:'A day after the last one, if no reply',msg:t,edit:()=>editOpen('Follow-up '+(i+1),'Sent if they haven’t replied. {first} and {company} fill in.',t,v=>{const a=((AK.LD.settings.li_bot||{}).fu||[]).slice();a[i]=v;saveLi('fu',a);})})).join('')
+      +liV2Steps(li,saveLi)
       +flowStep({who:'them',ic:'↩',t:'They reply',d:'The bot stops at once, sorts the reply and writes the answer. See "When someone replies".',extra:'<div class="under">'+btn('Reply rules',()=>{V.f.bots='replies';schedule();},'sm')+'</div>'})
       +flowStep({who:'win',ic:'☏',t:'Call booked',d:'From cal.com: they move to Call booked and the call prep is written within 15 minutes.'})
-      +flowStep({who:'end',ic:'×',t:'No reply after follow-up '+((li.fu||[]).length||7),d:'They move to Lost.'})+'</div>';}
+      +flowStep({who:'end',ic:'×',t:'No reply by day 12',d:'They move to Cold lead and nothing more is sent.'})+'</div>'
+      +'<p class="note" style="margin-top:14px">People who accepted before 16 Nov finish the old sequence (one message a day, up to 7) and then stop. Everyone new gets this one.</p>';}
   if(cur==='x'){const T=(AK.M.templates||[]).filter(t=>t.Opener);const xs=(AK.XT.status||{}).x_bot||{};const fu=X_FU_DEFAULT.map((d,i)=>String(((xs.fu||[])[i])||d));
     const saveX=a=>{const c=(AK.XT.status||{}).x_bot||AK.leadSetting('x_bot')||{};AK.leadSettingSave('x_bot',{...c,fu:a});AK.XT.status.x_bot={...c,fu:a};};
     const tplStep=(field,label,when)=>flowStep({who:'bot',ic:'✉',t:label,when,extra:'<div class="tpls">'+T.map(t=>'<div class="tpl"><div class="tpl-h"><b>'+esc(t.Intent||t.ID)+'</b><span class="faint">'+esc((t.Sent||0)+' sent · '+(t['Reply rate']||'–')+' replies')+'</span><span class="sp"></span>'+(canEdit()?'<button type="button" class="pen"'+act(()=>editOpen(label+': '+(t.Intent||t.ID),'Each new person gets the next script in turn. [first name], [company] and [hook] fill in.',t[field],v=>{if(v!==t[field])AK.saveTpl(t,{[field]:v});}))+'>✎</button>':'')+'</div><div class="fs-m">'+esc(t[field]||'')+'</div></div>').join('')+'</div>'});

@@ -97,6 +97,44 @@ const promised = (l: Lead) => !!(l.fields?.li?.promised || l.fields?.li?.src ===
 const tipsGot = (l: Lead) => !!(l.fields?.tips?.sent_at || l.fields?.li?.tips_dm);
 const IDEAS_RE = /here they are|here are the 3 ideas|sending over 3 quick ideas|sending them over anyway|\b(3|three)\s+(quick\s+|small\s+|inbound\s+)*(tips|ideas|tricks)\b/i;
 const CAL = "https://cal.com/sove7gn-gtm/30min";
+// ───────── LinkedIn sequence v2 (16 Nov) ─────────
+// No greetings, one question per message, help before any ask, and never a booking link to someone who hasn't replied.
+// Day 0: the request, then the moment they accept, idea 1 + one question. Day 3 the question alone. Day 5 ideas 2 and 3 with no
+// ask. Day 8 a client story. Day 12 a clean close, then stop (Cold lead). A reply stops it at once. Everyone who hadn't had a
+// message after accepting on 16 Nov goes on v2 (li.seq = 2); people already in the old sequence finish it.
+// Texts are edited on the CRM's Bots page (li_bot.v2). {idea1} {idea2} {idea3} {company} {first} fill in.
+type V2Texts = { first: string; first_np: string; first_x: string; fu: string[] };
+const V2_DAYS = [3, 5, 8, 12];
+const V2_DEFAULT: V2Texts = {
+  first: "Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_np: "One thing I'd do at {company} this week.\n\n{idea1}\n\nQuick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_x: "Sent you 3 ideas for {company_s} inbound over on X. Quick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  fu: [
+    "Curious, is most of {company_s} pipeline coming from referrals right now?",
+    "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
+    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up.",
+  ],
+};
+// The 3 ideas as separate pieces: no "Hey X, here they are", no numbers, no internal tags like "(midbound automation)", no pitch at the end.
+function ideasOf(l: Lead): string[] {
+  const raw = String(l.fields?.tips?.text ?? "").replace(/\r/g, "");
+  return raw.split(/\n\s*\n/).map((p) => p.trim()).filter((p) => /^\d[.)]\s/.test(p))
+    .map((p) => p.replace(/^\d[.)]\s*/, "").replace(/\s*\([^()]{2,60}\)\s*$/, "").replace(/\s*[—–]\s*/g, ", ").trim()).slice(0, 3);
+}
+function v2Fill(text: string, l: Lead): string {
+  const co = l.company && !/^unknown$/i.test(l.company) ? l.company : "";
+  const id = ideasOf(l);
+  return String(text ?? "").replace(/\{idea1\}/g, id[0] ?? "").replace(/\{idea2\}/g, id[1] ?? "").replace(/\{idea3\}/g, id[2] ?? "")
+    .replace(/\{is_company\}/g, co ? "is " + co : "are you").replace(/\{company_s\}/g, co ? co + (/s$/i.test(co) ? "'" : "'s") : "your")
+    .replace(/\{company\}/g, co || "your company").replace(/\{first\}/g, firstName(l.name)).replace(/\n{3,}/g, "\n\n").trim();
+}
+// Two concrete call times to offer (next two weekdays, 4pm and 11am IST), for answers to people who replied.
+function callSlots(): string {
+  const out: string[] = []; const d = new Date(Date.now() + 330 * 60e3); const DN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  for (let i = 1; out.length < 2 && i < 8; i++) { const x = new Date(d.getTime() + i * 864e5); const w = x.getUTCDay(); if (w === 0 || w === 6) continue; out.push(DN[w] + (out.length ? " 11am" : " 4pm")); }
+  return out.join(" or ") + " IST";
+}
 // (14 Nov) The lead behind an X handle (to know if they already got the 3 ideas on LinkedIn, and to mark it when X sends them).
 async function leadByHandle(h: string): Promise<any> {
   const x = String(h ?? "").replace(/^@/, ""); if (!x) return null;
@@ -141,13 +179,14 @@ Deno.serve(async (req) => {
 
 // ───────── settings and status ─────────
 type Bot = { mode: "review" | "auto"; paused: boolean; include_warm: boolean; week_cap: number; notes_month: number; followups: number;
-  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean; localTime: boolean };
+  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean; localTime: boolean; v2: V2Texts };
 async function settings(): Promise<Bot> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
   const v = (data?.value ?? {}) as Partial<Bot>;
   return { mode: v.mode === "auto" ? "auto" : "review", paused: !!v.paused, include_warm: !!v.include_warm, week_cap: +(v.week_cap ?? 150),
     notes_month: +(v.notes_month ?? 250), followups: Math.min(+(v.followups ?? 7), (v.fu ?? []).length || 7), gap_days: +(v.gap_days ?? 1),
     hours: { from: +(v.hours?.from ?? 10), to: +(v.hours?.to ?? 24) }, note: v.note ?? "", dm1: v.dm1 ?? "", fu: v.fu ?? [],
+    v2: { ...V2_DEFAULT, ...(((v as any).v2 ?? {}) as Partial<V2Texts>), fu: V2_DEFAULT.fu.map((d, i) => String((((v as any).v2 ?? {}).fu ?? [])[i] || d)) },
     // Fast mode (11 Nov): until rush_until, approved items go out as soon as they can (no local-time window, 30 min after the warm touch).
     rush: !!(v as any).rush_until && Date.parse((v as any).rush_until) > Date.now(),
     // (12 Nov) local_time false = only Reyansh's IST window counts (hours), not each person's local morning.
@@ -970,7 +1009,7 @@ async function plan(_b: any) {
     const ts = tasksOf.get(l.id) ?? [];
     // (14 Nov) They replied, we sent the 3 tips, and they went quiet: after 24 hours their follow-ups start again (tips order below).
     const tipsAt = Date.parse(l.fields?.tips?.sent_at ?? "") || 0;
-    if (tipsAt && li.replied && Date.parse(li.replied) < tipsAt && Date.now() - tipsAt >= 22 * 3600e3 && !li.restarted && /^(new|contacted|follow up|in talks)$/i.test(l.stage)) {
+    if (li.seq !== 2 && tipsAt && li.replied && Date.parse(li.replied) < tipsAt && Date.now() - tipsAt >= 22 * 3600e3 && !li.restarted && /^(new|contacted|follow up|in talks)$/i.test(l.stage)) {
       const r = { ...li, prev_replied: li.replied, restarted: now(), dm: li.dm || l.fields.tips.sent_at, fu: 0, last: l.fields.tips.sent_at };
       delete r.replied; delete r.stop; delete r.draft;
       await saveLi(l, r, { stage: "Follow up" });
@@ -978,6 +1017,11 @@ async function plan(_b: any) {
       Object.assign(li, r); delete li.replied; delete li.stop; l.stage = "Follow up";
     }
     if (li.stop || li.replied || !ACTIVE.test(l.stage)) continue;
+    // (16 Nov) An old-style 3 ideas message still waiting to go to someone who just accepted becomes the v2 first message.
+    const oldQ = ts.find((t) => t.kind === "dm" && t.step === 0 && ["review", "ready"].includes(t.status) && !/^v2/.test(String(t.subject ?? "")));
+    if (oldQ && !li.dm && li.acc && ideasOf(l).length) {
+      await db.from("crm_li_tasks").update({ subject: "v2", text: v2Fill(promised(l) || li.req ? set.v2.first : set.v2.first_np, l) }).eq("lead_id", l.id).eq("kind", "dm").eq("step", 0).in("status", ["review", "ready"]);
+    }
     if (ts.some((t) => ["review", "ready", "sending"].includes(t.status))) continue;
     const had = (kind: string, step = 0) => ts.find((t) => t.kind === kind && t.step === step);
     if (srcOf(l) === "inbound" && !li.acc && !li.dm) {                    // they sent us a request: accept it and send the first message
@@ -999,6 +1043,35 @@ async function plan(_b: any) {
     // (14 Nov) End to end: Reyansh approves the connection request only. Whoever accepts gets their 3 ideas as the next message,
     // sent on its own (no approval); people promised them who got something else first get them next.
     if (li.src === "connection" && !li.dm && (!l.fields?.li_icp?.at || notFit(l) || !/founder|\bceo\b|chief|owner|president|managing director/i.test(String(l.role ?? "")))) continue;
+    // (16 Nov) Sequence v2: everyone who accepted and hasn't had a message yet, and everyone already on it.
+    if (li.seq === 2 || (li.acc && !li.dm && (isOurs(l) || li.req || promised(l)))) {
+      if (!li.dm) {
+        if (twin(l, "dm")) continue;
+        const t = had("dm", 0);
+        if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
+        if (t && t.status !== "failed") continue;
+        const viaX = tipsGot(l) && l.fields?.tips?.on === "X";
+        if (!viaX && !ideasOf(l).length) { tipsWanted.push(l.id); continue; }          // ideas written by the tips run, then sent
+        const text = v2Fill(viaX ? set.v2.first_x : promised(l) || li.req ? set.v2.first : set.v2.first_np, l);
+        newRows.push({ lead_id: l.id, kind: "dm", step: 0, subject: viaX ? "v2x" : "v2", text, status: "ready" });
+        continue;
+      }
+      const n = (li.fu ?? 0) + 1;
+      if (n > V2_DAYS.length) {
+        await saveLi(l, { ...li, stop: "no reply" }, { stage: "Cold lead" });
+        await log(l.id, "No reply to the idea and " + V2_DAYS.length + " follow-ups on LinkedIn. Moved to Cold lead.", "note");
+        finished++; continue;
+      }
+      const base = Date.parse(li.dm) || 0, last = Date.parse(li.last || li.dm) || 0;
+      if (Date.now() < base + V2_DAYS[n - 1] * 86400e3 - 2 * 3600e3 || Date.now() - last < 20 * 3600e3) continue;
+      const step = 200 + n, t = had("followup", step);
+      if (t?.status === "skipped") { await saveLi(l, { ...li, fu: n, last: now() }); continue; }
+      if (t) continue;
+      // ideas 2 and 3: skipped for people who already got all 3 on X, or whose ideas never got written
+      if (n === 2 && (li.v2x || ideasOf(l).length < 3)) { await saveLi(l, { ...li, fu: n }); continue; }
+      newRows.push({ lead_id: l.id, kind: "followup", step, subject: "v2-" + n, text: v2Fill(set.v2.fu[n - 1], l), status: "ready" });
+      continue;
+    }
     if (li.acc && !tipsGot(l) && !twin(l, "dm") && (promised(l) || (!li.dm && (isOurs(l) || li.req)))) {
       const t = had("dm", li.dm ? 1 : 0);
       if (t?.status === "skipped" && /here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) {
@@ -1065,6 +1138,7 @@ async function plan(_b: any) {
         text = fill(set.note, l, hooks.get(l.id) ?? "");
         if (text.length > 300) text = fill(set.note, l, "thanks for checking out my post.");
         if (text.length > 300) text = clip(text, 300);
+        text = text.replace(/^\s+/, ""); text = text.charAt(0).toUpperCase() + text.slice(1);   // (16 Nov) the note opens on the hook
         notesLeft--;
       }
       // An approved signal was already OK'd on Leads > Signals, so its request goes straight out.
@@ -1198,6 +1272,7 @@ async function done(b: any) {
     await log(lead.id, "Accepted their LinkedIn request and sent the first message (" + (ANGLE_LABEL[li.angle] ?? "advice") + "):\n" + t.text);
   } else if (t.kind === "dm") {
     li.dm = at; li.last = at; li.fu = 0;
+    if (t.subject === "v2" || t.subject === "v2x") { li.seq = 2; if (t.subject === "v2x") li.v2x = true; }
     if (t.subject === "fu1") li.fu_sent = [...new Set([...(li.fu_sent ?? []), 1])];
     if (/here they are|here are the 3 ideas/i.test(String(t.text ?? ""))) { li.tips_dm = at; lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } }; }
     if (/^new$/i.test(lead.stage)) stage.stage = "Contacted";
@@ -1205,7 +1280,7 @@ async function done(b: any) {
   } else if (t.kind === "followup") {
     li.fu = t.step % 100; li.last = at;
     const k = +(String(t.subject ?? "").match(/^fu(\d+)$/)?.[1] ?? (t.step < 100 ? t.step : 0)); if (k) li.fu_sent = [...new Set([...(li.fu_sent ?? []), k])];
-    if (/sending over 3 quick ideas|here they are/i.test(String(t.text ?? ""))) lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } };
+    if (/sending over 3 quick ideas|here they are/i.test(String(t.text ?? "")) || t.subject === "v2-2") lead.fields = { ...(lead.fields ?? {}), tips: { ...(lead.fields?.tips ?? {}), sent_at: at } };
     if (/^(new|contacted)$/i.test(lead.stage)) stage.stage = "Follow up";
     await log(lead.id, "LinkedIn follow-up " + (t.step % 100) + " sent:\n" + t.text);
   } else if (t.kind === "magnet") {
@@ -1693,7 +1768,7 @@ async function sortReply(l: Lead, text: string, chan = "LinkedIn"): Promise<{ la
     "Lead: " + l.name + ", " + (l.role || "") + (l.company ? " at " + l.company : "") + (ic.one_liner ? ". Company: " + ic.one_liner : "") + ".\n" +
     "Our last message angle: " + (li.angle || "advice") + ". They wrote: \"" + clip(text, 800) + "\"\n" +
     "Return JSON only: {\"label\": one of \"interested\" (wants to talk or asks for the call/ideas), \"question\" (asks something), \"not_now\" (busy, later, maybe next month), \"not_interested\" (no, not relevant, unsubscribe), \"other\"; " +
-    "\"draft\": a short, warm reply in plain words, no dashes, no hashtags, under 60 words. Never end the conversation unless they said no: a thanks or a short acknowledgement gets a warm line plus one easy question about how they get customers today, or the call link. If interested or a question, answer and suggest a time or share https://cal.com/sove7gn-gtm/30min. If not_now, thank them and say you'll check back in a month. If not_interested, thank them politely and close.}";
+    "\"draft\": a short, warm reply in plain words, no dashes, no hashtags, under 60 words. No greeting: never start with Hey, Hi or their name, open straight on what they said. One question per message at most. Never end the conversation unless they said no: a thanks or a short acknowledgement gets one useful line plus one easy question about how they get customers today. If interested or a question, answer it, then ask for the call exactly like this: \"Worth a quick 15 minutes? If it's not a fit, I'll tell you straight. Does " + callSlots() + " work better?\" Never send a booking link unless they ask for a link. If not_now, thank them and say you'll check back in a month. If not_interested, thank them politely and close.}";
   const r = await llmMany([{ id: "r", prompt }]).catch(() => ({} as Record<string, string>));
   const j = parseJson(r.r ?? "") ?? {};
   const label = ["interested", "question", "not_now", "not_interested", "other"].includes(j.label) ? j.label : "other";
