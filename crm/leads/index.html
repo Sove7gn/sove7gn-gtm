@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Lead drop</title>
+<meta name="description" content="People looking for what you sell right now, researched by SOVE7GN.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Lead drop page (18 Nov). Design from Claude Design ("Kita Lead Drop"), ported to plain HTML. Data: lead-drop function ?k=TOKEN.
+     ?theme=dark|light|auto  ?state=expired  ?preview=1 (doesn't count a view) -->
+<style>
+:root,[data-theme="light"]{--bg:oklch(0.985 0.002 250);--surface:oklch(1 0 0);--surface-2:oklch(0.975 0.003 250);--line:oklch(0.925 0.004 250);--line-strong:oklch(0.86 0.006 250);--ink:oklch(0.2 0.01 260);--ink-2:oklch(0.43 0.01 260);--ink-3:oklch(0.55 0.01 260);--accent:oklch(0.53 0.2 264);--accent-text:oklch(0.5 0.2 264);--accent-soft:oklch(0.96 0.022 264);--on-accent:#fff;--live:oklch(0.64 0.15 155);--btn:oklch(0.2 0.01 260);--btn-hover:oklch(0.31 0.01 260);--btn-ink:#fff;--shadow:0 1px 2px oklch(0.2 0.02 260 / 0.04),0 6px 20px -8px oklch(0.2 0.02 260 / 0.08);color-scheme:light}
+[data-theme="dark"]{--bg:oklch(0.155 0.004 260);--surface:oklch(0.19 0.005 260);--surface-2:oklch(0.225 0.006 260);--line:oklch(0.27 0.006 260);--line-strong:oklch(0.35 0.008 260);--ink:oklch(0.965 0.003 260);--ink-2:oklch(0.78 0.006 260);--ink-3:oklch(0.65 0.008 260);--accent:oklch(0.58 0.19 264);--accent-text:oklch(0.78 0.12 264);--accent-soft:oklch(0.27 0.06 264);--on-accent:#fff;--live:oklch(0.72 0.15 155);--btn:oklch(0.96 0.003 260);--btn-hover:oklch(0.86 0.004 260);--btn-ink:oklch(0.17 0.005 260);--shadow:0 1px 0 oklch(1 0 0 / 0.03) inset,0 10px 30px -12px oklch(0 0 0 / 0.5);color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Geist',ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--ink);text-decoration:none}a:hover{color:var(--accent-text)}
+::selection{background:var(--accent-soft)}
+.mono{font-family:'Geist Mono',ui-monospace,monospace}
+.label{font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)}
+.wrap{max-width:1080px;margin:0 auto;padding-left:clamp(16px,4vw,32px);padding-right:clamp(16px,4vw,32px)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.pill{white-space:nowrap;flex:none;display:inline-flex;align-items:center;box-sizing:border-box}
+.ch{flex:none;width:18px;height:18px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;letter-spacing:-0.02em}
+.btn{flex:1 1 150px;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 16px;border-radius:10px;font-size:14px;font-weight:500}
+.btn-p{background:var(--btn);color:var(--btn-ink)}.btn-p:hover{background:var(--btn-hover);color:var(--btn-ink)}
+.btn-s{border:1px solid var(--line-strong);background:var(--surface);color:var(--ink)}.btn-s:hover{background:var(--surface-2);color:var(--ink)}
+.copy{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);font:500 12.5px 'Geist',ui-sans-serif,system-ui,sans-serif;cursor:pointer}
+.copy:hover{background:var(--bg)}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:10px}.bars span{width:2.5px;border-radius:1px;background:currentColor}
+.skel{height:14px;border-radius:6px;background:var(--surface-2)}
+</style>
+</head>
+<body>
+<div style="min-height:100vh;background:var(--bg);color:var(--ink)">
+  <header style="position:sticky;top:0;z-index:10;background:color-mix(in oklch, var(--bg) 82%, transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)">
+    <div class="wrap" style="padding-top:10px;padding-bottom:10px;min-height:56px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 20px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="width:9px;height:9px;background:var(--ink);transform:rotate(45deg);border-radius:1.5px"></span>
+        <span style="font-size:13px;font-weight:600;letter-spacing:0.16em">SOVE7GN</span>
+      </div>
+      <div id="hdr" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:13px;color:var(--ink-2)"></div>
+    </div>
+  </header>
+  <main class="wrap" id="main">
+    <section style="padding:clamp(44px,8vw,96px) 0">
+      <div class="skel" style="width:160px"></div><div class="skel" style="width:70%;height:44px;margin-top:28px"></div><div class="skel" style="width:50%;margin-top:18px"></div>
+    </section>
+  </main>
+  <footer style="border-top:1px solid var(--line)">
+    <div class="wrap" style="padding-top:24px;padding-bottom:40px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 24px;font-size:13px;color:var(--ink-2)">
+      <span>Researched by SOVE7GN · we find and work leads like these every week · <a href="https://sove7gn.org" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:3px">sove7gn.org</a></span>
+      <span style="color:var(--ink-3)">This page is private to you. Leads are from public posts.</span>
+    </div>
+  </footer>
+</div>
+<script>
+(function () {
+  var API = "https://rmadxyyvdiqdujuwecdt.supabase.co/functions/v1/lead-drop";
+  var CH = {
+    reddit: { name: "Reddit", g: "r/", bg: "#FF4500", fg: "#fff" },
+    x: { name: "X", g: "X", bg: "var(--ink)", fg: "var(--surface)" },
+    linkedin: { name: "LinkedIn", g: "in", bg: "#0A66C2", fg: "#fff" },
+    hn: { name: "Hacker News", g: "Y", bg: "#FF6600", fg: "#fff" },
+    jobs: { name: "Job boards", g: "J", bg: "oklch(0.52 0.12 165)", fg: "#fff" },
+    news: { name: "News", g: "N", bg: "oklch(0.42 0.01 260)", fg: "#fff" },
+    producthunt: { name: "Product Hunt", g: "P", bg: "#DA552F", fg: "#fff" }
+  };
+  var RANK = { high: 0, medium: 1, signal: 2 };
+  var qs = new URLSearchParams(location.search);
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function safeUrl(u) { return /^https?:\/\//i.test(String(u || "")) ? esc(u) : "#"; }
+  function theme() {
+    var t = qs.get("theme") || "light";
+    if (t === "auto") t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  }
+  theme();
+  var main = document.getElementById("main");
+
+  function chip(c) {
+    return '<span class="pill" style="gap:8px;height:34px;padding:0 13px 0 8px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:13.5px;color:var(--ink);box-shadow:0 1px 1px oklch(0.2 0.02 260 / 0.03)">' +
+      '<span class="ch" style="background:' + c.bg + ';color:' + c.fg + '">' + esc(c.g) + '</span>' + esc(c.name) +
+      '<span class="mono" style="font-size:12.5px;color:var(--ink-3)">' + c.count + '</span></span>';
+  }
+  function badge(intent) {
+    if (intent === "high") return '<span class="pill" style="gap:7px;height:24px;padding:0 9px;border-radius:7px;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:600"><span class="bars"><span style="height:4px"></span><span style="height:7px"></span><span style="height:10px"></span></span>High intent</span>';
+    if (intent === "medium") return '<span class="pill" style="gap:7px;height:24px;padding:0 9px;border-radius:7px;border:1px solid var(--accent);color:var(--accent-text);font-size:12.5px;font-weight:600"><span class="bars"><span style="height:4px"></span><span style="height:7px"></span><span style="height:10px;opacity:0.25"></span></span>Medium intent</span>';
+    return '<span class="pill" style="gap:7px;height:24px;padding:0 9px;border-radius:7px;border:1px dashed var(--line-strong);color:var(--ink-2);font-size:12.5px;font-weight:600"><span class="bars"><span style="height:4px"></span><span style="height:7px;opacity:0.25"></span><span style="height:10px;opacity:0.25"></span></span>Signal only</span>';
+  }
+  function card(l, rank) {
+    var ch = CH[l.channel] || CH.news;
+    var initials = String(l.name || "").split(/\s+/).map(function (s) { return s[0] || ""; }).slice(0, 2).join("").toUpperCase();
+    var dot = (l.days == null ? 99 : l.days) <= 3 ? "var(--live)" : "var(--ink-3)";
+    var facts = (l.facts || []).map(function (f) { return '<span style="display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);font-size:12.5px;color:var(--ink-2);white-space:nowrap">' + esc(f) + '</span>'; }).join("");
+    return '<article class="card" style="padding:clamp(18px,3.2vw,26px);display:flex;flex-direction:column;gap:22px;width:100%">' +
+      '<header style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px">' +
+        '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">' +
+          '<span class="mono" style="font-size:12px;color:var(--ink-3);letter-spacing:0.02em">' + String(rank).padStart(2, "0") + '</span>' + badge(l.intent) +
+          '<span class="pill" style="gap:6px;font-size:13px;color:var(--ink-2)"><span style="width:6px;height:6px;border-radius:50%;background:' + dot + '"></span>' + esc(l.age) + '</span>' +
+        '</div>' +
+        '<div style="display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)"><span class="ch" style="background:' + ch.bg + ';color:' + ch.fg + '">' + esc(ch.g) + '</span><span>' + esc(l.source) + '</span></div>' +
+      '</header>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:24px 40px">' +
+        '<div style="flex:1.6 1 360px;min-width:0">' +
+          '<div style="display:flex;gap:14px;align-items:center">' +
+            '<div style="width:40px;height:40px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--ink-2);flex:none">' + esc(initials) + '</div>' +
+            '<div style="min-width:0"><div style="font-size:17px;font-weight:600;letter-spacing:-0.015em;line-height:1.25">' + esc(l.name) + '</div>' +
+            '<div style="font-size:14px;color:var(--ink-2);margin-top:2px;line-height:1.35">' + (l.name === l.company ? esc(l.role) : esc(l.role) + ' at <span style="color:var(--ink);font-weight:500">' + esc(l.company) + '</span>') + '</div></div>' +
+          '</div>' +
+          (facts ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:14px">' + facts + '</div>' : '') +
+          '<figure style="margin:24px 0 0"><figcaption class="label">' + (l.intent === "signal" ? "The trigger" : "In their words") + '</figcaption>' +
+            '<blockquote style="margin:10px 0 0;position:relative;padding-left:22px;font-size:clamp(17px,2.1vw,19px);line-height:1.5;letter-spacing:-0.012em;color:var(--ink);text-wrap:pretty">' +
+            '<span aria-hidden="true" style="position:absolute;left:0;top:-3px;font-size:30px;line-height:1;color:var(--accent);font-weight:500">“</span>' + esc(l.quote) + '”</blockquote></figure>' +
+        '</div>' +
+        '<div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:18px">' +
+          '<div><div class="label">Why it’s a fit</div><p style="margin:8px 0 0;font-size:14.5px;line-height:1.5;color:var(--ink-2);text-wrap:pretty">' + esc(l.fit) + '</p></div>' +
+          '<div style="background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span class="label">Suggested opener</span>' +
+            '<button type="button" class="copy" data-copy="' + esc(l.opener) + '"><span style="position:relative;width:10px;height:11px;display:inline-block"><span style="position:absolute;left:0;top:2px;width:7px;height:9px;border:1.3px solid currentColor;border-radius:2px"></span><span style="position:absolute;left:3px;top:0;width:7px;height:9px;border:1.3px solid currentColor;border-radius:2px;background:var(--surface)"></span></span><span class="cl">Copy</span></button></div>' +
+            '<p style="margin:10px 0 0;font-size:14px;line-height:1.55;color:var(--ink);text-wrap:pretty">' + esc(l.opener) + '</p>' +
+          '</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:auto">' +
+            '<a class="btn btn-p" href="' + safeUrl(l.postUrl) + '" target="_blank" rel="noopener">' + (l.channel === "jobs" ? "Open the job post" : l.channel === "news" ? "Open the article" : "Open the post") + ' <span aria-hidden="true">↗</span></a>' +
+            (l.profileUrl && l.profileUrl !== l.postUrl ? '<a class="btn btn-s" href="' + safeUrl(l.profileUrl) + '" target="_blank" rel="noopener">Open profile <span aria-hidden="true">↗</span></a>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div></article>';
+  }
+  function expired(d) {
+    main.innerHTML = '<section style="padding:clamp(44px,8vw,96px) 0 clamp(48px,7vw,72px)"><div style="border:1px dashed var(--line-strong);border-radius:16px;background:var(--surface);padding:clamp(40px,8vw,88px) clamp(20px,4vw,40px);display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px">' +
+      '<span class="label" style="display:inline-flex;align-items:center;gap:8px;font-size:12px"><span style="width:6px;height:6px;border-radius:50%;background:var(--ink-3)"></span>' + (d && d.dateLabel ? "Refreshed · " + esc(d.dateLabel) : "Lead drop") + '</span>' +
+      '<h1 style="margin:0;max-width:520px;font-size:clamp(24px,3.4vw,32px);line-height:1.15;font-weight:500;letter-spacing:-0.028em;text-wrap:balance">This list was refreshed. New leads are on the way.</h1></div></section>';
+  }
+  function render(d) {
+    var p = d.preparedFor || {}, icp = d.icp || {}, scan = d.scan || {};
+    document.title = "Lead drop · " + (p.company || "");
+    document.getElementById("hdr").innerHTML =
+      '<span>Prepared for <span style="color:var(--ink);font-weight:500">' + esc(p.firstName) + '</span> at <span style="color:var(--ink);font-weight:500">' + esc(p.company) + '</span></span>' +
+      '<span class="mono" style="font-size:12px;color:var(--ink-3)">' + esc(d.dateLabel) + '</span>' +
+      '<span class="pill" style="gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:12px;color:var(--ink-2)"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><rect x="2" y="5.5" width="8" height="5.5" rx="1.3" fill="currentColor"></rect><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.3"></path></svg>Private link</span>';
+    var leads = (d.leads || []).slice().sort(function (a, b) { return (RANK[a.intent] == null ? 3 : RANK[a.intent]) - (RANK[b.intent] == null ? 3 : RANK[b.intent]); });
+    if (qs.get("state") === "expired" || d.status === "expired" || !leads.length) return expired(d);
+    var counts = {}; leads.forEach(function (l) { counts[l.channel] = (counts[l.channel] || 0) + 1; });
+    var chips = Object.keys(CH).filter(function (k) { return counts[k]; }).map(function (k) { return chip(Object.assign({}, CH[k], { count: counts[k] })); }).join("");
+    var dom = p.domain || p.company;
+    var customers = (icp.customers || []).map(function (n) {
+      var mono = String(n).split(/\s+/).map(function (s) { return s[0] || ""; }).slice(0, 2).join("");
+      return '<span class="pill" style="gap:7px;height:30px;padding:0 11px 0 5px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:500"><span style="flex:none;width:20px;height:20px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--ink-2)">' + esc(mono) + '</span>' + esc(n) + '</span>';
+    }).join("");
+    var facts = (icp.facts || []).filter(function (f) { return f && f.v; }).map(function (f) { return '<div><div class="label">' + esc(f.k) + '</div><div style="margin-top:5px;font-size:14px;line-height:1.4;font-weight:500;text-wrap:pretty">' + esc(f.v) + '</div></div>'; }).join("");
+    var tags = (icp.looksLike || []).map(function (t) { return '<span class="pill" style="height:28px;padding:0 11px;border-radius:999px;background:var(--accent-soft);color:var(--accent-text);font-size:13px;font-weight:500">' + esc(t) + '</span>'; }).join("");
+    main.innerHTML =
+      '<section style="padding:clamp(44px,8vw,96px) 0 clamp(36px,5vw,56px)">' +
+        '<div class="mono" style="font-size:12px;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)">Lead drop · ' + esc(dom) + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 32px;margin-top:22px">' +
+          '<div style="font-size:clamp(104px,17vw,184px);line-height:0.76;font-weight:600;letter-spacing:-0.075em;font-variant-numeric:tabular-nums;margin-left:-0.04em">' + leads.length + '</div>' +
+          '<h1 style="margin:0;flex:1 1 300px;max-width:620px;font-size:clamp(28px,4.2vw,44px);line-height:1.08;font-weight:500;letter-spacing:-0.032em;text-wrap:balance">' + (leads.length === 1 ? "company is" : "companies are") + ' looking for what ' + esc(p.company) + ' sells right now.</h1>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:40px">' + chips + '</div>' +
+        '<div style="display:flex;align-items:center;gap:12px;margin-top:22px;font-size:13px;color:var(--ink-2)">' +
+          '<span style="width:6px;height:6px;border-radius:50%;background:var(--live);box-shadow:0 0 0 3px color-mix(in oklch, var(--live) 22%, transparent);flex:none"></span>' +
+          '<span style="text-wrap:pretty">Searched <span class="mono" style="color:var(--ink)">' + esc(scan.items) + '</span> posts, job ads and pages from the last ' + esc(scan.days) + ' days</span>' +
+          '<span style="flex:1;min-width:24px;height:1px;background:var(--line)"></span>' +
+        '</div>' +
+      '</section>' +
+      '<section style="padding-bottom:clamp(48px,7vw,72px)">' +
+        '<div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;margin-bottom:14px"><h2 style="margin:0;font-size:19px;font-weight:600;letter-spacing:-0.02em">Who buys from you</h2><span class="mono" style="font-size:12px;color:var(--ink-3)">ICP · worked out from ' + esc(dom) + '</span></div>' +
+        '<div class="card" style="display:flex;flex-wrap:wrap;overflow:hidden">' +
+          '<div style="flex:1.35 1 380px;min-width:0;padding:clamp(20px,3.4vw,32px)">' +
+            '<div style="font-size:13.5px;color:var(--ink-2)">We read <span style="color:var(--ink);font-weight:500">' + esc(dom) + '</span> and your customers</div>' +
+            '<p style="margin:12px 0 0;font-size:clamp(17px,2vw,19px);line-height:1.52;letter-spacing:-0.012em;text-wrap:pretty">' + esc(icp.summary) + '</p>' +
+            (facts ? '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:18px 20px;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)">' + facts + '</div>' : '') +
+          '</div>' +
+          '<div style="flex:1 1 300px;min-width:0;padding:clamp(20px,3.4vw,32px);background:var(--surface-2);border-left:1px solid var(--line);display:flex;flex-direction:column;gap:26px">' +
+            (customers ? '<div><div class="label">Your current customers</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">' + customers + '</div><div style="margin-top:10px;font-size:12px;color:var(--ink-3)">' + esc(icp.customersSource) + '</div></div>' : '') +
+            (tags ? '<div><div class="label">Looks like</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">' + tags + '</div></div>' : '') +
+          '</div>' +
+        '</div>' +
+      '</section>' +
+      '<section style="padding-bottom:clamp(48px,7vw,72px)">' +
+        '<div style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:16px">' +
+          '<div style="flex:1 1 320px;min-width:0"><h2 style="margin:0;font-size:19px;font-weight:600;letter-spacing:-0.02em">The leads</h2><div style="margin-top:4px;font-size:14px;color:var(--ink-2)">Highest intent first. Every signal is from the last ' + esc(scan.days) + ' days.</div></div>' +
+          '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:12.5px;color:var(--ink-2)">' +
+            '<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent)"></span>High</span>' +
+            '<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:3px;border:1px solid var(--accent)"></span>Medium</span>' +
+            '<span style="display:inline-flex;align-items:center;gap:7px"><span style="width:10px;height:10px;border-radius:3px;border:1px dashed var(--line-strong)"></span>Signal only</span>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:14px">' + leads.map(function (l, i) { return card(l, i + 1); }).join("") + '</div>' +
+      '</section>' +
+      '<section style="padding-bottom:clamp(48px,7vw,80px)"><h2 style="margin:0 0 14px;font-size:19px;font-weight:600;letter-spacing:-0.02em">How we found these</h2>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">' +
+        ["Read your site and customers", "Searched " + esc(scan.channels || 4) + " channels for buying signals", "Kept only companies with a clear need in the last " + esc(scan.days) + " days"].map(function (t, i) {
+          return '<div style="padding:18px 20px;border:1px solid var(--line);border-radius:12px;background:var(--surface);display:flex;gap:12px;align-items:baseline"><span class="mono" style="font-size:13px;color:var(--accent-text)">' + (i + 1) + '.</span><span style="font-size:14.5px;line-height:1.45;font-weight:500;text-wrap:pretty">' + t + '</span></div>';
+        }).join("") + '</div></section>';
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-copy]"); if (!b) return;
+    var text = b.getAttribute("data-copy") || "", label = b.querySelector(".cl");
+    function done() { label.textContent = "Copied"; clearTimeout(b._t); b._t = setTimeout(function () { label.textContent = "Copy"; }, 1600); }
+    function fallback() { var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (x) {} ta.remove(); done(); }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  });
+  var k = qs.get("k");
+  var src = qs.get("src");   // local testing only: a JSON file next to the page
+  if (!k && !src) return expired(null);
+  fetch(src && /^[\w.-]+\.json$/.test(src) ? src : API + "?k=" + encodeURIComponent(k) + (qs.get("preview") === "1" ? "&preview=1" : ""))
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(render)
+    .catch(function () { expired(null); });
+})();
+</script>
+</body>
+</html>
