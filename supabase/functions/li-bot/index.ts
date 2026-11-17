@@ -172,12 +172,15 @@ async function dropFor(p: { lead_id?: string | null; handle?: string | null; nam
   return error ? null : { ...row, n_leads: null, top_line: null, created_at: now(), sent_li_at: null, sent_x_at: null } as Drop;
 }
 const dropOfLead = (l: Lead, priority = 1) => dropFor({ lead_id: l.id, handle: l.x_handle, name: l.name, role: l.role ?? "", company: l.company, hint: l.fields?.li_icp?.one_liner ?? "", priority });
-function dropState(d: Drop | null): "ready" | "wait" | "old" {
+function dropState(d: Drop | null, waitUntil?: number): "ready" | "wait" | "old" {
   if (!d) return "old";
-  if (d.status === "ready" && (d.n_leads ?? 0) >= 3 && d.top_line) return "ready";
-  if (["queued", "searched", "judged"].includes(d.status) && Date.now() - Date.parse(d.created_at) < DROP_WAIT_MS) return "wait";
+  if (["ready", "thin"].includes(d.status) && (d.n_leads ?? 0) >= 2 && d.top_line) return "ready";
+  const until = Math.min(Date.parse(d.created_at) + DROP_WAIT_MS, waitUntil ?? Infinity);
+  if (["queued", "searched", "judged"].includes(d.status) && Date.now() < until) return "wait";
   return "old";
 }
+// (18 Nov, Reyansh) someone who accepted shouldn't wait: at most 3 hours from their accept for the page
+const accWait = (li: any) => (Date.parse(li?.acc ?? "") || Date.now()) + 3 * 3600e3;
 function dropFill(text: string, d?: Drop | null): string {
   if (!d) return text;
   return text.replace(/\{link\}/g, DROP_PAGE + d.token).replace(/\{n\}/g, String(d.n_leads ?? "")).replace(/\{top_line\}/g, String(d.top_line ?? ""));
@@ -1164,7 +1167,7 @@ async function xDropUpgrade(t: any, create = true): Promise<string> {
 // Reyansh approves) is what goes out. X: queued first DMs and openers written ahead. LinkedIn: request notes, first DMs after accept.
 async function drops_apply() {
   const set = await settings(); let x = 0, notes = 0, dms = 0;
-  const { data: rd } = await db.from("crm_lead_drops").select("token,status,n_leads,top_line,created_at,sent_li_at,sent_x_at,company,lead_id,handle").eq("status", "ready").gte("created_at", new Date(Date.now() - 21 * 864e5).toISOString()).limit(1000);
+  const { data: rd } = await db.from("crm_lead_drops").select("token,status,n_leads,top_line,created_at,sent_li_at,sent_x_at,company,lead_id,handle").in("status", ["ready", "thin"]).gte("created_at", new Date(Date.now() - 21 * 864e5).toISOString()).limit(1000);
   const ready = (rd ?? []).filter((d: any) => dropState(d) === "ready");
   if (!ready.length) return { x, notes, dms };
   const handles = new Set(ready.map((d: any) => String(d.handle ?? "").toLowerCase()).filter(Boolean)), cos = new Set(ready.map((d: any) => coKeyD(d.company)));
@@ -1623,8 +1626,8 @@ async function plan(_b: any) {
         if (t?.status === "skipped") { await saveLi(l, { ...li, stop: "skipped" }); continue; }
         if (t && t.status !== "failed") continue;
         // (18 Nov) Lead drop first: their page of buyers + one question; the 2 ideas follow on day 5.
-        const dr = await dropOfLead(l, 0), ds = dropState(dr);
-        if (ds === "wait") continue;                                                   // still being researched (at most 24 hours)
+        const dr = await dropOfLead(l, 0), ds = dropState(dr, accWait(li));
+        if (ds === "wait") continue;                                                   // still being researched (at most 3 hours after the accept)
         if (ds === "ready") {
           if (ideasOf(l).length < 2) { tipsWanted.push(l.id); continue; }            // the 2 ideas for day 5, written ahead
           await saveLi(l, { ...li, seq: 2, drop: dr!.token });
@@ -1747,7 +1750,9 @@ async function plan(_b: any) {
   // Hand out what's approved, at a human pace: a few per run, and never past LinkedIn's weekly request ceiling.
   await db.from("crm_li_tasks").update({ status: "ready" }).eq("status", "sending").lt("created_at", new Date(Date.now() - 3600e3).toISOString());
   let tasks: any[] = [];
-  if (!set.paused && inHours(set.hours)) {
+  // (18 Nov, Reyansh) Whoever accepts hears from us within ~7 hours: messages go out 6:00-23:00 PT, requests keep set.hours.
+  const reqHours = inHours(set.hours), msgHours = inHoursPT(6, 23);
+  if (!set.paused && (reqHours || msgHours)) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
     // (17 Nov) Human pace: at most 2 requests and 2 messages handed out per 20-minute check, and daily caps (60% on weekends).
@@ -1756,11 +1761,15 @@ async function plan(_b: any) {
     const { count: msgToday } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).neq("kind", "invite").eq("status", "sent").gte("sent_at", dayStartLi);
     const lb: any = (await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle()).data?.value ?? {};
     const dayInv = Math.floor((+lb.day_invites || 20) * weekendFactor()), dayMsg = Math.floor((+lb.day_msgs || 30) * weekendFactor());
-    const invitesLeft = Math.max(0, Math.min(2, set.week_cap - (weekSent ?? 0), dayInv - (invToday ?? 0)));
-    const msgsLeft = Math.max(0, Math.min(2, dayMsg - (msgToday ?? 0)));
+    const invitesLeft = reqHours ? Math.max(0, Math.min(2, set.week_cap - (weekSent ?? 0), dayInv - (invToday ?? 0))) : 0;
+    const msgsLeft = msgHours ? Math.max(0, Math.min(3, dayMsg - (msgToday ?? 0))) : 0;
     // (16 Nov) A request that failed on the warm touch (LinkedIn's tab too slow to like their post) goes again without it.
     await db.from("crm_li_tasks").update({ status: "ready", error: "no warm touch (it timed out)" }).eq("kind", "invite").eq("status", "failed").ilike("error", "%likeLatest%");
-    const { data: ready } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").order("created_at").limit(40);
+    // (18 Nov) Messages and requests read separately: 170+ queued requests (blocked by the weekly cap) once hid every message.
+    const { data: readyInv } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").eq("kind", "invite").order("created_at").limit(40);
+    const { data: readyMsg } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").neq("kind", "invite").order("created_at").limit(60);
+    // first DMs to people who just accepted go before follow-ups
+    const ready = [...(readyMsg ?? []).sort((a: any, b: any) => (a.kind === "dm" && a.step === 0 ? 0 : 1) - (b.kind === "dm" && b.step === 0 ? 0 : 1)), ...(readyInv ?? [])];
     const { data: ls } = (ready ?? []).length ? await db.from("crm_leads").select("id,name,linkedin,fields,stage,archived").in("id", (ready ?? []).map((t) => t.lead_id)) : { data: [] };
     const L = new Map((ls ?? []).map((l: any) => [l.id, l]));
     const ok = (t: any) => { const l: any = L.get(t.lead_id); return l && !l.archived && l.fields?.li?.stop !== "by hand" && (t.kind === "magnet" || t.kind === "reply" || t.kind === "close" || (!l.fields?.li?.replied && (set.rush || !set.localTime || goodTime(l, t.kind)))); };
@@ -1812,7 +1821,7 @@ async function claim(b: any) {
     const li0 = (lf as any)?.fields?.li ?? {};
     if (lf && !li0.dm) {
       const dr = await dropFor({ lead_id: q.lead_id, handle: (lf as any).x_handle, company: (lf as any).company, create: false });
-      const ds = dropState(dr);
+      const ds = dropState(dr, accWait(li0));
       if (ds === "wait") { await db.from("crm_li_tasks").update({ status: "ready" }).eq("id", q.id); return { ok: false, wait: "lead page" }; }
       if (ds === "ready" && ideasOf(lf as Lead).length >= 2) {
         const set = await settings();

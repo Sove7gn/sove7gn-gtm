@@ -136,7 +136,7 @@ Rules:
 - high = the author's company has this exact problem now and is asking for, evaluating, or complaining about a solution, in this item.
 - medium = the company clearly has the problem now (a job post for the exact work the product does at a company that fits the profile, or a post describing the pain) but isn't shopping yet.
 - signal = only a trigger (they just raised money, launched, expanded) and they fit the buyer profile closely.
-- Drop companies over ~2000 employees unless they explicitly ask for a solution.
+- Drop companies over ~2000 employees unless they explicitly ask for a solution, or the buyer profile itself is large enterprises.
 - quote: ONE sentence copied word for word from TEXT that shows the need: the work they're hiring for, the problem, or the trigger. Never company boilerplate ("we are a leading...", "we provide...", benefits, EEO text). Never rewrite it.
 - person: the author's full name if TEXT or TITLE names them, else "".
 Return ONLY JSON: {"keep":true|false,"intent":"high|medium|signal","person":"","role":"","company":"","company_what":"what the buyer company does, 3-6 words, from TEXT","quote":"","why":"","reason":"10 words"}`;
@@ -175,7 +175,7 @@ async function stageJudge(d: any) {
     const more = await widerSearch(d, icp, new Set([...raw.map((x: any) => x.url)]));
     if (more.raw.length) return { status: "searched", stage: { icp, raw: more.raw, prev: leads, topped: true, dropped }, cost: more.cost, searched: more.searched };
   }
-  return { status: "judged", stage: { icp, leads, dropped: dropped.slice(0, 60), judged: raw.length + Number(d.stage.judged0 ?? 0), kept: byCo.size, topped: !!d.stage.topped } };
+  return { status: "judged", stage: { icp, leads, dropped: dropped.slice(0, 60), judged: raw.length + Number(d.stage.judged0 ?? 0), kept: byCo.size, topped: !!d.stage.topped, why: raw.slice(0, 12).map((x: any, i: number) => { const j = parse(ans[String(i)]); return (j ? (j.keep ? "KEEP " : "no ") + (j.company ?? "") + ": " + (j.reason ?? "") : "(no answer) " + String(ans[String(i)] ?? "").slice(0, 60)); }) } };
 }
 // The second round, only for thin drops: buyers' own words about the trigger, their roles posting about the work, 60 days back.
 async function widerSearch(d: any, icp: any, seen: Set<string>) {
