@@ -1802,8 +1802,26 @@ async function plan(_b: any) {
 
 // claim: right before sending, make sure it's still approved (not skipped, not already sent, they haven't replied).
 async function claim(b: any) {
-  const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id,kind");
+  const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id,kind,step,subject,text");
   if (!data?.length) return { ok: false };
+  // (18 Nov) A first DM queued with the old idea text while their lead page is being built: back in the queue until it's done
+  // (max 24 hours); if the page just finished, swap the text now and send it on the next round.
+  const q = data[0] as any;
+  if (q.kind === "dm" && q.step === 0 && !/leads\/\?k=/.test(String(q.text ?? ""))) {
+    const { data: lf } = await db.from("crm_leads").select("*").eq("id", q.lead_id).maybeSingle();
+    const li0 = (lf as any)?.fields?.li ?? {};
+    if (lf && !li0.dm) {
+      const dr = await dropFor({ lead_id: q.lead_id, handle: (lf as any).x_handle, company: (lf as any).company, create: false });
+      const ds = dropState(dr);
+      if (ds === "wait") { await db.from("crm_li_tasks").update({ status: "ready" }).eq("id", q.id); return { ok: false, wait: "lead page" }; }
+      if (ds === "ready" && ideasOf(lf as Lead).length >= 2) {
+        const set = await settings();
+        await db.from("crm_li_tasks").update({ status: "ready", subject: "v2d", text: v2Fill(dropFirst(set, lf as Lead, li0, dr!), lf as Lead, dr) }).eq("id", q.id);
+        await saveLi(lf as Lead, { ...li0, seq: 2, drop: dr!.token });
+        return { ok: false, wait: "text updated" };
+      }
+    }
+  }
   const { data: l } = await db.from("crm_leads").select("fields,archived").eq("id", data[0].lead_id).maybeSingle();
   if (!l || l.archived || l.fields?.li?.stop === "by hand" || (!["magnet", "reply", "close"].includes(data[0].kind) && (l.fields?.li?.replied || l.fields?.li?.stop))) {
     await db.from("crm_li_tasks").update({ status: "skipped", error: "Stopped before sending" }).eq("id", b.id);
