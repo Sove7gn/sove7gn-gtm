@@ -154,7 +154,7 @@ type Drop = { token: string; status: string; n_leads: number | null; top_line: s
 const DROP_PAGE = "https://sove7gn.github.io/sove7gn-gtm/leads/?k=";
 const DROP_WAIT_MS = 24 * 3600e3;
 const coKeyD = (s: unknown) => String(s ?? "").toLowerCase().replace(/\b(inc|llc|ltd|labs?|ai|hq|co|corp|technologies|the)\b/g, "").replace(/[^a-z0-9]/g, "");
-async function dropFor(p: { lead_id?: string | null; handle?: string | null; name?: string; role?: string; company?: string; hint?: string; priority?: number }): Promise<Drop | null> {
+async function dropFor(p: { lead_id?: string | null; handle?: string | null; name?: string; role?: string; company?: string; hint?: string; priority?: number; create?: boolean }): Promise<Drop | null> {
   const since = new Date(Date.now() - 21 * 864e5).toISOString(), cols = "token,status,n_leads,top_line,created_at,sent_li_at,sent_x_at,company";
   const h = String(p.handle ?? "").replace(/^@/, "").toLowerCase();
   let d: any = null;
@@ -163,7 +163,7 @@ async function dropFor(p: { lead_id?: string | null; handle?: string | null; nam
   const co = String(p.company ?? "").trim();
   if (!d && co && !/^unknown$/i.test(co)) d = ((await db.from("crm_lead_drops").select(cols).ilike("company", co).gte("created_at", since).order("created_at", { ascending: false }).limit(5)).data ?? []).find((x: any) => coKeyD(x.company) === coKeyD(co));
   if (d) return d as Drop;
-  if (!co || /^unknown$/i.test(co)) return null;
+  if (p.create === false || !co || /^unknown$/i.test(co)) return null;
   const tk = Array.from(crypto.getRandomValues(new Uint8Array(10)), (x) => "abcdefghijkmnpqrstuvwxyz23456789"[x % 32]).join("");
   const row = { token: tk, status: "queued", priority: p.priority ?? 1, lead_id: p.lead_id ?? null, handle: h || null, name: p.name ?? "", role: p.role ?? "", company: co, hint: p.hint ?? "" };
   const { error } = await db.from("crm_lead_drops").insert(row);
@@ -592,7 +592,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, comp_daily, comp_send, comp_analyze } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1123,10 +1123,10 @@ async function xv2_prepare(b: any) {
 }
 // (18 Nov) A queued X first DM and its lead page: "wait" (still researched), "old" (no page: send as written), or the new text
 // (saved to the task and the DM Pipeline row, Template X2D).
-async function xDropUpgrade(t: any): Promise<string> {
+async function xDropUpgrade(t: any, create = true): Promise<string> {
   const c = await pipeRow(t.row); if (!c) return "old";
   const ld = await leadByHandle(t.handle);
-  const dr = await dropFor({ lead_id: ld?.id ?? null, handle: t.handle, name: c["Name"], role: c["Role"] ?? "", company: ld?.company || c["Company"] || t.company, hint: ld?.fields?.li_icp?.one_liner ?? "", priority: 1 });
+  const dr = await dropFor({ lead_id: ld?.id ?? null, handle: t.handle, name: c["Name"], role: c["Role"] ?? "", company: ld?.company || c["Company"] || t.company, hint: ld?.fields?.li_icp?.one_liner ?? "", priority: 1, create });
   const ds = dropState(dr); if (ds !== "ready") return ds;
   const T2 = await xv2Texts(); const ideas = await xIdeasFor(t.handle, c).catch(() => []);
   const text = xv2Fill(dr!.sent_li_at ? T2.first_li_drop : T2.first_drop, c, ideas, dr);
@@ -1138,22 +1138,32 @@ async function xDropUpgrade(t: any): Promise<string> {
 // Reyansh approves) is what goes out. X: queued first DMs and openers written ahead. LinkedIn: request notes, first DMs after accept.
 async function drops_apply() {
   const set = await settings(); let x = 0, notes = 0, dms = 0;
-  const { data: xs } = await db.from("crm_x_tasks").select("*").eq("kind", "dm").in("status", ["ready", "review"]).order("created_at").limit(40);
-  for (const t of xs ?? []) { if (/leads\/\?k=/.test(String(t.text ?? ""))) continue; const r = await xDropUpgrade(t).catch(() => "old"); if (r !== "old" && r !== "wait") x++; if (x >= 15) break; }
-  const { data: lt } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,status").in("kind", ["invite", "dm"]).eq("step", 0).in("status", ["ready", "review"]).limit(400);
-  const ids = [...new Set((lt ?? []).map((t: any) => t.lead_id))];
-  const leads = ids.length ? ((await db.from("crm_leads").select("*").in("id", ids)).data ?? []) as Lead[] : [];
-  for (const t of lt ?? []) {
-    const l = leads.find((y) => y.id === t.lead_id); if (!l) continue;
-    if (t.kind === "invite" && /Had a look at your .*(ideas|inbound).*$/s.test(String(t.text ?? "")) && notes < 30) {
-      const dr = await dropOfLead(l, 2); if (dropState(dr) !== "ready") continue;
-      const text = String(t.text).replace(/Had a look at your [\s\S]*$/, fill(set.v2.note_drop, l)).slice(0, 300);
-      await db.from("crm_li_tasks").update({ text }).eq("id", t.id); notes++;
-    } else if (t.kind === "dm" && t.subject === "v2" && dms < 20) {
-      const li = l.fields?.li ?? {}; if (li.dm || !li.acc || ideasOf(l).length < 2) continue;
-      const dr = await dropOfLead(l, 0); if (dropState(dr) !== "ready") continue;
-      await db.from("crm_li_tasks").update({ subject: "v2d", text: v2Fill(dr!.sent_x_at ? set.v2.first_x_drop : set.v2.first_drop, l, dr) }).eq("id", t.id);
-      await saveLi(l, { ...li, seq: 2, drop: dr!.token }); dms++;
+  const { data: rd } = await db.from("crm_lead_drops").select("token,status,n_leads,top_line,created_at,sent_li_at,sent_x_at,company,lead_id,handle").eq("status", "ready").gte("created_at", new Date(Date.now() - 21 * 864e5).toISOString()).limit(1000);
+  const ready = (rd ?? []).filter((d: any) => dropState(d) === "ready");
+  if (!ready.length) return { x, notes, dms };
+  const handles = new Set(ready.map((d: any) => String(d.handle ?? "").toLowerCase()).filter(Boolean)), cos = new Set(ready.map((d: any) => coKeyD(d.company)));
+  // X: queued first DMs of people whose page is ready (by handle or company)
+  const { data: xs } = await db.from("crm_x_tasks").select("*").eq("kind", "dm").in("status", ["ready", "review"]).order("created_at").limit(400);
+  for (const t of xs ?? []) {
+    if (x >= 10 || /leads\/\?k=/.test(String(t.text ?? ""))) continue;
+    if (!handles.has(String(t.handle ?? "").replace(/^@/, "").toLowerCase()) && !cos.has(coKeyD(t.company))) continue;
+    const r = await xDropUpgrade(t, false).catch(() => "old"); if (r !== "old" && r !== "wait") x++;
+  }
+  // LinkedIn: queued request notes and first DMs of leads whose page is ready
+  const leadIds = ready.map((d: any) => d.lead_id).filter(Boolean);
+  if (leadIds.length) {
+    const { data: lt } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,status").in("kind", ["invite", "dm"]).eq("step", 0).in("status", ["ready", "review"]).in("lead_id", leadIds);
+    const ids = [...new Set((lt ?? []).map((t: any) => t.lead_id))];
+    const leads = ids.length ? ((await db.from("crm_leads").select("*").in("id", ids)).data ?? []) as Lead[] : [];
+    for (const t of lt ?? []) {
+      const l = leads.find((y) => y.id === t.lead_id); const dr = ready.find((d: any) => d.lead_id === t.lead_id) as Drop | undefined; if (!l || !dr) continue;
+      if (t.kind === "invite" && /Had a look at your [\s\S]*$/.test(String(t.text ?? ""))) {
+        await db.from("crm_li_tasks").update({ text: String(t.text).replace(/Had a look at your [\s\S]*$/, fill(set.v2.note_drop, l)).slice(0, 300) }).eq("id", t.id); notes++;
+      } else if (t.kind === "dm" && t.subject === "v2") {
+        const li = l.fields?.li ?? {}; if (li.dm || !li.acc || ideasOf(l).length < 2) continue;
+        await db.from("crm_li_tasks").update({ subject: "v2d", text: v2Fill(dr.sent_x_at ? set.v2.first_x_drop : set.v2.first_drop, l, dr) }).eq("id", t.id);
+        await saveLi(l, { ...li, seq: 2, drop: dr.token }); dms++;
+      }
     }
   }
   return { x, notes, dms };

@@ -275,12 +275,15 @@ Return ONLY JSON: {"summary":"2-3 short sentences (max 60 words) to them in seco
   const data = { preparedFor: { firstName: String(d.name ?? "").split(/\s+/)[0] || "you", name: d.name ?? "", role: d.role ?? "", company: d.company, domain },
     dateLabel: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }), status: "live",
     scan: { items: (Number(d.searched ?? 0) + sp.searched).toLocaleString("en-US"), days: d.stage.topped ? 60 : DAYS, channels: 4 },
-    icp: { summary: out.icp.summary, facts: out.icp.facts ?? [], customers: (icp.customers ?? []).slice(0, 8), customersSource: "From " + (domain || "your site") + " and press about " + d.company, looksLike: out.icp.looksLike ?? [] },
+    icp: { summary: out.icp.summary, facts: out.icp.facts ?? [], customers: realNames(icp.customers).slice(0, 8), customersSource: "From " + (domain || "your site") + " and press about " + d.company, looksLike: out.icp.looksLike ?? [] },
     leads: pageLeads };
   const best = (out.leads as any[]).find((w) => w.opener && w.fit && w.dm_line);
   return { status: pageLeads.length >= MIN_LEADS ? "ready" : "thin", data, n_leads: pageLeads.length, top_line: String(best?.dm_line ?? "").replace(/\.$/, ""), cost: sp.cost, searched: sp.searched };
 }
 
+// Only real customer names ("Frontier model labs" or "Leading banks" are descriptions, not customers).
+const realNames = (xs: unknown) => (Array.isArray(xs) ? xs : []).map((x) => String(x ?? "").trim()).filter((n) => n && n.length <= 40 && /[A-Z0-9]/.test(n[0]) &&
+  !/(various|leading|several|many|multiple|frontier|enterprises?|companies|customers|clients|startups|teams|organi[sz]ations|institutions|banks|lenders|labs|firms|not (specifically )?named|undisclosed|unnamed)/i.test(n));
 // ───────── moving drops along ─────────
 async function step(row: any) {
   const d = { ...row, stage: row.stage ?? {} };
