@@ -103,7 +103,7 @@ const CAL = "https://cal.com/sove7gn-gtm/30min";
 // ask. Day 8 a client story. Day 12 a clean close, then stop (Cold lead). A reply stops it at once. Everyone who hadn't had a
 // message after accepting on 16 Nov goes on v2 (li.seq = 2); people already in the old sequence finish it.
 // Texts are edited on the CRM's Bots page (li_bot.v2). {idea1} {idea2} {idea3} {company} {first} fill in.
-type V2Texts = { first: string; first_np: string; first_x: string; fu: string[]; note_drop: string; first_drop: string; first_x_drop: string; fu2_drop: string };
+type V2Texts = { first: string; first_np: string; first_x: string; fu: string[]; note_drop: string; first_drop: string; first_drop_promised: string; first_x_drop: string; fu2_drop: string };
 const V2_DAYS = [3, 5, 8, 12];
 const V2_DEFAULT: V2Texts = {
   first: "Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: {is_company} getting customers mostly from referrals right now, or outbound too?",
@@ -112,6 +112,8 @@ const V2_DEFAULT: V2Texts = {
   // (18 Nov) Lead drop: the first message hands them their page of buyers ({link}); the 2 ideas come on day 5.
   note_drop: "Was researching {company} and found a few companies looking for what you sell right now. Put them on one page for you, happy to send it over :)",
   first_drop: "Here's the list: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each one has what they posted, who to talk to and a line you could send.\n\nAlso have 2 inbound ideas for you. Quick q so they actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  // (18 Nov, Reyansh) Their request note promised 3 ideas: the lead page is idea 1, ideas 2 and 3 hang on the question (sent day 5).
+  first_drop_promised: "As promised, here's the first one, and instead of an idea I just did it for you: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each has what they posted, who to talk to and a line you could send.\n\nThe other 2 depend on one thing: {is_company} getting customers mostly from referrals right now, or outbound too?",
   first_x_drop: "Sent you a list of {n} companies looking for what {company} sells over on X, here it is again: {link}\n\nQuick q so the 2 ideas I have for you actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
   fu2_drop: "Said I'd send the 2 ideas, so here they are regardless.\n\n{idea1}\n\n{idea2}\n\nNo ask, just thought they'd be useful for {company}.",
   fu: [
@@ -179,6 +181,12 @@ function dropState(d: Drop | null): "ready" | "wait" | "old" {
 function dropFill(text: string, d?: Drop | null): string {
   if (!d) return text;
   return text.replace(/\{link\}/g, DROP_PAGE + d.token).replace(/\{n\}/g, String(d.n_leads ?? "")).replace(/\{top_line\}/g, String(d.top_line ?? ""));
+}
+// The first LinkedIn message with their page: the X version if the link already went there, "idea 1 of 3" when their request
+// note promised 3 ideas, else the plain one.
+function dropFirst(set: { v2: V2Texts }, l: Lead, li: any, d: Drop): string {
+  if (d.sent_x_at) return set.v2.first_x_drop;
+  return (li?.promised || PROMISE_RE.test(String(li?.note_text ?? ""))) && !li?.drop_note ? set.v2.first_drop_promised : set.v2.first_drop;
 }
 // A message with a page link went out: remember where.
 async function dropSent(text: string, on: "li" | "x") {
@@ -1161,7 +1169,7 @@ async function drops_apply() {
         await db.from("crm_li_tasks").update({ text: String(t.text).replace(/Had a look at your [\s\S]*$/, fill(set.v2.note_drop, l)).slice(0, 300) }).eq("id", t.id); notes++;
       } else if (t.kind === "dm" && t.subject === "v2") {
         const li = l.fields?.li ?? {}; if (li.dm || !li.acc || ideasOf(l).length < 2) continue;
-        await db.from("crm_li_tasks").update({ subject: "v2d", text: v2Fill(dr.sent_x_at ? set.v2.first_x_drop : set.v2.first_drop, l, dr) }).eq("id", t.id);
+        await db.from("crm_li_tasks").update({ subject: "v2d", text: v2Fill(dropFirst(set, l, li, dr), l, dr) }).eq("id", t.id);
         await saveLi(l, { ...li, seq: 2, drop: dr.token }); dms++;
       }
     }
@@ -1602,7 +1610,7 @@ async function plan(_b: any) {
         if (ds === "ready") {
           if (ideasOf(l).length < 2) { tipsWanted.push(l.id); continue; }            // the 2 ideas for day 5, written ahead
           await saveLi(l, { ...li, seq: 2, drop: dr!.token });
-          newRows.push({ lead_id: l.id, kind: "dm", step: 0, subject: "v2d", text: v2Fill(dr!.sent_x_at ? set.v2.first_x_drop : set.v2.first_drop, l, dr), status: "ready" });
+          newRows.push({ lead_id: l.id, kind: "dm", step: 0, subject: "v2d", text: v2Fill(dropFirst(set, l, li, dr!), l, dr), status: "ready" });
           continue;
         }
         const viaX = tipsGot(l) && l.fields?.tips?.on === "X";

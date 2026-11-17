@@ -306,7 +306,8 @@ async function step(row: any) {
 }
 const token = () => { const a = "abcdefghijkmnpqrstuvwxyz23456789"; const b = crypto.getRandomValues(new Uint8Array(10)); return Array.from(b, (x) => a[x % a.length]).join(""); };
 
-// Who needs a drop: accepted on LinkedIn and waiting for DM 1 (priority 1), X first DMs in the queue (2), LinkedIn requests out (3).
+// Who needs a drop, soonest message first: accepted on LinkedIn and waiting for DM 1 (1), requests already sent, who can accept
+// any minute (1), X first DMs in the queue (2), LinkedIn requests not sent yet (2; the request itself waits for the page).
 // One drop per company: a second person at the same company gets the same page.
 async function enqueue(limit: number) {
   const { data: cfg } = await db.from("crm_lead_settings").select("value").eq("key", "lead_drop").maybeSingle();
@@ -325,6 +326,9 @@ async function enqueue(limit: number) {
   const fromLead = (l: any, p: number) => ({ lead_id: l.id, handle: l.x_handle ?? null, name: l.name, role: l.role, company: l.company, hint: l.fields?.li_icp?.one_liner ?? "", priority: p });
   const { data: t1 } = await db.from("crm_li_tasks").select("lead_id").eq("kind", "dm").in("status", ["ready", "review"]).limit(200);
   for (const l of await leadInfo([...new Set((t1 ?? []).map((t) => t.lead_id).filter((x) => x && !hasLead.has(x)))]) as any[]) if (!l.archived) add(fromLead(l, 1));
+  const live = (l: any) => !l.archived && !/won|lost|cold/i.test(l.stage ?? "");
+  const { data: t3 } = await db.from("crm_li_tasks").select("lead_id").eq("kind", "invite").eq("status", "sent").order("sent_at", { ascending: false }).limit(400);
+  for (const l of await leadInfo([...new Set((t3 ?? []).map((t) => t.lead_id).filter((x) => x && !hasLead.has(x)))]) as any[]) if (live(l) && !l.fields?.li?.dm) add(fromLead(l, 1));
   const { data: t2 } = await db.from("crm_x_tasks").select("handle,name,company").eq("kind", "dm").in("status", ["ready", "review"]).order("created_at").limit(300);
   for (const t of t2 ?? []) {
     const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase(); if (!h || hasHandle.has(h)) continue;
@@ -332,18 +336,20 @@ async function enqueue(limit: number) {
     add(l ? { ...fromLead(l, 2), handle: h } : { handle: h, name: t.name, role: "", company: t.company, hint: "", priority: 2 });
     if (want.length >= room * 3) break;
   }
-  const { data: t3 } = await db.from("crm_li_tasks").select("lead_id").eq("kind", "invite").in("status", ["sent", "ready", "review"]).order("created_at", { ascending: false }).limit(300);
-  for (const l of await leadInfo([...new Set((t3 ?? []).map((t) => t.lead_id).filter((x) => x && !hasLead.has(x)))]) as any[]) if (!l.archived && !/won|lost|cold/i.test(l.stage ?? "")) add(fromLead(l, 3));
+  const { data: t4 } = await db.from("crm_li_tasks").select("lead_id").eq("kind", "invite").in("status", ["ready", "review"]).order("created_at").limit(300);
+  for (const l of await leadInfo([...new Set((t4 ?? []).map((t) => t.lead_id).filter((x) => x && !hasLead.has(x)))]) as any[]) if (live(l)) add(fromLead(l, 2));
   const rows = want.filter((w) => w.company && !/^unknown$/i.test(w.company)).sort((a, b) => a.priority - b.priority).slice(0, room).map((w) => ({ token: token(), status: "queued", ...w }));
   if (rows.length) await db.from("crm_lead_drops").insert(rows);
   return rows.length;
 }
 async function tick() {
-  const queued = await enqueue(4);
+  const queued = await enqueue(8);
   // finish what's started before starting new ones
   const { data } = await db.from("crm_lead_drops").select("*").in("status", ["judged", "searched", "queued"]).lt("tries", 3)
-    .order("priority").order("created_at").limit(1);   // oldest first, so started drops finish before new ones start
-  const done = data?.[0] ? await step(data[0]) : null;
+    .order("priority").order("created_at").limit(2);   // oldest first, so started drops finish before new ones start
+  // two pages side by side (one judge stage at a time, so the workbench isn't overloaded)
+  const rows = (data ?? []).filter((r: any, i: number, a: any[]) => i === 0 || !(r.status === "searched" && a[0].status === "searched"));
+  const done = await Promise.all(rows.map((r: any) => step(r)));
   return { queued, done };
 }
 
