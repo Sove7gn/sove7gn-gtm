@@ -192,6 +192,24 @@ function dropFirst(set: { v2: V2Texts }, l: Lead, li: any, d: Drop): string {
 async function dropSent(text: string, on: "li" | "x") {
   const m = String(text ?? "").match(/leads\/\?k=([a-z0-9]{6,20})/); if (!m) return;
   await db.from("crm_lead_drops").update(on === "li" ? { sent_li_at: now() } : { sent_x_at: now() }).eq("token", m[1]).then(() => {}, () => {});
+  // The same page queued on the other channel: switch it to the short "sent you the list over on ..." version.
+  try {
+    const { data: d } = await db.from("crm_lead_drops").select("token,status,n_leads,top_line,created_at,sent_li_at,sent_x_at").eq("token", m[1]).maybeSingle();
+    if (!d) return;
+    if (on === "li") {
+      const { data: xs } = await db.from("crm_x_tasks").select("*").eq("kind", "dm").in("status", ["ready", "review"]).like("text", "%k=" + m[1] + "%");
+      const T2 = await xv2Texts();
+      for (const t of xs ?? []) { const c = await pipeRow(t.row); if (!c) continue;
+        const nt = xv2Fill(T2.first_li_drop, c, [], d as Drop);
+        await db.from("crm_x_tasks").update({ text: nt }).eq("id", t.id);
+        await db.rpc("crm_call", { body: { action: "pipeline", row: t.row, name: c["Name"], company: c["Company"], cells: { "Opener (30-40 words)": nt } } }); }
+    } else {
+      const { data: lt } = await db.from("crm_li_tasks").select("id,lead_id").eq("kind", "dm").eq("step", 0).in("status", ["ready", "review"]).like("text", "%k=" + m[1] + "%");
+      const set = await settings();
+      for (const t of lt ?? []) { const { data: l } = await db.from("crm_leads").select("*").eq("id", t.lead_id).maybeSingle(); if (!l) continue;
+        await db.from("crm_li_tasks").update({ text: v2Fill(set.v2.first_x_drop, l as Lead, d as Drop) }).eq("id", t.id); }
+    }
+  } catch (_) { /* the queued one goes as written */ }
 }
 
 // The tips as a LinkedIn message: right after they accept, or (if a pitch went out first by mistake) as the next message.
