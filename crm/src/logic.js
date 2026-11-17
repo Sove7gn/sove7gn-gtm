@@ -219,9 +219,12 @@ const inWindow=(ms,from,to)=>{for(let i=0;i<4;i++){const h=ptInfo(ms).h;if(h>=fr
 const queueEta=(n,every,from,to,left)=>{let t=inWindow(Date.now(),from,to);let k=n;
   if(k>=left){k-=Math.max(0,left);t=inWindow(t+Math.max(1,(to-ptInfo(t).h))*3600e3+60e3,from,to);}
   return inWindow(t+(k+0.5)*every*60e3,from,to);};
-const etaPill=ms=>{if(!ms)return{eta:'',etaTitle:''};const d=ms-Date.now();const lab=d<=5*60e3?'now':d<3600e3?Math.round(d/6e4)+'m':d<48*3600e3?Math.round(d/3600e3)+'h':Math.round(d/864e5)+'d';
+const etaPill=ms=>{if(!ms)return{};const d=ms-Date.now();const lab=d<=5*60e3?'now':d<3600e3?Math.round(d/6e4)+'m':d<48*3600e3?Math.round(d/3600e3)+'h':Math.round(d/864e5)+'d';
   const f=(tz,lbl)=>new Date(ms).toLocaleString('en-US',{timeZone:tz,weekday:'short',hour:'numeric',minute:'2-digit'})+' '+lbl;
-  return{eta:'⏱ '+lab,etaTitle:'Goes out about '+f('America/Los_Angeles','PT')+' · '+f('Asia/Kolkata','IST')};};
+  return{eta:'⏱ '+lab,etaTone:'go',etaTitle:'Goes out about '+f('America/Los_Angeles','PT')+' · '+f('Asia/Kolkata','IST')};};
+const ago=ms=>{const d=Date.now()-ms;return d<3600e3?Math.max(1,Math.round(d/6e4))+'m':d<48*3600e3?Math.round(d/3600e3)+'h':Math.round(d/864e5)+'d';};
+const rel=ms=>{const d=ms-Date.now();return d<=0?'now':d<3600e3?Math.round(d/6e4)+'m':d<48*3600e3?Math.round(d/3600e3)+'h':Math.round(d/864e5)+'d';};
+const pill2=(tone,label,title)=>({eta2:label,etaTone2:tone,etaTitle2:title||''});   // a card's fallback pill, shown when nothing is scheduled
 const SEQ_DAYS=[3,5,8,12],SEQ_STEP=['The question','Ideas 2 and 3','Client story','Clean close'];
 const SEQ_FU=["Curious, is most of {company_s} pipeline coming from referrals right now?",
   "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
@@ -2029,6 +2032,17 @@ class Component extends DCLogic {
           if(col==='req')return{next:t&&/^(ready|sending)$/.test(t.status)&&t.kind==='invite'?'Request queued: goes out at the time on the timer':'Next: when they accept · idea 1 + a question',nextMsg:seqFill(LT.first,l.name,l.company,id),...etaPill(liEta(t))};
           if((col==='dm'||/^fu\d$/.test(col))&&x.dm&&f<4){const due=Date.parse(x.dm)+SEQ_DAYS[f]*864e5;const q=liEta(t);return{next:'Next: day '+SEQ_DAYS[f]+' · '+SEQ_STEP[f]+' · '+dayFmt(due),nextMsg:seqFill(LT.fu[f],l.name,l.company,id),...etaPill(q||inWindow(Math.max(due,Date.now()),LH.from,LH.to))};}
           if(/^fu4$/.test(col))return{next:'That was the last one: Cold lead if no reply',nextMsg:''};return{next:'',nextMsg:'',...etaPill(liEta(t))};})(),
+        ...(()=>{const R=x.replied?Date.parse(x.replied):0,call=((l.fields||{}).call||{}).at;
+          const afterOk=()=>{const k=t&&t.kind==='invite'?'invite':'msg';return queueEta(LQ[k].length,10,LH.from,LH.to,LLeft[k]);};
+          if(t&&t.status==='failed')return pill2('you','⚠ try again','It didn’t go through. Press Try again.');
+          if(col==='found')return t&&t.status==='review'?pill2('you','⏳ your OK · then '+rel(afterOk()),'Waiting for your approval. Approve now and it goes out in about '+rel(afterOk())+'.'):out?pill2('done','✕ not a fit',out):pill2('you','✍ writing · ~15m','The bot writes their request on its next run; then it waits for your OK.');
+          if(col==='req'&&!(t&&/^(ready|sending)$/.test(t.status))){const r0=Date.parse(x.req||'')||0;return r0?pill2('them','⌛ waiting '+ago(r0),'Request sent '+this.since(x.req)+'. If they don’t accept in 3 weeks it’s withdrawn ('+rel(r0+21*864e5)+' left).'):pill2('them','⌛ waiting','Waiting for them to accept.');}
+          if(col==='dm'&&!x.dm&&x.acc)return t&&t.status==='review'?pill2('you','⏳ your OK','Their first message waits for your OK.'):pill2('go','⏱ writing','They accepted: their first message is written on the next run and goes out right after.');
+          if(col==='talks')return pill2('you','↩ your move'+(R?' · '+ago(R):''),'They replied'+(R?' '+this.since(x.replied):'')+'. The bot has stopped; answer them.');
+          if(col==='booked')return call&&Date.parse(call)>Date.now()?pill2('go','📞 in '+rel(Date.parse(call)),'Call '+new Date(call).toLocaleString('en-US',{weekday:'short',day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})):pill2('done','📞 booked','Call booked');
+          if(col==='won')return pill2('done','✓ won','');if(col==='lost')return pill2('done','✕ closed',x.stop==='no reply'?'No reply after the last follow-up':'Closed');
+          if(/^fu4$/.test(col))return pill2('them','⌛ last one sent','The sequence is done; they become a Cold lead if they don’t reply.');
+          return pill2('them','⌛ waiting','Waiting on them.');})(),
         op:out?'.6':'1',_n:S.n,_t:Date.parse(x.last||x.req||l.created_at||0)||0,_w:!!waiting};};
     const by=new Map(COLS.map(c=>[c[0],[]]));let outN=0;
     for(const l of pool){const c=colOf(l);const out=c==='found'?this.liNotFit(l):'';if(out){outN++;if(!showOut)continue;}
@@ -2109,7 +2123,15 @@ class Component extends DCLogic {
       const qT=t||fuT,qE=xEta(qT);
       const nx=col==='review'?{next:v2?'The new DM: idea 1 + a question':'',nextMsg:''}:v2&&sentMs&&fd<4&&(col==='dm'||/^fu\d$/.test(col))?{next:'Next: day '+SEQ_DAYS[fd]+' · '+SEQ_STEP[fd]+' · '+dayFmt(sentMs+SEQ_DAYS[fd]*864e5),nextMsg:seqFill(XT2.fu[fd],p.name,p.company,ids),...etaPill(qE||inWindow(Math.max(sentMs+SEQ_DAYS[fd]*864e5,Date.now()),XH.from,XH.to))}
         :v2&&fd>=4?{next:'That was the last one',nextMsg:''}:col==='old'?{next:'Old X sequence: its last follow-ups finish on their own',nextMsg:''}:{next:'',nextMsg:''};
-      return{id:p.id,...(qE?etaPill(qE):{}),...nx,...avatar(p.name||'?'),name:p.name||'(no name)',sub:[p.role,h?'@'+h:'',p.company].filter(Boolean).join(' · '),score:n?String(n):'–',sBg:tn.bg,sFg:tn.fg,
+      const xfb=(()=>{const after=()=>queueEta(XQ.length,(+xb.gap_min||18)+5,XH.from,XH.to,Math.floor((+xb.cap||25)*xwf)-xSentToday);
+        if(col==='review')return !h?pill2('you','🔎 find their X','No X handle yet: search on X and add it.'):failed?pill2('you','⚠ try again','It didn’t go through.'):pill2('you','⏳ your OK · then '+rel(after()),'Waiting for your approval. Approve now and it goes out in about '+rel(after())+'.');
+        if(col==='old')return pill2('done','⏸ stopped','The old X sequence stopped on 16 Nov; nothing more goes to them.');
+        if(col==='talks')return pill2('you','↩ your move'+(lastAt?' · '+ago(Date.parse(lastAt)):''),'They replied. Answer them on X.');
+        if(col==='booked')return pill2(p.call?'go':'done','📞 '+(p.call||'booked'),'Call booked');
+        if(col==='won')return pill2('done','✓ customer','');if(col==='lost')return pill2('done','✕ closed',p.result||'Closed');
+        if(v2&&fd>=4)return pill2('them','⌛ last one sent','The sequence is done.');
+        return pill2('them','⌛ waiting'+(lastAt?' '+ago(Date.parse(lastAt)):''),'Waiting on them.');})();
+      return{id:p.id,...xfb,...(qE?etaPill(qE):{}),...nx,...avatar(p.name||'?'),name:p.name||'(no name)',sub:[p.role,h?'@'+h:'',p.company].filter(Boolean).join(' · '),score:n?String(n):'–',sBg:tn.bg,sFg:tn.fg,
         one:one||why,hasOne:!!(one||why),oneC:'var(--ink-2)',fund:fund?'Raised '+String(fund).replace(/^raised\s*/i,''):'Raise not found',hasFund:true,fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
         acc,hasAcc:!!acc,warm,hasWarm:!!warm,loc:loc?'📍 '+loc:'',hasLoc:!!loc,locC:'var(--ink-2)',src:seg,details,status,
         stC:failed?'var(--bad)':waiting?'var(--ink)':'var(--ink-3)',hasMsg:waiting,msg,chars:msg.length+' chars',editing,preview:!editing,
