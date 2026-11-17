@@ -262,6 +262,11 @@ async function draftReplies(rows: any[]): Promise<Record<string, string>> {
   return clean;
 }
 
+// (17 Nov, Reyansh) At least one post a day has to be engineered to spread: the daily News take is that post when nothing else is.
+const TWIST_RULES = "Make it spread, not just inform. Line 1 is a twist that makes people curious or a little angry: a surprising number, a side most founders " +
+  "won't say out loud, or what everyone is getting wrong about this story. Take one clear side and say it plainly, from someone who does GTM for funded startups " +
+  "every day. It may be a bit controversial but never silly, mean or made up. Simple words, short lines, no lecture. End with a question people will argue about " +
+  "in the replies (pick a side, A or B, or 'am I wrong?'). Facts only from the news given; no invented stories or quotes.";
 // 4. Daily posts on the Calendar (15 Nov): every day a News post (the biggest AI / startup / GTM story of the last day, named, so
 //    people searching for it find us) at 6:30 PM IST = 8 AM New York; Mon, Wed, Fri a Shoutout post at 10:45 PM IST that tags a
 //    bigger GTM creator, says what they got right and quotes their best post of the last 2 days (their audience sees it, they often
@@ -347,7 +352,7 @@ async function dailyPosts(force = false) {
         what: { type: "string", description: "3 to 5 plain facts: who, what, numbers, why founders care" }, who: { type: "string", description: "The product, company or person name people will search for" }, url: { type: "string" } } },
         "Pick one story only, from the last 24 hours. Use the search results as the source.");
       if (n?.headline) jobs.push({ s, link: n.url || "", their: n.headline + "\n\n" + n.what, why: "News (TOFU): people search for " + (n.who || "this") + " today. Post within the hour. Source: " + (n.url || "search"),
-        prompt: "Write an X post reacting to today's news. Name " + (n.who || "it") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. News: " + n.headline + ". Facts: " + n.what + "\n" + POST_RULES });
+        prompt: "Write an X post reacting to today's news. Name " + (n.who || "it") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. News: " + n.headline + ". Facts: " + n.what + "\n" + TWIST_RULES + "\n" + POST_RULES });
     } else if (s.slot === "AI tool") {
       const t = await exaPick("new AI tool or AI agent launched this week for sales, marketing or founders", 96, { type: "object", required: ["tool", "what", "steps", "url"], properties: {
         tool: { type: "string", description: "Name of one new or newly updated AI tool, model feature or agent useful for a startup founder getting customers (sales, outreach, content, research)" },
