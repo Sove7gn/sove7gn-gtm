@@ -283,7 +283,8 @@ Return ONLY JSON: {"summary":"2-3 short sentences (max 60 words) to them in seco
 
 // Only real customer names ("Frontier model labs" or "Leading banks" are descriptions, not customers).
 const realNames = (xs: unknown) => (Array.isArray(xs) ? xs : []).map((x) => String(x ?? "").trim()).filter((n) => n && n.length <= 40 && /[A-Z0-9]/.test(n[0]) &&
-  !/(various|leading|several|many|multiple|frontier|enterprises?|companies|customers|clients|startups|teams|organi[sz]ations|institutions|banks|lenders|labs|firms|not (specifically )?named|undisclosed|unnamed)/i.test(n));
+  !/[()]/.test(n) && !/^(various|leading|several|many|multiple|frontier|top|major|large|global|some|enterprise)\b/i.test(n) &&
+  !/\b(companies|customers|clients|startups|teams|organi[sz]ations|institutions|enterprises|not (specifically )?named|undisclosed|unnamed)\b/i.test(n));
 // ───────── moving drops along ─────────
 async function step(row: any) {
   const d = { ...row, stage: row.stage ?? {} };
