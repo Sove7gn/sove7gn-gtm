@@ -1553,7 +1553,29 @@ const firstName = (n: string) => {
 const fill = (tpl: string, l: Lead, hook = "") => tpl.replaceAll("{hook}", hook).replaceAll("{first}", firstName(l.name)).replaceAll("{company}", l.company || "your company")
   .replaceAll("{where}", l.x_handle ? "X and LinkedIn" : "LinkedIn").replaceAll("{hook}", hook).replace(/[ \t]{2,}/g, " ").replace(/\s*[—–]\s*/g, ", ").trim();
 
+// (18 Nov, Reyansh) A founder post we commented on (Reply to their posts > LinkedIn comments, marked Done) makes its author a LinkedIn lead:
+// the request note offers the list of companies we found for them, and the link only goes out once they accept (first_drop).
+const postKind = (t: string) => /\b(raised|raising|closed (an? )?(oversubscribed )?\$?[\d.]+\s?[mk]|pre-seed|seed round|series [a-d]|funding round)\b/i.test(t) ? "raise"
+  : /\b(we'?re hiring|hiring (our|a|an|for)|join (our|the) team|looking for (a|an|our) (first )?(sales|marketing|growth|gtm|sdr|bdr|account exec))/i.test(t) ? "hiring" : "other";
+async function fromComments() {
+  const { data: done } = await db.from("crm_li_suggest").select("url,author,author_url,headline,company,post_text,day").eq("status", "done").gte("day", new Date(Date.now() - 10 * 864e5).toISOString().slice(0, 10)).limit(200);
+  let added = 0;
+  for (const r of done ?? []) {
+    const url = String(r.author_url || "").replace(/\/+$/, ""); if (!/linkedin\.com\/in\//i.test(url) || !r.author) continue;
+    const pid = url.split("/in/")[1].toLowerCase();
+    const { data: have } = await db.from("crm_leads").select("id").or("linkedin.ilike.%/in/" + pid + "%,origin_key.eq.li-src:postcomment:" + url.toLowerCase()).limit(1);
+    if (have?.length) continue;
+    const kind = postKind(String(r.post_text || ""));
+    const hl = String(r.headline || ""); const role = hl.split(/\s+(at|@)\s+/i)[0] || "Founder";
+    const { error } = await db.from("crm_leads").insert({ name: r.author, source: "LinkedIn", stage: "New", heat: "Hot", linkedin: url, direction: "Outbound", role, company: r.company || "",
+      origin_key: "li-src:postcomment:" + url.toLowerCase(), source_detail: "We commented on their LinkedIn post" + (kind === "raise" ? " about their raise" : kind === "hiring" ? " about hiring" : "") + " (" + r.day + ")",
+      fields: { li: { src: "postcomment", pid, post_url: r.url, post_kind: kind, signal_status: "approved" } } });
+    if (!error) added++;
+  }
+  return added;
+}
 async function plan(_b: any) {
+  await fromComments().catch(() => 0);
   const set = await settings();
   const leads = await pool(set);
   const { data: open } = await db.from("crm_li_tasks").select("lead_id,kind,step,status,subject,updated_at").in("lead_id", leads.map((l) => l.id).slice(0, 2000));
@@ -2175,7 +2197,7 @@ const SRC_LABEL: Record<string, string> = { liked: "Liked our post", commented: 
   tagged: "We tagged them in a post", niche: "Commented on a founder post we commented on", outbound: "We reached out first",
   funding: "Just announced a funding round", site: "Visited sove7gn.org", magnet: "Asked for one of our lead magnets",
   launch: "Just launched (Product Hunt or Hacker News)", hiring: "Hiring for growth or GTM", prospect: "Found by our ICP search", list: "From a founder list we built",
-  comp: "Commented on a lead-gen agency's post, or named as their client" };
+  comp: "Commented on a lead-gen agency's post, or named as their client", postcomment: "We commented on their LinkedIn post" };
 function srcOf(l: Lead): string {
   const li = l.fields?.li ?? {};
   if (li.src) return li.src;
@@ -2222,6 +2244,8 @@ function opener(sc: Scripts, l: Lead): string {
   const li = l.fields?.li ?? {};
   // They wrote the post we commented on (their reply sat under their own post): don't call it "a comment on <them>'s post".
   if (srcOf(l) === "niche" && sameName(li.post_author, l.name)) return "saw your recent post and the conversation under it, and liked your take.";
+  // (18 Nov) we commented on their post: the note picks up from that comment (raise: the growth plan; hiring: leads instead of a hire)
+  if (srcOf(l) === "postcomment") return li.post_kind === "raise" ? "left a comment on your raise post, asking about the plan for growth." : li.post_kind === "hiring" ? "left a comment on your hiring post." : "left a comment on your recent post.";
   return (sc.openers[srcOf(l)] ?? sc.openers.outbound).replaceAll("{post_author}", li.post_author || "a founder");
 }
 function firstDM(sc: Scripts, l: Lead, angle: string): string {

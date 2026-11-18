@@ -92,22 +92,57 @@ const QUERIES = [
 ];
 const RAISE = "founder post: we just raised our seed or Series A round, here is what's next";
 
+// (18 Nov, Reyansh) Hiring posts every day too: "instead of hiring, an agency does more than one hire" is our strongest opening there.
+const HIRING = "founder post: we're hiring our first sales, marketing, growth or GTM person";
+
+// (18 Nov, Reyansh) Comments talk GTM. A raise: ask about their growth plan and say we found leads they could talk to. A GTM / sales /
+// marketing hire: suggest an agency that does more than one hire, and say we found organic leads for them. Anything else: one sharp
+// GTM point on their post and a question about how they get customers. The lead list itself only goes out after they accept our
+// connection request (li-bot turns every comment marked Done into a request with the lead-list note, then sends the link on accept).
 const PROMPT = (p: { author: string; text: string }) =>
-  "You help Reyansh, 20, who builds go-to-market systems for B2B startups, leave genuine comments on LinkedIn.\n" +
+  "You help Reyansh, 20, who runs SOVE7GN, a done-for-you GTM agency for funded B2B startups, comment on founders' LinkedIn posts.\n" +
   "Here is a LinkedIn post" + (p.author ? " by " + p.author : "") + ":\n\"\"\"\n" + p.text.slice(0, 1400) + "\n\"\"\"\n" +
   "Answer with JSON only: {\"is_founder\": true only if the author is a founder, co-founder, CEO or CMO of a B2B or B2B2C startup writing about their own company or journey " +
   "(false for VCs, recruiters, agencies, coaches, consultants, job seekers and company pages), \"author\": their full name, \"headline\": their role and company in a few words, " +
-  "\"company\": their company, \"comment\": the comment}.\n" +
-  "The comment: what a thoughtful founder friend would write. 2 or 3 short sentences, under 260 characters. Pick ONE specific point from the post, add a real thought " +
-  "or a short example of your own, and end with a sincere, specific question the author will want to answer. Plain words, sounds like a person typed it. " +
-  "Never start with praise (no 'Great post', 'Love this', 'Congrats', 'So true'). No pitch, no mention of what Reyansh sells, no links, hashtags, emojis or em dashes.";
+  "\"company\": their company, \"kind\": \"raise\" if the post announces their funding round, \"hiring\" if they are hiring for sales, marketing, growth, GTM, SDR or BD, else \"other\", \"comment\": the comment}.\n" +
+  "The comment talks go-to-market, like a founder who does GTM for startups every day, in plain words. 2 or 3 short sentences, under 280 characters.\n" +
+  "If kind is raise: one line on what the round means for them, then ask what the plan for growth looks like right now, and say you did some research and found a few companies they could talk to, happy to send them over. " +
+  "Shape (do not copy word for word): \"Big step for [company]. What's the plan for growth right now? Did some research and found a few companies you could talk to, happy to send them over.\"\n" +
+  "If kind is hiring: say one hire for this takes months to pay off, and an agency can run the whole thing (content, outbound, follow-ups) from week one, often for less; say you've already found some organic leads for them, happy to share. Friendly, never pushy or rude about their hire.\n" +
+  "If kind is other: pick ONE specific point from the post, add a sharp GTM take on it (how it helps them get customers, distribution, pipeline, positioning), then ask one specific question about how they get customers today.\n" +
+  "Never start with praise (no 'Great post', 'Love this', 'Congrats', 'So true', 'Huge'). No invented stories, clients or numbers, no links, hashtags, emojis or em dashes, no 'it's not X, it's Y'. Sounds like a person typed it.";
+
+async function writeComments(cands: { id: string; author: string; text: string }[]): Promise<Record<string, string>> {
+  const items = cands.map((c) => ({ id: c.id, prompt: PROMPT(c) }));
+  const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
+  const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
+    "items = json.loads(base64.b64decode('" + payload + "').decode())",
+    "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else 'ERR: ' + str(e)[:200])",
+    "with ThreadPoolExecutor(8) as ex: res = dict(ex.map(one, items))",
+    "print('@@' + json.dumps(res))"].join("\n");
+  const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write LinkedIn comment ideas for the CRM" });
+  const out = String(outp?.data?.stdout ?? "");
+  if (!out.includes("@@")) return { "0": "ERR: no output. " + JSON.stringify(outp).slice(0, 300) };
+  return JSON.parse(out.split("@@").pop() || "{}");
+}
+const parseC = (v: unknown): any => { try { return JSON.parse(String(v ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { return null; } };
+const cleanC = (t: unknown) => { const c = String(t || "").replace(/\s*[—–]\s*/g, ", ").trim(); return /^(great|love|congrats|amazing|awesome|so true|huge)\b/i.test(c) ? "" : c; };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (!(await allowed(req))) return json({ error: "Only the team can run this." }, 401);
   if (!EXA || !COMPOSIO) return json({ error: "EXA_API_KEY or COMPOSIO_API_KEY is missing." }, 500);
+  const body: any = await req.json().catch(() => ({}));
   try {
     const today = new Date(Date.now() + 330 * 60e3).toISOString().slice(0, 10);
+    if (body.rewrite) {   // (18 Nov) re-write the comments still waiting (status new) with the current prompt
+      const { data: open } = await db.from("crm_li_suggest").select("url,author,post_text").eq("status", "new").gte("day", new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10)).limit(30);
+      const cs = (open ?? []).map((r, i) => ({ id: String(i), url: r.url, author: r.author || "", text: String(r.post_text || "") }));
+      const res = cs.length ? await writeComments(cs) : {};
+      let n = 0;
+      for (const c of cs) { const cm = cleanC(parseC(res[c.id])?.comment); if (cm) { await db.from("crm_li_suggest").update({ comment: cm }).eq("url", c.url).eq("status", "new"); n++; } }
+      return json({ rewritten: n, of: cs.length, ...(n ? {} : { sample: String((res as any)["0"] ?? "").slice(0, 300), keys: Object.keys(res).slice(0, 5) }) });
+    }
     const { count } = await db.from("crm_li_suggest").select("url", { count: "exact", head: true }).eq("day", today);
     const want = PER_DAY - (count ?? 0);
     if (want <= 0) return json({ skipped: "Today's " + PER_DAY + " posts are already in.", today: count });
@@ -117,7 +152,7 @@ Deno.serve(async (req) => {
     const day = Math.floor(Date.now() / 864e5);
     const since = new Date(Date.now() - 4 * 864e5).toISOString().slice(0, 10);
     let cost = 0;
-    const found = (await Promise.all([RAISE, QUERIES[day % QUERIES.length], QUERIES[(day + 3) % QUERIES.length]].map(async (query) => {
+    const found = (await Promise.all([RAISE, HIRING, QUERIES[day % QUERIES.length]].map(async (query) => {
       const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
         body: JSON.stringify({ query, numResults: 15, includeDomains: ["linkedin.com"], startPublishedDate: since, contents: { text: { maxCharacters: 1500 } } }) });
       if (!r.ok) return [];
@@ -139,23 +174,13 @@ Deno.serve(async (req) => {
       if (cands.length >= 24) break;
     }
     if (!cands.length) return json({ added: 0, note: "No new founder posts found today.", cost_exa: cost });
-    const items = cands.map((c) => ({ id: c.id, prompt: PROMPT(c) }));
-    const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
-    const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
-      "items = json.loads(base64.b64decode('" + payload + "').decode())",
-      "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
-      "with ThreadPoolExecutor(8) as ex: res = dict(ex.map(one, items))",
-      "print('@@' + json.dumps(res))"].join("\n");
-    const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write LinkedIn comment ideas for the CRM" });
-    const res = JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
+    const res = await writeComments(cands);
     const rows: any[] = [];
     for (const c of cands) {
       if (rows.length >= want) break;
-      let s: any = null;
-      try { s = JSON.parse(String(res[c.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
+      const s = parseC(res[c.id]);
       if (!s?.is_founder || !s.comment) continue;
-      const comment = String(s.comment).replace(/\s*[—–]\s*/g, ", ").trim();
-      if (/^(great|love|congrats|amazing|awesome|so true)\b/i.test(comment)) continue;
+      const comment = cleanC(s.comment); if (!comment) continue;
       rows.push({ url: c.url, day: today, author: s.author || c.author, author_url: c.authorUrl, headline: s.headline || "", company: s.company || "",
         post_text: c.text.slice(0, 1500), posted_at: c.at, comment });
     }
