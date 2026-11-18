@@ -106,20 +106,20 @@ const CAL = "https://cal.com/sove7gn-gtm/30min";
 type V2Texts = { first: string; first_np: string; first_x: string; fu: string[]; note_drop: string; first_drop: string; first_drop_promised: string; first_x_drop: string; fu2_drop: string };
 const V2_DAYS = [3, 5, 8, 12];
 const V2_DEFAULT: V2Texts = {
-  first: "Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  first_np: "One thing I'd do at {company} this week.\n\n{idea1}\n\nQuick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  first_x: "Sent you 3 ideas for {company_s} inbound over on X. Quick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first: "Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: what part of lead gen are you still doing yourself that you wish you weren't?",
+  first_np: "One thing I'd do at {company} this week.\n\n{idea1}\n\nQuick q: what part of lead gen are you still doing yourself that you wish you weren't?",
+  first_x: "Sent you 3 ideas for {company_s} inbound over on X. Quick q: what part of lead gen are you still doing yourself that you wish you weren't?",
   // (18 Nov) Lead drop: the first message hands them their page of buyers ({link}); the 2 ideas come on day 5.
   note_drop: "Was researching {company} and found a few companies looking for what you sell right now. Put them on one page for you, happy to send it over :)",
-  first_drop: "Here's the list: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each one has what they posted, who to talk to and a line you could send.\n\nAlso have 2 inbound ideas for you. Quick q so they actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_drop: "Here's the list: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each one has what they posted, who to talk to and a line you could send.\n\nAlso have 2 inbound ideas for you. Quick q so they actually fit: what part of lead gen are you still doing yourself that you wish you weren't?",
   // (18 Nov, Reyansh) Their request note promised 3 ideas: the lead page is idea 1, ideas 2 and 3 hang on the question (sent day 5).
-  first_drop_promised: "As promised, here's the first one, and instead of an idea I just did it for you: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each has what they posted, who to talk to and a line you could send.\n\nThe other 2 depend on one thing: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  first_x_drop: "Sent you a list of {n} companies looking for what {company} sells over on X, here it is again: {link}\n\nQuick q so the 2 ideas I have for you actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_drop_promised: "As promised, here's the first one, and instead of an idea I just did it for you: {link}\n\n{n} companies looking for what {company} sells right now. The strongest is {top_line}. Each has what they posted, who to talk to and a line you could send.\n\nThe other 2 depend on one thing: what part of lead gen are you still doing yourself that you wish you weren't?",
+  first_x_drop: "Sent you a list of {n} companies looking for what {company} sells over on X, here it is again: {link}\n\nQuick q so the 2 ideas I have for you actually fit: what part of lead gen are you still doing yourself that you wish you weren't?",
   fu2_drop: "Said I'd send the 2 ideas, so here they are regardless.\n\n{idea1}\n\n{idea2}\n\nNo ask, just thought they'd be useful for {company}.",
   fu: [
-    "Curious, is most of {company_s} pipeline coming from referrals right now?",
+    "Curious, if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?",
     "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
-    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Had a founder in almost exactly your spot a few months back, still doing all the lead gen themselves. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
     "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up.",
   ],
 };
@@ -2958,7 +2958,7 @@ async function xSettings() {
 const VSL = "https://youtu.be/gTgn6jZaj7w";
 const X_FU_MORE = [
   "Hey {first}, sharing a short VSL we made: " + VSL + "\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
-  "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?",
+  "Curious, if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?",
   "Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
   "No worries if the timing's off, {first}. Would next week work better for a quick chat? https://cal.com/sove7gn-gtm/30min",
   "Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}.",
@@ -2971,18 +2971,18 @@ const X_FU_KINDS = ["fu3", "fu4", "fu5", "fu6", "fu7"];
 // Texts: x_bot.v2 { first, first_li, fu[4] } override these; {first} {company} {company_s} {is_company} {idea1..3} fill in.
 const XV2_DAYS = [3, 5, 8, 12], XV2_KINDS = ["fu1", "fu2", "fu3", "fu4"];
 const XV2_DEFAULT = {
-  first: "Hey {first}, was researching {company} and had one inbound idea you could use this week:\n\n{idea1}\n\nI've got 2 more for you. Quick q so they actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  first_li: "Hey {first}, we're connected on LinkedIn too, I sent you 3 ideas for {company_s} inbound there. Quick q: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first: "Hey {first}, was researching {company} and had one inbound idea you could use this week:\n\n{idea1}\n\nI've got 2 more for you. Quick q so they actually fit: what part of lead gen are you still doing yourself that you wish you weren't?",
+  first_li: "Hey {first}, we're connected on LinkedIn too, I sent you 3 ideas for {company_s} inbound there. Quick q: what part of lead gen are you still doing yourself that you wish you weren't?",
   fu: [
-    "Curious, is most of {company_s} pipeline coming from referrals right now?",
+    "Curious, if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?",
     "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
-    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Had a founder in almost exactly your spot a few months back, still doing all the lead gen themselves. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
     "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up.",
   ],
   fu2_li: "Did any of the 3 ideas I sent on LinkedIn land for {company}? Happy to go deeper on whichever fits best.",
   // (18 Nov) Lead drop versions (Template X2D)
-  first_drop: "Hey {first}, was researching {company} and found {n} companies looking for what you sell right now. The strongest is {top_line}.\n\nPut them all on one page for you, with what each posted, who to reach and a line to send: {link}\n\nAlso have 2 inbound ideas for you. Quick q so they fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  first_li_drop: "Hey {first}, we're connected on LinkedIn too, I sent you a list of {n} companies looking for what {company} sells there: {link}\n\nQuick q so the 2 ideas I have for you actually fit: {is_company} getting customers mostly from referrals right now, or outbound too?",
+  first_drop: "Hey {first}, was researching {company} and found {n} companies looking for what you sell right now. The strongest is {top_line}.\n\nPut them all on one page for you, with what each posted, who to reach and a line to send: {link}\n\nAlso have 2 inbound ideas for you. Quick q so they fit: what part of lead gen are you still doing yourself that you wish you weren't?",
+  first_li_drop: "Hey {first}, we're connected on LinkedIn too, I sent you a list of {n} companies looking for what {company} sells there: {link}\n\nQuick q so the 2 ideas I have for you actually fit: what part of lead gen are you still doing yourself that you wish you weren't?",
   fu2_drop: "Said I'd send the 2 ideas, so here they are regardless.\n\n{idea1}\n\n{idea2}\n\nNo ask, just thought they'd be useful for {company}.",
 };
 const splitIdeas = (raw: string) => String(raw ?? "").replace(/\r/g, "").split(/\n+/).map((p) => p.trim()).filter((p) => /^\d[.)]\s/.test(p))

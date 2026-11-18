@@ -769,7 +769,7 @@ function brandMenu(){
 
 /* ---------- Bots: the whole flow, step by step, with a pen on every message ---------- */
 const X_FU_DEFAULT=["Hey {first}, sharing a short video we made: https://youtu.be/gTgn6jZaj7w\n\nWe got one of the YC companies we work with 100K views on X and 30 enterprise calls booked in a week. If this sounds interesting, would love your thoughts, and to work together.",
-  "Curious how {company} is getting new customers right now. Mostly referrals, or outbound too?","Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
+  "Curious, if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?","Happy to send over 3 quick ideas for {company}'s inbound here in text if a call is too much this week. Want them?",
   "No worries if the timing's off, {first}. Would next week work better for a quick chat? https://cal.com/sove7gn-gtm/30min","Last nudge from me, {first}. If inbound becomes a priority, here's the link: https://cal.com/sove7gn-gtm/30min. Rooting for {company}."];
 const CLOSE_DEFAULT="No worries at all {first}, I won't bother you again. In case it's useful later: we built the whole GTM engine for Aktoria (a YC company) and got them 30+ sales calls in 2 weeks, all organic. Feel free to reach out anytime.";
 function editOpen(title,hint,val,save,max){V.edit={title,hint,val:String(val||''),save,max};schedule();}
@@ -798,10 +798,10 @@ function rulesHtml(){
 }
 /* (16 Nov) LinkedIn sequence v2: no greetings, one question per message, help before any ask, no booking link until they reply.
    Same defaults as li-bot (V2_DEFAULT); edits save to li_bot.v2. */
-const LI_V2_DEFAULT={first:"Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: {is_company} getting customers mostly from referrals right now, or outbound too?",
-  fu:["Curious, is most of {company_s} pipeline coming from referrals right now?",
+const LI_V2_DEFAULT={first:"Here's the first one, the one I'd do this week.\n\n{idea1}\n\nQuick q so the other two actually land: what part of lead gen are you still doing yourself that you wish you weren't?",
+  fu:["Curious, if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?",
     "Said I'd send the other two, so here they are regardless.\n\n{idea2}\n\n{idea3}\n\nNo ask, just thought they'd be useful for {company}.",
-    "Had a founder in almost exactly your spot a few months back. All referrals, nothing repeatable. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
+    "Had a founder in almost exactly your spot a few months back, still doing all the lead gen themselves. We put their founder content and warm signal DMs on autopilot: 100K views on X and 30 enterprise calls in a week.\n\nHappy to walk you through exactly how it was set up, whether or not you ever work with us.",
     "Doesn't look like the timing's right, so I'll stop here rather than clog your inbox. If inbound ever becomes the priority, just say the word and I'll pick it back up."]};
 function liV2Steps(li,saveLi){
   const v=li.v2||{};const first=v.first||LI_V2_DEFAULT.first;const fu=LI_V2_DEFAULT.fu.map((d,i)=>String((v.fu||[])[i]||d));
