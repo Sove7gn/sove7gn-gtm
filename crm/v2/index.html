@@ -4369,6 +4369,9 @@ function pgOutbound(){
   const rows=[];const usedX=new Set();
   for(const l of leadsOpen()){const s=srcOf(l);if(!OUT_SRC[s]||l.source!=='LinkedIn')continue;const c=xOf(l);if(c)usedX.add(c._key);rows.push({l,c,src:s});}
   for(const c of (AK.M.contacts||[]))if(!usedX.has(c._key))rows.push({c,src:'x'});
+  // (18 Nov, Reyansh) X / LinkedIn switch: filters the numbers, the live activity and the table. A LinkedIn lead we also reached on X shows under both.
+  const pf=V.f['plat:out']||'all',allN=rows.length,liN=rows.filter(r=>r.l).length,xN=rows.filter(r=>r.c).length;
+  if(pf!=='all'){const keep=rows.filter(r=>pf==='LinkedIn'?!!r.l:!!r.c);rows.length=0;rows.push(...keep);}
   const lab=r=>r.src==='x'?'Found on X':OUT_SRC[r.src];const cnt={};for(const r of rows)cnt[r.src]=(cnt[r.src]||0)+1;
   const opts=[['all','All',rows.length],...Object.keys(OUT_SRC).map(k=>[k,OUT_SRC[k],cnt[k]||0]),['x','Found on X',cnt.x||0]];const cur=V.f.out||'all';
   const reached=rows.filter(r=>(r.l&&liReached(r.l))||xReached(r.c)).length,replied=rows.filter(r=>(r.l&&liReplied(r.l))||xReplied(r.c)).length;
@@ -4376,8 +4379,8 @@ function pgOutbound(){
   const list=rows.filter(r=>(cur==='all'||r.src===cur)&&matchQ('out',r.l?r.l.name:'',r.l?r.l.company:'',r.c?r.c.Name:'',r.c?r.c.Company:''))
     .map(r=>({...r,fit:r.l?fitN(r.l):r.c._fit,step:stepOf(r.l,r.c),t:r.l?ms(LIo(r.l).last||LIo(r.l).req||r.l.created_at):0})).sort((a,b)=>b.step-a.step||(b.fit||0)-(a.fit||0)||b.t-a.t);
   const right=canEdit()?btn('Find more on X',()=>AK.xRun('x-leads'),'sm')+btn('Check funding news',()=>AK.liFunding(),'sm ghost'):'';
-  let h=head('Outbound',INFO.outbound)+strip([['People found',String(rows.length),(cnt.x||0)+' on X · '+(rows.length-(cnt.x||0))+' on LinkedIn','#2563EB'],['Reached',String(reached),pct(reached,rows.length)+' of them','#0EA5E9'],['Replied',String(replied),'Reply rate '+pct(replied,reached),'#8B5CF6'],['Calls booked',String(calls),'from outbound','#10B981'],['Waiting for your OK',String(waitOk),'first touches','#F59E0B']]);
-  h+=activityHtml('out',new Set(rows.map(r=>(r.l||leadForContact(r.c)||{}).id).filter(Boolean)),true)+chipsBar('out',opts,right);
+  let h=head('Outbound',INFO.outbound)+'<div style="margin:0 0 14px">'+tabsBar('plat:out',[['all','Both',allN],['LinkedIn','LinkedIn',liN],['X','X',xN]])+'</div>'+strip([['People found',String(rows.length),(cnt.x||0)+' on X · '+(rows.length-(cnt.x||0))+' on LinkedIn','#2563EB'],['Reached',String(reached),pct(reached,rows.length)+' of them','#0EA5E9'],['Replied',String(replied),'Reply rate '+pct(replied,reached),'#8B5CF6'],['Calls booked',String(calls),'from outbound','#10B981'],['Waiting for your OK',String(waitOk),'first touches','#F59E0B']]);
+  h+=activityHtml('out',new Set(rows.map(r=>(r.l||leadForContact(r.c)||{}).id).filter(Boolean)),true,pf)+chipsBar('out',opts,right);
   h+=table('out',COLS3,list.map(r=>{const name=r.l?r.l.name:r.c.Name,sub=r.l?[r.l.role,r.l.company].filter(Boolean).join(' · '):[r.c.Role,r.c.Company].filter(Boolean).join(' · ');
     return{open:r.l?()=>L.openLead(r.l.id):()=>L.openC(r.c._key),cells:[pcell(name||'(no name)',sub,r.l?'LinkedIn':'X'),'<span class="meta">'+esc(lab(r))+'</span>',sbar(r.step),latestTxt(r.l||leadForContact(r.c),r.c),fitPill(r.fit)||'<span class="faint">–</span>']};}),'Nobody matches.');
   return h;
@@ -4661,7 +4664,7 @@ function handX(c,on){if(!c||!canEdit())return;const cur=String(c['DM result']||'
 /* live activity: every message the bots sent and every reply, newest first, for the people on this page */
 const ACT_KIND=[['all','Everything'],['reply','They replied'],['answer','We answered'],['fu','Follow-ups'],['first','First messages'],['req','Requests'],['hand','You took over']];
 const ACT_C={reply:['They replied','#7C3AED'],answer:['We answered','#059669'],fu:['Follow-up','#D97706'],first:['First message','#2563EB'],req:['Request','#0EA5E9'],hand:['You took over','#B45309'],other:['Sent','#6B7280']};
-function activityHtml(key,ids,withBots){
+function activityHtml(key,ids,withBots,plat){
   const out=[];const byId=new Map((AK.LD.rows||[]).map(l=>[l.id,l]));
   for(const e of (AK.LD.events||[])){if(!ids.has(e.lead_id))continue;const t=String(e.text||'');let k=null;
     if(/^Replied on (LinkedIn|X)/.test(t))k='reply';else if(/^(Answered on|Sent the closing)/.test(t))k='answer';else if(/messaged them yourself|Taken over by hand/.test(t))k='hand';
@@ -4670,6 +4673,7 @@ function activityHtml(key,ids,withBots){
     const k=/request/i.test(w)?'req':/follow/i.test(w)?'fu':/answer|closing/i.test(w)?'answer':/first|dm|message|ideas/i.test(w)?'first':'other';
     out.push({k,at:e.at,who:(e.lead&&(byId.get(e.lead)||{}).name)||(e.who!=='Someone'&&e.who)||'Someone',plat:e.chan==='X'?'X':'LinkedIn',text:e.text||e.sub||w,open:e.lead?()=>L.openLead(e.lead):null});}
   out.sort((a,b)=>ms(b.at)-ms(a.at));
+  if(plat&&plat!=='all'){const keep=out.filter(x=>x.plat===plat);out.length=0;out.push(...keep);}
   const cur=V.f['act:'+key]||'all';const list=out.filter(x=>cur==='all'||x.k===cur);const n=V.more['act:'+key]?60:8;
   const cnt=k=>out.filter(x=>x.k===k&&ms(x.at)>Date.now()-D).length;
   return '<div class="feed act"><div class="feed-h"><span class="live"></span>Live activity<span class="faint" style="font-weight:400">· last 24 hours: '+cnt('reply')+' replied, '+cnt('answer')+' answered, '+cnt('fu')+' follow-ups, '+cnt('first')+' first messages</span></div>'

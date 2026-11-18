@@ -1495,10 +1495,11 @@ async function state(b: any) {
   }
   const asked = await magnetDMs(b.threads ?? []).catch(() => 0);
   for (const t of b.threads ?? []) {
-    const l = find(t); if (!l || !t.them_at) continue;
+    // (18 Nov, Reyansh: Ege Doganay) chats where only we have written count too: him messaging someone who hasn't answered is still a takeover
+    const l = find(t); if (!l) continue;
     const li = { ...(l.fields?.li ?? {}) };
     const since = Math.max(Date.parse(li.req || li.dm || li.inmail || "") || 0, (Date.parse(li.prev_replied ?? "") || 0) + 1000);
-    if (!li.replied && !li.stop && since && t.me_at && li.acc && !tipsGot(l) && (promised(l) || !li.dm) && Date.parse(t.me_at) > (Date.parse(li.acc) || 0)) {
+    if (t.them_at && !li.replied && !li.stop && since && t.me_at && li.acc && !tipsGot(l) && (promised(l) || !li.dm) && Date.parse(t.me_at) > (Date.parse(li.acc) || 0)) {
       const at = new Date(t.me_at).toISOString();
       l.fields = { ...(l.fields ?? {}), tips: { ...(l.fields?.tips ?? {}), sent_at: at, by_hand: true } };
       await saveLi(l, { ...li, dm: at, last: at, fu: 0, tips_dm: at });
@@ -1514,6 +1515,7 @@ async function state(b: any) {
       await log(l.id, "You messaged them yourself on LinkedIn, so the bots stopped. Press Resume follow-ups in the CRM to hand them back.", "note");
       continue;
     }
+    if (!t.them_at) continue;
     // (16 Nov) Every reply, not only the first: a later reply is sorted again with a new draft; our own message after their
     // reply marks it answered. The reply rules decide the stage and whether an answer (or a closing message) is queued.
     if (li.replied) {
