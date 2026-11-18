@@ -494,7 +494,10 @@ async function followSource(maxAdd = 10, given?: any[]) {
   cfg.queue = queue.slice(Math.min(judgedN, batchList.length), 400);   // the ones not judged in time wait for the next run
   // (17 Nov) People from a competitor's audience wait on CRM > Competitors > Leads for Reyansh to send them to LinkedIn or X (or trash them).
   const fromComp = (x: any) => String(x.f._via).startsWith("comp:") || !!cfg.accounts[x.f._via]?.comp;
-  const fits = judged.filter((x) => x.o?.fit === "Core buyer" && !fromComp(x) && !/^unknown$/i.test(String(x.o.stage || "").trim())).slice(0, maxAdd);
+  // (19 Nov) the company must be named in their own bio or the post that surfaced them: the judge once matched a bio to a company he never worked at
+  const ckey = (t: string) => String(t || "").toLowerCase().replace(/\(.*?\)|\b(inc|labs?|ai|hq|co|technologies|the)\b/g, "").replace(/[^a-z0-9]/g, "");
+  const ownWords = (x: any) => { const k = ckey(x.o?.company || "").slice(0, 12); return k.length >= 3 && ckey(String(x.f.description || "") + " " + String(x.f._ctx || "") + " " + String(x.f.name || "")).includes(k); };
+  const fits = judged.filter((x) => x.o?.fit === "Core buyer" && !fromComp(x) && !/^unknown$/i.test(String(x.o.stage || "").trim()) && ownWords(x)).slice(0, maxAdd);
   // 4. Their 3 ideas, written ahead (X follow-up 1 sends them).
   const tips = fits.length ? await llm(fits.map((x) => "Write 3 short, specific ideas for how " + (x.o.company || "this startup") + " could get more inbound from X and LinkedIn, for its founder " + x.f.name + ". " +
     "What they build: " + x.o.what + ". Their X bio: \"" + clip(String(x.f.description || ""), 200) + "\". Each idea is one numbered line (1., 2., 3.), under 200 characters, concrete (a post format, a list to tag, a reply habit, a profile fix), " +
@@ -542,7 +545,7 @@ async function followSource(maxAdd = 10, given?: any[]) {
 //      leads:        raise / launch / GTM-hiring posts from the last week, every 3 hours -> ICP judge -> X > Pipeline > To approve.
 //      my_followers: our newest followers, every 6 hours -> judged -> Engaged (+ an automatic DM for Core buyers).
 //      follow_src:   followers of our client's founders (@ShreenabhA, @karanwalia_ai), until read to the end.
-const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 360, leads: 180, follow_src: 60, our_posts: 120, comp_posts: 60, comp_replies: 90 };
+const READ_EVERY: Record<string, number> = { replies: 20, my_followers: 60, leads: 180, follow_src: 60, our_posts: 120, comp_posts: 60, comp_replies: 90 };
 const LEAD_QUERIES = [
   '("we raised" OR "just raised" OR "excited to announce" OR "thrilled to announce") ("seed round" OR "pre-seed" OR "Series A" OR "Series B") -filter:replies min_faves:5',
   '("launching today" OR "we\'re live" OR "just launched") ("YC" OR "Y Combinator" OR "(F26)" OR "(W26)" OR "(S26)") -filter:replies min_faves:5',
@@ -702,7 +705,7 @@ async function warmDMs() {
   const week = Date.now() - 7 * 864e5;
   const MONS: Record<string, number> = Object.fromEntries(MON.map((m, i) => [m, i]));
   const when = (s: string) => { const m = String(s || "").match(/^(\d{1,2}) (\w{3}) (\d{4})/); return m ? Date.UTC(+m[3], MONS[m[2]] ?? 0, +m[1]) : 0; };
-  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return c[4] !== "Followed" && (c[15] || "To message") === "To message" && c[18] === "DM + reply" && c[12] === "Core buyer" && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });   // (16 Nov) only the ICP (founder or C-suite at a funded B2B startup) gets an automatic DM; the rest stay on Engaged
+  const todo = (pe ?? []).filter((r) => { const c = r.cells ?? []; return (c[15] || "To message") === "To message" && c[18] === "DM + reply" && (c[4] === "Followed" || c[12] === "Core buyer") && String(c[14] || "").trim() && c[5] && when(c[0]) >= week; });   // (16 Nov) only the ICP (founder or C-suite at a funded B2B startup) gets an automatic DM; the rest stay on Engaged
   if (!todo.length) return { queued: 0 };
   const { data: pl } = await db.from("crm_sheet").select("row,cells").eq("tab", "DM Pipeline").gte("row", 4);
   const inPipe = new Set((pl ?? []).map((r) => String(r.cells?.[10] || "").replace(/^@/, "").toLowerCase()).filter(Boolean));
@@ -754,6 +757,7 @@ async function judge(f: any) {
   const j = await r.json();
   return { ...(j.output?.content ?? {}), cost: j.costDollars?.total ?? 0 };
 }
+const FOLLOW_TOPIC = "GTM";   // "was it the GTM posts?"
 async function newFollowers(given?: any[]) {
   const list: any[] = given ?? ((await tw("/twitter/user/followers?userName=" + HANDLE + "&pageSize=200")).followers ?? []).filter((f: any) => f?.id);
   const { count } = await db.from("crm_x_followers").select("id", { count: "exact", head: true });
@@ -775,10 +779,12 @@ async function newFollowers(given?: any[]) {
     batch.forEach((f, k) => {
       const o: any = res[k]; if (o) cost += o.cost ?? 0;
       const h = f.userName || f.screen_name, first = String(f.name || h).split(/\s+/)[0];
-      const dm = noDash(o?.dm || "Hey " + first + ", thanks for the follow. What are you building right now, and how are you getting customers for it?");
+      // (19 Nov, Reyansh) every new follower gets this line; only obvious spam is skipped
+      const spam = /(crypto|web3|nft|defi|onlyfans|airdrop|forex|giveaway|promo|dm for)/i.test(String(f.description || "") + " " + String(f.name || ""));
+      const dm = "Thanks for the follow, " + String(first).replace(/[^\p{L}'-]/gu, "") + "! Curious what brought you here, was it the " + FOLLOW_TOPIC + " posts?";
       engagers.push([istStamp(now), ACCOUNT, "https://x.com/" + h, "(followed us)", "Followed", h, f.name || "", clip(String(f.description || ""), 200),
         String(f.followers_count ?? ""), f.can_dm ? "Yes" : "", "", "https://x.com/" + h, o?.fit || "Other", ACCOUNT, dm,
-        o?.verdict === "Skip" ? "Dismissed" : "To message", "", "", o?.verdict === "Reply only" ? "Reply only" : (o?.verdict || "Reply only") /* (16 Nov) not judged = no DM */, noDash(o?.why || "Followed us on X."), String(f.id)]);
+        spam ? "Dismissed" : "To message", "", "", spam ? "Skip" : "DM + reply" /* (19 Nov) every follower gets the thank-you DM */, noDash(o?.why || "Followed us on X."), String(f.id)]);
       if (o) people.push({ handle: String(h).toLowerCase(), name: f.name || "", bio: clip(String(f.description || ""), 300), followers: f.followers_count ?? null,
         fit: o.verdict === "DM + reply" ? "hot" : o.verdict === "Reply only" ? "warm" : "not a fit", why: noDash(o.why || ""), company: o.company || "",
         found_by: "followed", added: true, judged_at: now.toISOString() });

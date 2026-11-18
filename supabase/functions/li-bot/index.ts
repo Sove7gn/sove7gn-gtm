@@ -621,7 +621,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze, x3_preview } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1130,8 +1130,11 @@ async function xv2_prepare(b: any) {
   for (const r of all.filter((x: any) => x.row > h.row)) {
     if (done >= max) break;
     const c: Record<string, string> = {}; (h.cells as string[]).forEach((k, i) => { if (k) c[k] = String(r.cells?.[i] ?? ""); });
-    if (!c["Name"] || !c["X handle"] || !/^(to send|)$/i.test(c["Status"] || "") || /^X2/.test(c["Template"] || "") || queued.has(r.row)) continue;
+    if (!c["Name"] || !c["X handle"] || !/^(to send|)$/i.test(c["Status"] || "") || /^X3/.test(c["Template"] || "") || queued.has(r.row)) continue;
     if (Object.values(c).some((v) => v === "Followed us")) continue;
+    { const x3 = await x3Compose(c, r.row);                                                     // (19 Nov) X is casual now
+      await db.rpc("crm_call", { body: { action: "pipeline", row: r.row, name: c["Name"], company: c["Company"], cells: { Template: x3.tpl, "Opener (30-40 words)": x3.text } } });
+      done++; continue; }
     const ld = await leadByHandle(c["X handle"]); const gotLi = !!(ld && (ld.fields?.tips?.sent_at || ld.fields?.li?.tips_dm));
     // (18 Nov) their lead page first
     const dr = await dropFor({ lead_id: ld?.id ?? null, handle: c["X handle"], name: c["Name"], role: c["Role"] ?? "", company: ld?.company || c["Company"], hint: ld?.fields?.li_icp?.one_liner ?? "", priority: 2 });
@@ -2996,6 +2999,44 @@ const X_FU_KINDS = ["fu3", "fu4", "fu5", "fu6", "fu7"];
 // A reply stops it. Rows on it carry Template "X2" (or "X2L" when they already got the 3 ideas on LinkedIn) in the DM Pipeline.
 // Texts: x_bot.v2 { first, first_li, fu[4] } override these; {first} {company} {company_s} {is_company} {idea1..3} fill in.
 const XV2_DAYS = [3, 5, 8, 12], XV2_KINDS = ["fu1", "fu2", "fu3", "fu4"];
+// ───────── X DMs v3 (19 Nov, Reyansh): casual one or two liners, the sales sequence stays on LinkedIn ─────────
+// A: "hey {first}, saw you're [launching / hiring for / growing] [their thing]. we help [type of business] with [one result]. is [problem]
+//    something you're dealing with right now?", written from something real they posted or say in their bio.
+// B: "hey {first}, i might have a client who'd be a fit for what you're selling. lmk if you're taking on more leads right now?"
+// The company is only named when it's verified: in their own X bio / post, or from a founder list Reyansh gave us (never a guess:
+// Nikhil Shahane was DMed about "Thrixel" because the judge guessed it from his bio). No verified reference = B. When both work,
+// A and B alternate (row parity) so we see which gets replies. One casual nudge on day 4, then stop. Rows: Template X3A / X3B.
+const X3_NUDGE_DAYS = 4; let x3Last: any = null;
+async function x3_preview(b: any) { const out: any[] = []; for (const row of (b.rows ?? []) as number[]) { const c = await pipeRow(+row); if (c) { x3Last = null; out.push({ row, name: c["Name"], ...(await x3Compose(c, +row)), dbg: x3Last }); } } return out; }   // read only
+const X3_B = "hey {first}, i might have a client who'd be a fit for what you're selling. lmk if you're taking on more leads right now?";
+const X3_NUDGE = "no worries if the timing's off {first}, just didn't want this to get buried";
+async function x3Compose(c: Record<string, string>, row: number): Promise<{ text: string; tpl: string }> {
+  const h = String(c["X handle"] ?? "").replace(/^@/, "").toLowerCase(), first = String(c["Name"] ?? "").trim().split(/\s+/)[0].toLowerCase() || "there";
+  const { data: xp } = await db.from("crm_x_people").select("bio").eq("handle", h).maybeSingle();
+  const bio = String((xp as any)?.bio ?? ""), sig = String(c["Signal (why now)"] ?? ""), seg = String(c["Segment"] ?? "");
+  const fromList = /founder list|SF founders|YC founder/i.test(seg);
+  const key = (x: string) => x.toLowerCase().replace(/\(.*?\)|\b(inc|labs?|ai|hq|co|technologies|the)\b/g, "").replace(/[^a-z0-9]/g, "").slice(0, 12);
+  const co = String(c["Company"] ?? "").trim(); const ck = key(co);
+  const verifiedCo = !!co && !/^unknown$/i.test(co) && (fromList || (ck.length >= 3 && key(bio + " " + sig).includes(ck)));
+  const post = (sig.match(/Posted on X: “([\s\S]*)”/) || [])[1] || "";
+  const reference = [post ? "Their recent X post: " + post : "", bio ? "Their X bio: " + bio : "", fromList ? "From our founder list: " + sig : ""].filter(Boolean).join("\n");
+  const canA = !!reference && (verifiedCo || !!post);
+  const useA = canA && row % 2 === 0;
+  // a one-word name may be a brand ("Faction"): then just "hey"
+  const oneWord = String(c["Name"] ?? "").trim().split(/\s+/).length < 2;
+  const fill = (t: string) => t.replace(/hey \{first\}/g, oneWord ? "hey" : "hey " + first).replace(/ \{first\}/g, oneWord ? "" : " " + first);
+  if (!useA) return { text: fill(X3_B), tpl: "X3B" };
+  const prompt = "Write one casual X DM from Reyansh (founder of SOVE7GN, a small team that gets funded B2B startups qualified sales calls from LinkedIn and X without hiring SDRs).\n" +
+    "Exact shape, lowercase, 2 or 3 short sentences, under 230 characters: 'hey" + (oneWord ? "" : " " + first) + ", saw you're [launching / hiring for / growing] [their thing]. we help [type of business] with [one result]. is [problem] something you're dealing with right now?'\n" +
+    "Rules: [their thing] must come from the facts below (something real they posted or say), never invented. " + (verifiedCo ? "You may name their company: " + co + "." : "Do NOT name any company.") +
+    " No links, no emojis, no dashes, no 'hope you're well'. Sound like a person typing, not a template.\n\nFacts:\n" + clip(reference, 900) + "\n\nAnswer with the DM text only.";
+  const r = await llmMany([{ id: "a", prompt }]).catch((e) => ({ err: String(e) } as Record<string, string>));
+  x3Last = { raw: String(r.a ?? r.err ?? "").slice(0, 400), verifiedCo, post: !!post };
+  let text = String(r.a ?? "").replace(/^["'\s]+|["'\s]+$/g, "").replace(/\s*[—–]\s*/g, ", ").trim();
+  if (!verifiedCo && co && ck.length >= 3 && key(text).includes(ck)) text = "";               // named a company we can't verify: don't send it
+  if (!text || text.length > 300 || !/^hey /i.test(text) || /\n.*\n.*\n/.test(text)) return { text: fill(X3_B), tpl: "X3B" };
+  return { text, tpl: "X3A" };
+}
 const XV2_DEFAULT = {
   first: "Hey {first}, was researching {company} and had one inbound idea you could use this week:\n\n{idea1}\n\nI've got 2 more for you. Quick q so they actually fit: what part of lead gen are you still doing yourself that you wish you weren't?",
   first_li: "Hey {first}, we're connected on LinkedIn too, I sent you 3 ideas for {company_s} inbound there. Quick q: what part of lead gen are you still doing yourself that you wish you weren't?",
@@ -3081,7 +3122,12 @@ async function xAutoFollowups(): Promise<number> {
     if (!name || !handle || c["Replied on"] || /^by hand/i.test(c["DM result"] || "") || /^(not specified|unknown)$/i.test(name.trim())) continue;
     if (Object.values(c).some((v) => v === "Followed us")) continue;   // (16 Nov) people who only followed us get no follow-ups
     const st = c["Status"] || "", sent = sheetTime(c["Sent on"]), f1 = sheetTime(c["FU1 sent"]);
-    if (/^X2/.test(c["Template"] || "")) {
+    if (/^X3/.test(c["Template"] || "")) {
+      if (!sent || !/^sent$/i.test(st) || done.has(r.row + ":fu1") || now < sent + X3_NUDGE_DAYS * 864e5 - 2 * 3600e3) continue;
+      add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind: "fu1", text: X3_NUDGE.replace(/\{first\}/g, String(name).trim().split(/\s+/)[0].toLowerCase()), status: "ready", decided_by: "auto: x3 nudge" });
+      if (add.length >= 30) break; continue;
+    }
+    if (/^X2/.test(c["Template"] || "")) { continue;   // (19 Nov) the sales sequence is LinkedIn only now: X2 rows get nothing more
       if (!sent || !/^(sent|fu1 sent|fu2 sent)$/i.test(st)) continue;
       const i = XV2_KINDS.findIndex((k) => !done.has(r.row + ":" + k)); if (i < 0) continue;
       const lastAt = i === 0 ? sent : (sentAt.get(r.row + ":" + XV2_KINDS[i - 1]) ?? 0);
@@ -3190,7 +3236,16 @@ async function x_plan(b: any) {
         await db.from("crm_x_tasks").update({ text }).eq("id", t.id);
       }
     }
-    if (t.kind === "dm" && !/v2/.test(String(t.decided_by ?? ""))) {
+    if (t.kind === "dm" && !/v3/.test(String(t.decided_by ?? ""))) {
+      try { const c = await pipeRow(t.row);
+        if (c && /^(to send|)$/i.test(c["Status"] || "") && !Object.values(c).some((v) => v === "Followed us" || v === "Engaged with our post")) {
+          if (!/^X3/.test(c["Template"] || "")) { const x3 = await x3Compose(c, t.row); text = x3.text;
+            await db.rpc("crm_call", { body: { action: "pipeline", row: t.row, name: c["Name"], company: c["Company"], cells: { Template: x3.tpl, "Opener (30-40 words)": x3.text } } }); }
+          else text = String(c["Opener (30-40 words)"] || text);
+          await db.from("crm_x_tasks").update({ text, decided_by: String(t.decided_by ?? "") + " v3" }).eq("id", t.id);
+        } } catch (_) { /* goes as it was */ }
+    }
+    if (false) {
       try {
         const c = await pipeRow(t.row);
         if (c && /^(to send|)$/i.test(c["Status"] || "") && !/^X2/.test(c["Template"] || "")) {
