@@ -1002,51 +1002,191 @@ const conv=(v,from,to)=>{v=+v||0;if(from===to)return v;return from==='USD'?v*fxR
 const fmtC=(v,cur)=>(CUR_SYM[cur]||'$')+Math.round(+v||0).toLocaleString(cur==='INR'?'en-IN':'en-US');
 const dispCur=()=>V.f.cliCur==='INR'?'INR':'USD';
 const inDisp=(v,c)=>conv(v,curOf(c),dispCur());
-function clientForm(c){V.cform={id:'c'+Date.now(),currency:'USD',status:'Active',start:new Date().toISOString().slice(0,10),mrr:'',cost:'',setup:'',payments:[],...(c||{})};schedule();}
+/* ---------- (18 Nov, Reyansh) Clients v2: retainer history, tax, overhead, a page per client, a change log and KPIs that matter ----------
+   Client: {id,name,contact,email,service,source,status,start,end,currency,mrr,cost,setup,terms,notes,payments:[{date,amount,paid,paid_at}],
+            rates:[{from:'YYYY-MM',mrr,cost,note}],log:[{at,what}],paused_at,lead_id}
+   rates is the retainer over time (month 1 at ₹4L, month 2 at ₹4.5L...). mrr/cost always mirror the rate in force this month.
+   Setting "clients_cfg": {tax (% of profit), overhead (fixed monthly cost not tied to a client), overhead_cur, target (MRR goal), target_cur, months (chart range)} */
+const ymOf=d=>{d=d instanceof Date?d:new Date(d);return isNaN(d)?'':d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');};
+const thisYm=()=>ymOf(new Date());
+const ymAdd=(m,n)=>{const [y,mo]=m.split('-').map(Number);return ymOf(new Date(y,mo-1+n,1));};
+const ymLabel=m=>{const [y,mo]=String(m||'').split('-').map(Number);return y?AK.MON[mo-1]+' '+String(y).slice(2):'';};
+const cliCfg=()=>({tax:30,overhead:0,overhead_cur:'INR',target:0,target_cur:'USD',months:6,...(AK.leadSetting('clients_cfg')||{})});
+const saveCliCfg=p=>AK.leadSettingSave('clients_cfg',{...cliCfg(),...p}).then(()=>schedule());
+function ratesOf(c){
+  const r=(c.rates||[]).filter(x=>x&&x.from).slice().sort((a,b)=>a.from<b.from?-1:a.from>b.from?1:0);
+  const s=ymOf(c.start)||thisYm();
+  if(!r.length)return [{from:s,mrr:+c.mrr||0,cost:+c.cost||0,note:'Start'}];
+  if(r[0].from>s)r.unshift({from:s,mrr:+r[0].mrr||0,cost:+r[0].cost||0,note:'Start'});
+  return r;
+}
+function rateAt(c,m){   // what they pay us (and cost us) in month m, in their own currency; null when they weren't a client then
+  if(!c.start||m<ymOf(c.start))return null;
+  const end=c.end?ymOf(c.end):(c.status==='Ended'?ymOf(c.updated_at||new Date()):'');
+  if(end&&m>end)return null;
+  if(c.status==='Paused'&&m>=(ymOf(c.paused_at)||thisYm()))return null;
+  let cur=null;for(const r of ratesOf(c))if(r.from<=m)cur=r;
+  return cur?{mrr:+cur.mrr||0,cost:+cur.cost||0}:null;
+}
+const ovIn=cur=>{const g=cliCfg();return conv(+g.overhead||0,g.overhead_cur==='USD'?'USD':'INR',cur);};
+// One month of the whole business in the display currency: revenue, delivery cost, gross, overhead, tax, net
+function monthBook(C,m){
+  const cur=dispCur();let rev=0,cost=0,n=0;
+  for(const c of C){const r=rateAt(c,m);if(!r)continue;rev+=conv(r.mrr,curOf(c),cur);cost+=conv(r.cost,curOf(c),cur);n++;}
+  const gross=rev-cost,ov=n?ovIn(cur):0,pre=gross-ov,tax=Math.max(0,pre)*(+cliCfg().tax||0)/100;
+  return {m,rev,cost,gross,ov,pre,tax,net:pre-tax,n};
+}
+const payDue=(c,p)=>{const d=new Date(p.date);d.setDate(d.getDate()+(+c.terms||7));return d;};
+const isOverdue=(c,p)=>!p.paid&&p.date&&payDue(c,p)<new Date();
+function cliPut(c,what){   // save one client, with a line in its log
+  const arr=clientsAll().filter(x=>x.id!==c.id);const r=ratesOf(c);let cu=null;for(const x of r)if(x.from<=thisYm())cu=x;cu=cu||r[0];
+  const next={...c,mrr:cu.mrr,cost:cu.cost,updated_at:new Date().toISOString()};
+  if(what)next.log=[{at:new Date().toISOString(),what},...(c.log||[])].slice(0,200);
+  arr.push(next);return saveClients(arr).then(()=>schedule());
+}
+function clientForm(c){V.cform={id:'c'+Date.now(),currency:'USD',status:'Active',start:new Date().toISOString().slice(0,10),mrr:'',cost:'',setup:'',terms:7,payments:[],...(c||{})};V.cform._was=c&&c.id?JSON.parse(JSON.stringify(c)):null;schedule();}
 function clientFormHtml(){
-  const f=V.cform;if(!f)return '';const close=()=>{V.cform=null;schedule();};
+  const f=V.cform;if(!f)return '';const close=()=>{V.cform=null;schedule();};const isNew=!f._was;
   const inpF=(k,label,type,ph)=>'<label>'+esc(label)+'</label><input class="in" type="'+(type||'text')+'" value="'+esc(f[k]??'')+'" placeholder="'+esc(ph||'')+'"'+inp(e=>{V.cform[k]=e.target.value;})+'>';
   const sel=(k,label,opts)=>'<label>'+esc(label)+'</label><select class="in"'+chg(e=>{V.cform[k]=e.target.value;if(k==='currency')schedule();})+'>'+opts.map(o=>'<option'+(f[k]===o?' selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
-  const mrr=+f.mrr||0,cost=+f.cost||0;
+  const mrr=+f.mrr||0,cost=+f.cost||0,cu=curOf(f),tx=+cliCfg().tax||0;
+  const save=()=>{const o=f._was,n={...V.cform};delete n._was;const ch=[];
+    if(isNew){n.rates=[{from:ymOf(n.start)||thisYm(),mrr:+n.mrr||0,cost:+n.cost||0,note:'Start'}];ch.push('Added as a client at '+fmtC(n.mrr,cu)+' a month');}
+    else{
+      if(+o.mrr!==+n.mrr||+o.cost!==+n.cost){const rs=ratesOf(o).filter(r=>r.from!==thisYm());rs.push({from:thisYm(),mrr:+n.mrr||0,cost:+n.cost||0,note:'Edited'});n.rates=rs;
+        ch.push('Retainer from '+ymLabel(thisYm())+': '+fmtC(o.mrr,cu)+' → '+fmtC(n.mrr,cu)+(+o.cost!==+n.cost?', cost '+fmtC(o.cost,cu)+' → '+fmtC(n.cost,cu):''));}
+      if(o.status!==n.status){ch.push('Status '+(o.status||'Active')+' → '+n.status);if(n.status==='Paused')n.paused_at=new Date().toISOString();if(n.status==='Ended'&&!n.end)n.end=new Date().toISOString().slice(0,10);if(n.status==='Active')n.paused_at=null;}
+      for(const [k,l] of [['name','Name'],['service','Service'],['contact','Contact'],['start','Start date'],['end','End date'],['terms','Payment terms'],['currency','Currency'],['setup','Setup fee']])if(String(o[k]??'')!==String(n[k]??''))ch.push(l+': '+(o[k]||'–')+' → '+(n[k]||'–'));
+      const pp=(o.payments||[]).length,np=(n.payments||[]).length;if(pp!==np)ch.push(np>pp?'Added a payment':'Removed a payment');
+      const pdo=(o.payments||[]).filter(p=>p.paid).length,pdn=(n.payments||[]).filter(p=>p.paid).length;if(pp===np&&pdo!==pdn)ch.push(pdn>pdo?'Marked a payment paid':'Marked a payment not paid');
+    }
+    cliPut(n,ch.join(' · ')).then(()=>L.toast('Saved '+(n.name||'the client')+'.'));V.cform=null;schedule();};
   return '<div class="modal"'+act(e=>{if(e.target.classList.contains('modal'))close();},false)+'><div class="box"><div class="mh"><h2>'+(f.name?esc(f.name):'New client')+'</h2><span style="flex:1"></span>'+btn('Close',close,'sm ghost')+'</div><div class="mb"><div class="kv">'
     +inpF('name','Company','text','Acme')+inpF('contact','Main contact','text','Founder name')+inpF('email','Email','email')+inpF('service','What we do for them','text','Inbound + outbound GTM')
     +sel('source','Came from',['LinkedIn','X','Inbound','Referral','Email','Other'])+sel('status','Status',['Active','Paused','Ended'])
     +inpF('start','Start date','date')+inpF('end','End date (if ended)','date')
     +sel('currency','Currency they pay in',['USD','INR'])
-    +inpF('mrr','Monthly revenue ('+curOf(f)+')','number',curOf(f)==='INR'?'150000':'2000')+inpF('cost','Our monthly cost to deliver ('+curOf(f)+')','number',curOf(f)==='INR'?'30000':'400')+inpF('setup','One-time setup fee ('+curOf(f)+')','number','0')
+    +inpF('mrr',(isNew?'Monthly retainer':'Monthly retainer from this month')+' ('+cu+')','number',cu==='INR'?'150000':'2000')+inpF('cost','Our monthly cost to deliver ('+cu+')','number',cu==='INR'?'30000':'400')+inpF('setup','One-time setup fee ('+cu+')','number','0')
+    +inpF('terms','Payment terms (days to pay an invoice)','number','7')
     +'<label>Notes</label><textarea class="in" rows="3"'+inp(e=>{V.cform.notes=e.target.value;})+'>'+esc(f.notes||'')+'</textarea></div>'
-    +'<div class="note" style="margin-top:10px">Margin: <b>'+(mrr?Math.round((mrr-cost)/mrr*100)+'%':'–')+'</b> · profit '+fmtC(mrr-cost,curOf(f))+' a month'+(mrr?' ('+fmtC(conv(mrr-cost,curOf(f),curOf(f)==='USD'?'INR':'USD'),curOf(f)==='USD'?'INR':'USD')+')':'')+'</div>'
+    +(!isNew?'<div class="note" style="margin-top:8px">Changing the retainer here applies from '+ymLabel(thisYm())+'. To set it from another month, use Change retainer on the client’s page.</div>':'')
+    +'<div class="note" style="margin-top:10px">Margin: <b>'+(mrr?Math.round((mrr-cost)/mrr*100)+'%':'–')+'</b> · profit '+fmtC(mrr-cost,cu)+' a month · after '+tx+'% tax '+fmtC(Math.max(0,mrr-cost)*(1-tx/100),cu)+'</div>'
     +'<div class="blk" style="margin-top:14px"><h3>Payments<span class="sp"></span>'+btn('+ Payment',()=>{V.cform.payments=[...(V.cform.payments||[]),{date:new Date().toISOString().slice(0,10),amount:V.cform.mrr||'',paid:false}];schedule();},'sm ghost')+'</h3>'
     +(f.payments||[]).map((p,i)=>'<div class="pay"><input class="in" type="date" value="'+esc(p.date)+'"'+inp(e=>{V.cform.payments[i].date=e.target.value;})+'><input class="in" type="number" placeholder="Amount" value="'+esc(p.amount)+'"'+inp(e=>{V.cform.payments[i].amount=e.target.value;})+'>'
-      +'<button type="button" class="chip'+(p.paid?' on':'')+'"'+act(()=>{V.cform.payments[i].paid=!p.paid;schedule();})+'>'+(p.paid?'Paid':'Not paid')+'</button><button type="button" class="btn ghost sm"'+act(()=>{V.cform.payments.splice(i,1);schedule();})+'>×</button></div>').join('')+'</div>'
-    +'<div class="under">'+(canEdit()?btn('Save client',()=>{const arr=clientsAll().filter(x=>x.id!==f.id);arr.push({...V.cform,updated_at:new Date().toISOString()});saveClients(arr).then(()=>L.toast('Saved '+(V.cform&&V.cform.name||'the client')+'.'));V.cform=null;schedule();},'pri sm')
-      +(clientsAll().some(x=>x.id===f.id)?btn('Delete',()=>{if(!confirm('Delete '+(f.name||'this client')+'?'))return;saveClients(clientsAll().filter(x=>x.id!==f.id));V.cform=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
+      +'<button type="button" class="chip'+(p.paid?' on':'')+'"'+act(()=>{V.cform.payments[i].paid=!p.paid;V.cform.payments[i].paid_at=!p.paid?new Date().toISOString().slice(0,10):null;schedule();})+'>'+(p.paid?'Paid':'Not paid')+'</button><button type="button" class="btn ghost sm"'+act(()=>{V.cform.payments.splice(i,1);schedule();})+'>×</button></div>').join('')+'</div>'
+    +'<div class="under">'+(canEdit()?btn('Save client',save,'pri sm')
+      +(!isNew?btn('Delete',()=>{if(!confirm('Delete '+(f.name||'this client')+'? Its retainer history, payments and log go too.'))return;saveClients(clientsAll().filter(x=>x.id!==f.id));V.cform=null;V.f.cliOpen=null;schedule();},'sm ghost'):''):'')+'</div></div></div></div>';
+}
+// Settings for the page: tax, fixed overhead, MRR target, chart range
+function cliSettingsHtml(){
+  const g=cliCfg();if(!V.f.cliSet)return '';
+  const num=(k,label,w,suffix)=>'<label class="note" style="display:flex;align-items:center;gap:6px">'+esc(label)+'<input class="in" type="number" style="width:'+(w||90)+'px" value="'+esc(g[k]??'')+'"'+chg(e=>{if(canEdit())saveCliCfg({[k]:+e.target.value||0});})+'>'+(suffix||'')+'</label>';
+  const curSel=k=>'<select class="in" style="width:72px"'+chg(e=>{if(canEdit())saveCliCfg({[k]:e.target.value});})+'>'+['INR','USD'].map(o=>'<option'+(g[k]===o?' selected':'')+'>'+o+'</option>').join('')+'</select>';
+  return '<div class="card sec-b" style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center">'
+    +num('tax','Tax on profit',70,'%')+'<span style="display:flex;gap:6px;align-items:center">'+num('overhead','Fixed monthly overhead (tools, salaries)',110)+curSel('overhead_cur')+'</span>'
+    +'<span style="display:flex;gap:6px;align-items:center">'+num('target','MRR target',110)+curSel('target_cur')+'</span>'
+    +'<label class="note" style="display:flex;align-items:center;gap:6px">Chart<select class="in" style="width:110px"'+chg(e=>{if(canEdit())saveCliCfg({months:+e.target.value});})+'>'+[6,12,24].map(n=>'<option value="'+n+'"'+(+g.months===n?' selected':'')+'>'+n+' months</option>').join('')+'</select></label>'
+    +'<span class="note">Overhead counts once a month while at least one client pays. Tax comes off profit after overhead, never off a loss.</span></div>';
 }
 function pgClients(){
-  const C=clientsAll();const act0=C.filter(c=>c.status==='Active');const mrr=act0.reduce((s,c)=>s+inDisp(c.mrr,c),0),cost=act0.reduce((s,c)=>s+inDisp(c.cost,c),0);
-  const paid=C.flatMap(c=>(c.payments||[]).filter(p=>p.paid).map(p=>inDisp(p.amount,c))).reduce((s,v)=>s+v,0),due=C.flatMap(c=>(c.payments||[]).filter(p=>!p.paid).map(p=>inDisp(p.amount,c))).reduce((s,v)=>s+v,0);
-  const money=v=>fmtC(v,dispCur());
+  if(V.f.cliOpen){const c=clientsAll().find(x=>x.id===V.f.cliOpen);if(c)return pgClient(c);V.f.cliOpen=null;}
+  const C=clientsAll(),g=cliCfg(),money=v=>fmtC(v,dispCur()),M=thisYm();
+  const now=monthBook(C,M),prev=monthBook(C,ymAdd(M,-1));
+  // MRR movement this month vs last: new clients, expansion (retainer up), contraction, churn
+  let mNew=0,mExp=0,mCon=0,mChurn=0;for(const c of C){const a=rateAt(c,ymAdd(M,-1)),b=rateAt(c,M),v=r=>r?conv(r.mrr,curOf(c),dispCur()):0;
+    if(!a&&b)mNew+=v(b);else if(a&&!b)mChurn+=v(a);else if(a&&b){if(v(b)>v(a))mExp+=v(b)-v(a);else mCon+=v(a)-v(b);}}
+  // NRR: what clients active 3 months ago pay now ÷ what they paid then
+  const M3=ymAdd(M,-3),was=C.filter(c=>rateAt(c,M3));const nrrA=was.reduce((s,c)=>s+conv(rateAt(c,M3).mrr,curOf(c),dispCur()),0),nrrB=was.reduce((s,c)=>{const r=rateAt(c,M);return s+(r?conv(r.mrr,curOf(c),dispCur()):0);},0);
+  const live=C.filter(c=>rateAt(c,M)).map(c=>({c,v:conv(rateAt(c,M).mrr,curOf(c),dispCur())})).sort((a,b)=>b.v-a.v);
+  const top=live[0];const topShare=top&&now.rev?Math.round(top.v/now.rev*100):0;
+  const pays=C.flatMap(c=>(c.payments||[]).map(p=>({c,p,v:conv(+p.amount||0,curOf(c),dispCur())})));
+  const paid=pays.filter(x=>x.p.paid).reduce((s,x)=>s+x.v,0),due=pays.filter(x=>!x.p.paid).reduce((s,x)=>s+x.v,0),over=pays.filter(x=>isOverdue(x.c,x.p));
+  const overV=over.reduce((s,x)=>s+x.v,0),billed=paid+due;
+  const tenure=C.filter(c=>c.start).map(c=>{const e=c.end?new Date(c.end):new Date();return Math.max(0,(e-new Date(c.start))/(30.44*864e5));});
+  const tgt=+g.target?conv(+g.target,g.target_cur==='INR'?'INR':'USD',dispCur()):0;
   const won=leadsOpen().filter(l=>/^won$/i.test(l.stage||'')),lost=(AK.LD.rows||[]).filter(l=>/^(lost|cold lead)$/i.test(l.stage||'')&&!l.archived);
   const cur=V.f.cli||'clients';
-  let h=head('Clients','Every client: what they pay, what they cost us to deliver, the margin, and payments. Each client is in USD or INR; totals show in the currency picked here.',canEdit()?btn('+ Add a client',()=>clientForm(),'pri sm'):'');
+  let h=head('Clients','Every client: what they pay each month, what they cost us, profit after overhead and '+g.tax+'% tax, and payments. Click a client for its own page.',canEdit()?btn('+ Add a client',()=>clientForm(),'pri sm'):'');
   h+='<div class="bar" style="margin:-4px 0 12px">'+['USD','INR'].map(k=>'<button type="button" class="chip'+(dispCur()===k?' on':'')+'"'+act(()=>{V.f.cliCur=k;schedule();})+'>Show in '+k+'</button>').join('')
-    +'<span class="note" style="margin-left:10px">1 USD = ₹</span><input class="in" type="number" style="width:80px" value="'+esc(fxRate())+'"'+chg(e=>{const v=+e.target.value;if(v>0&&canEdit())AK.leadSettingSave('fx',{...(AK.leadSetting('fx')||{}),usd_inr:v}).then(()=>schedule());})+'></div>';
-  h+=strip([['MRR',money(mrr),act0.length+' active '+(act0.length===1?'client':'clients'),'#059669'],['Monthly profit',money(mrr-cost),'after delivery cost','#2563EB'],['Margin',mrr?Math.round((mrr-cost)/mrr*100)+'%':'–','profit ÷ revenue','#7C3AED'],
-    ['ARR',money(mrr*12),'MRR × 12','#0D9488'],['Collected',money(paid),due?money(due)+' still to collect':'nothing outstanding','#D97706']]);
-  // MRR over the last 6 months
-  const months=[...Array(6)].map((_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-5+i);return d;});
-  const mAt=(d,k)=>C.filter(c=>c.start&&new Date(c.start)<=new Date(d.getFullYear(),d.getMonth()+1,0)&&(!c.end||new Date(c.end)>=d)&&c.status!=='Paused').reduce((s,c)=>s+inDisp(c[k],c),0);
-  if(C.length)h+='<div class="card sec-b" style="margin-bottom:16px"><h3 class="ch">Revenue and profit by month</h3>'+barChart([{n:'Revenue',c:'#059669',data:months.map(d=>mAt(d,'mrr'))},{n:'Profit',c:'#2563EB',data:months.map(d=>mAt(d,'mrr')-mAt(d,'cost'))}],months.map(d=>AK.MON[d.getMonth()]),120)+'</div>';
+    +'<span class="note" style="margin-left:10px">1 USD = ₹</span><input class="in" type="number" style="width:80px" value="'+esc(fxRate())+'"'+chg(e=>{const v=+e.target.value;if(v>0&&canEdit())AK.leadSettingSave('fx',{...(AK.leadSetting('fx')||{}),usd_inr:v}).then(()=>schedule());})+'>'
+    +'<span class="sp"></span>'+btn(V.f.cliSet?'Hide settings':'Settings · tax '+g.tax+'%'+(+g.overhead?' · overhead':'')+(+g.target?' · target':''),()=>{V.f.cliSet=!V.f.cliSet;schedule();},'sm ghost')+'</div>';
+  h+=cliSettingsHtml();
+  const mv=now.rev-prev.rev,sg=v=>(v>=0?'+':'−')+money(Math.abs(v));
+  h+=strip([['MRR',money(now.rev),sg(mv)+' vs last month · '+now.n+' paying','#059669'],
+    ['Gross profit',money(now.gross),(now.rev?Math.round(now.gross/now.rev*100):0)+'% after delivery cost','#2563EB'],
+    ['Net profit after tax',money(now.net),(now.ov?money(now.ov)+' overhead · ':'')+money(now.tax)+' tax ('+g.tax+'%)','#7C3AED'],
+    ['Net margin',now.rev?Math.round(now.net/now.rev*100)+'%':'–','what we keep of every '+CUR_SYM[dispCur()]+'1 billed','#0D9488'],
+    ['Outstanding',money(due),over.length?over.length+' overdue · '+money(overV):'nothing overdue',over.length?'#DC2626':'#D97706']]);
+  h+='<div style="height:10px"></div>'+strip([['MRR movement',sg(mv),'new '+money(mNew)+' · up '+money(mExp)+' · down '+money(mCon)+' · lost '+money(mChurn),'#059669'],
+    ['Net revenue retention',nrrA?Math.round(nrrB/nrrA*100)+'%':'–',nrrA?'clients from '+ymLabel(M3)+': paying now vs then':'needs 3 months of history','#2563EB'],
+    ['Biggest client share',top?topShare+'%':'–',top?(top.c.name||'')+(topShare>=50?' · too much riding on one client':''):'',topShare>=50?'#DC2626':'#D97706'],
+    ['Collection rate',billed?Math.round(paid/billed*100)+'%':'–',money(paid)+' collected of '+money(billed)+' invoiced','#0D9488'],
+    tgt?['To MRR target',Math.min(100,Math.round(now.rev/tgt*100))+'%',money(Math.max(0,tgt-now.rev))+' to go to '+money(tgt),'#7C3AED']
+      :['Avg per client',now.n?money(now.rev/now.n):'–',tenure.length?(tenure.reduce((s,v)=>s+v,0)/tenure.length).toFixed(1)+' months average time with us':'','#7C3AED']]);
+  const N=+g.months||6,months=[...Array(N)].map((_,i)=>ymAdd(M,i-N+1)),B=months.map(m=>monthBook(C,m));
+  if(C.length)h+='<div class="card sec-b" style="margin:16px 0"><h3 class="ch">Revenue, profit and what we keep after tax · last '+N+' months</h3>'
+    +barChart([{n:'Revenue',c:'#059669',data:B.map(b=>Math.round(b.rev))},{n:'Gross profit',c:'#2563EB',data:B.map(b=>Math.max(0,Math.round(b.gross)))},{n:'Net after tax',c:'#7C3AED',data:B.map(b=>Math.max(0,Math.round(b.net)))}],months.map(ymLabel),130)+'</div>';
   h+=tabsBar('cli',[['clients','Clients',C.length],['won','Won',won.length],['lost','Lost',lost.length]])+'<div style="margin-top:12px">';
-  if(cur==='clients')h+=table('cli',[['Client','minmax(0,1.6fr)'],['Status','90px'],['MRR','100px'],['Cost','100px'],['Margin','80px'],['Since','110px'],['Paid / due','minmax(0,1fr)']],
-    C.sort((a,b)=>(b.status==='Active')-(a.status==='Active')||inDisp(b.mrr,b)-inDisp(a.mrr,a)).map(c=>{const m=+c.mrr||0,k=+c.cost||0,cu=curOf(c),own=v=>fmtC(v,cu);const pd=(c.payments||[]).filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),du=(c.payments||[]).filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0);
-      const money=own;const alt=cu!==dispCur()?'<div class="meta" style="font-size:11px">'+fmtC(conv(m,cu,dispCur()),dispCur())+'</div>':'';
-      return{open:()=>clientForm(c),cells:[pcell(c.name||'(no name)',[c.contact,c.service,cu].filter(Boolean).join(' · '),null),tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280'),'<b class="num">'+money(m)+'</b>'+alt,'<span class="num meta">'+money(k)+'</span>',
-        '<span class="num" style="color:'+(m&&(m-k)/m>=0.5?'#059669':'#B45309')+';font-weight:600">'+(m?Math.round((m-k)/m*100)+'%':'–')+'</span>','<span class="meta">'+esc(c.start||'')+'</span>','<span class="meta">'+money(pd)+(du?' · <span style="color:#B45309">'+money(du)+' due</span>':'')+'</span>']};}),'No clients yet. Add the first one with + Add a client.');
+  if(cur==='clients')h+=table('cli',[['Client','minmax(0,1.6fr)'],['Status','90px'],['MRR','120px'],['Change','90px'],['Cost','100px'],['Margin','70px'],['After tax','110px'],['Since','100px'],['Paid / due','minmax(0,1fr)']],
+    C.sort((a,b)=>(b.status==='Active')-(a.status==='Active')||inDisp(b.mrr,b)-inDisp(a.mrr,a)).map(c=>{const r=rateAt(c,M)||{mrr:+c.mrr||0,cost:+c.cost||0},m=r.mrr,k=r.cost,cu=curOf(c),own=v=>fmtC(v,cu);
+      const rs=ratesOf(c),first=+rs[0].mrr||0,grow=first&&m!==first?Math.round((m-first)/first*100):0;
+      const pd=(c.payments||[]).filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),du=(c.payments||[]).filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0),od=(c.payments||[]).some(p=>isOverdue(c,p));
+      const alt=cu!==dispCur()?'<div class="meta" style="font-size:11px">'+fmtC(conv(m,cu,dispCur()),dispCur())+'</div>':'';
+      return{open:()=>{V.f.cliOpen=c.id;schedule();},cells:[pcell(c.name||'(no name)',[c.contact,c.service,cu].filter(Boolean).join(' · '),null),tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280'),'<b class="num">'+own(m)+'</b>'+alt,
+        grow?'<span class="num" style="color:'+(grow>0?'#059669':'#DC2626')+';font-weight:600">'+(grow>0?'+':'')+grow+'%</span><div class="meta" style="font-size:11px">since start</div>':'<span class="faint">–</span>',
+        '<span class="num meta">'+own(k)+'</span>','<span class="num" style="color:'+(m&&(m-k)/m>=0.5?'#059669':'#B45309')+';font-weight:600">'+(m?Math.round((m-k)/m*100)+'%':'–')+'</span>',
+        '<span class="num">'+own(Math.max(0,m-k)*(1-g.tax/100))+'</span>','<span class="meta">'+esc(c.start||'')+'</span>',
+        '<span class="meta">'+own(pd)+(du?' · <span style="color:'+(od?'#DC2626':'#B45309')+'">'+own(du)+(od?' overdue':' due')+'</span>':'')+'</span>']};}),'No clients yet. Add the first one with + Add a client.');
   if(cur==='won')h+=table('won',[['Who','minmax(0,2fr)'],['From','100px'],['Won','110px'],['Value','100px'],['','auto']],won.map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),'<span class="meta">'+esc(l.source||'')+'</span>','<span class="meta">'+esc(since(l.stage_at))+'</span>','<span class="num">'+(l.price?money(l.price):'–')+'</span>',
     ACTS(canEdit()&&!clientsAll().some(c=>c.lead_id===l.id)?['Add as client',()=>clientForm({name:l.company||l.name,contact:l.name,email:l.email||'',source:l.source,lead_id:l.id,mrr:l.price||''})]:null)]})),'No wins yet. People you move to Won show here.');
   if(cur==='lost')h+=table('lost',[['Who','minmax(0,2fr)'],['Stage','110px'],['Why','minmax(0,2fr)'],['When','110px']],lost.sort((a,b)=>ms(b.stage_at)-ms(a.stage_at)).map(l=>({open:()=>L.openLead(l.id),cells:[pcell(cleanName(l.name),[l.role,l.company].filter(Boolean).join(' · '),PLAT[l.source]?l.source:null),tagp(l.stage,'#6B7280'),ell(LIo(l).reply_label==='not_interested'?'Said no: '+(LIo(l).reply_text||''):LIo(l).stop==='no reply'?'No reply after all follow-ups':l.closed_for||l.next_step||'','meta'),'<span class="meta">'+esc(since(l.stage_at))+'</span>']})),'Nothing lost.');
   return h+'</div>';
+}
+// One client's own page: their numbers, retainer over time, payments and everything that changed
+function pgClient(c){
+  const cu=curOf(c),own=v=>fmtC(v,cu),g=cliCfg(),M=thisYm(),rs=ratesOf(c);
+  const r=rateAt(c,M)||{mrr:+c.mrr||0,cost:+c.cost||0},first=+rs[0].mrr||0;
+  const start=ymOf(c.start)||M,end=c.end?ymOf(c.end):M,last=end<M?end:M;
+  const allM=[];for(let m=start;m<=last&&allM.length<120;m=ymAdd(m,1))allM.push(m);
+  const book=allM.map(m=>{const x=rateAt(c,m)||{mrr:0,cost:0};const gp=x.mrr-x.cost;return {m,rev:x.mrr,cost:x.cost,gross:gp,net:gp-Math.max(0,gp)*g.tax/100};});
+  const life=book.reduce((s,b)=>s+b.rev,0)+(+c.setup||0),lifeNet=book.reduce((s,b)=>s+b.net,0);
+  const P=(c.payments||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const paid=P.filter(p=>p.paid).reduce((s,p)=>s+(+p.amount||0),0),due=P.filter(p=>!p.paid).reduce((s,p)=>s+(+p.amount||0),0),od=P.filter(p=>isOverdue(c,p));
+  const paidLate=P.filter(p=>p.paid&&p.paid_at&&new Date(p.paid_at)>payDue(c,p)).length,paidAll=P.filter(p=>p.paid&&p.paid_at).length;
+  const months=allM.length,grow=first?Math.round((r.mrr-first)/first*100):0;
+  const setPay=(i,patch)=>{const ps=(c.payments||[]).slice();const j=ps.indexOf(P[i]);ps[j]={...ps[j],...patch};cliPut({...c,payments:ps},(patch.paid?'Marked paid: ':'Marked not paid: ')+own(ps[j].amount)+' ('+ps[j].date+')');};
+  const invoiced=P.some(p=>ymOf(p.date)===M);
+  let h='<div class="bar" style="margin-bottom:10px">'+btn('← All clients',()=>{V.f.cliOpen=null;V.rateF=null;schedule();},'sm ghost')+'</div>';
+  h+=head(c.name||'Client',[c.contact,c.service,c.source?'came from '+c.source:'',cu].filter(Boolean).join(' · '),canEdit()?btn('Change retainer',()=>{V.rateF={from:ymAdd(M,1),mrr:r.mrr,cost:r.cost,note:''};schedule();},'pri sm')+btn('Edit',()=>clientForm(c),'sm ghost'):'');
+  h+='<div class="bar" style="margin:-4px 0 12px">'+tagp(c.status||'Active',c.status==='Active'?'#059669':c.status==='Paused'?'#D97706':'#6B7280')+'<span class="note" style="margin-left:8px">Since '+esc(c.start||'?')+(c.end?' · ended '+esc(c.end):'')+' · pays within '+(+c.terms||7)+' days</span></div>';
+  if(V.rateF){const F=V.rateF;const fld=(k,l,t)=>'<label class="note" style="display:flex;flex-direction:column;gap:4px">'+esc(l)+'<input class="in" type="'+t+'" value="'+esc(F[k]??'')+'"'+inp(e=>{V.rateF[k]=e.target.value;})+'></label>';
+    h+='<div class="card sec-b" style="margin-bottom:16px"><h3 class="ch">Change the retainer</h3><div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">'
+      +fld('from','From month','month')+fld('mrr','New monthly retainer ('+cu+')','number')+fld('cost','Our cost to deliver ('+cu+')','number')+fld('note','Why (optional)','text')
+      +btn('Save',()=>{const F2=V.rateF;if(!/^\d{4}-\d{2}$/.test(F2.from||''))return L.toast('Pick the month it starts.');const old=rateAt(c,F2.from)||r;
+        const nr=rs.filter(x=>x.from!==F2.from).concat([{from:F2.from,mrr:+F2.mrr||0,cost:+F2.cost||0,note:F2.note||''}]);
+        cliPut({...c,rates:nr},'Retainer from '+ymLabel(F2.from)+': '+own(old.mrr)+' → '+own(+F2.mrr||0)+(+old.cost!==+F2.cost?', cost '+own(old.cost)+' → '+own(+F2.cost||0):'')+(F2.note?' ('+F2.note+')':'')).then(()=>L.toast('Retainer updated.'));V.rateF=null;schedule();},'pri sm')
+      +btn('Cancel',()=>{V.rateF=null;schedule();},'sm ghost')+'</div></div>';}
+  h+=strip([['Retainer now',own(r.mrr),grow?(grow>0?'+':'')+grow+'% since month 1 ('+own(first)+')':'same as month 1','#059669'],
+    ['Margin',r.mrr?Math.round((r.mrr-r.cost)/r.mrr*100)+'%':'–',own(r.mrr-r.cost)+' gross a month','#2563EB'],
+    ['After '+g.tax+'% tax',own(Math.max(0,r.mrr-r.cost)*(1-g.tax/100)),'what this client leaves us a month','#7C3AED'],
+    ['Lifetime value',own(life),months+' month'+(months===1?'':'s')+' · '+own(lifeNet)+' kept after tax','#0D9488'],
+    ['Payments',own(paid)+' paid',od.length?od.length+' overdue · '+own(od.reduce((s,p)=>s+(+p.amount||0),0)):due?own(due)+' due':paidAll?(paidAll-paidLate)+' of '+paidAll+' paid on time':'no invoices yet',od.length?'#DC2626':'#D97706']]);
+  const show=book.slice(-Math.max(6,+g.months||6));while(show.length<6){const m=ymAdd(show.length?show[0].m:M,-1);show.unshift({m,rev:0,cost:0,gross:0,net:0});}
+  h+='<div class="card sec-b" style="margin:16px 0"><h3 class="ch">Their retainer, our cost and what we keep · by month</h3>'
+    +barChart([{n:'Retainer',c:'#059669',data:show.map(b=>b.rev)},{n:'Cost',c:'#94A3B8',data:show.map(b=>b.cost)},{n:'Kept after tax',c:'#7C3AED',data:show.map(b=>Math.max(0,Math.round(b.net)))}],show.map(b=>ymLabel(b.m)),130)+'</div>';
+  h+='<h3 class="ch" style="margin:4px 0 8px">Retainer over time</h3>'+table('cli-r',[['From','100px'],['Retainer','130px'],['Change','90px'],['Cost','110px'],['Margin','80px'],['Why','minmax(0,2fr)'],['','60px']],
+    rs.map((x,i)=>{const p=i?+rs[i-1].mrr||0:0,ch=p?Math.round(((+x.mrr||0)-p)/p*100):0;return {cells:['<b>'+esc(ymLabel(x.from))+'</b>','<b class="num">'+own(x.mrr)+'</b>',i&&ch?'<span class="num" style="color:'+(ch>0?'#059669':'#DC2626')+';font-weight:600">'+(ch>0?'+':'')+ch+'%</span>':'<span class="faint">–</span>',
+      '<span class="num meta">'+own(x.cost)+'</span>','<span class="num">'+(+x.mrr?Math.round(((+x.mrr)-(+x.cost||0))/(+x.mrr)*100)+'%':'–')+'</span>',ell(x.note||(i?'':'Start'),'meta'),
+      i&&canEdit()?btn('×',()=>{if(!confirm('Remove the change from '+ymLabel(x.from)+'?'))return;cliPut({...c,rates:rs.filter(y=>y!==x)},'Removed the retainer change from '+ymLabel(x.from)+' ('+own(x.mrr)+')');},'sm ghost'):'']};}),'');
+  h+='<div class="bar" style="margin:18px 0 8px"><h3 class="ch" style="margin:0">Invoices and payments</h3><span class="sp"></span>'+(canEdit()&&!invoiced&&rateAt(c,M)?btn('+ Invoice for '+ymLabel(M)+' ('+own(r.mrr)+')',()=>cliPut({...c,payments:[...(c.payments||[]),{date:new Date().toISOString().slice(0,10),amount:r.mrr,paid:false}]},'Invoiced '+own(r.mrr)+' for '+ymLabel(M)),'sm'):'')+'</div>';
+  h+=table('cli-p',[['Date','110px'],['Amount','130px'],['Due by','110px'],['Status','minmax(0,1fr)'],['','140px']],P.map((p,i)=>{const o=isOverdue(c,p),late=p.paid&&p.paid_at&&new Date(p.paid_at)>payDue(c,p);
+    return {cells:['<span class="meta">'+esc(p.date||'')+'</span>','<b class="num">'+own(p.amount)+'</b>','<span class="meta">'+esc(p.date?payDue(c,p).toISOString().slice(0,10):'')+'</span>',
+      p.paid?tagp(late?'Paid late':'Paid','#059669')+(p.paid_at?' <span class="meta">'+esc(p.paid_at)+'</span>':''):tagp(o?'Overdue '+Math.floor((Date.now()-payDue(c,p))/864e5)+'d':'Not paid yet',o?'#DC2626':'#D97706'),
+      canEdit()?btn(p.paid?'Mark not paid':'Mark paid',()=>setPay(i,p.paid?{paid:false,paid_at:null}:{paid:true,paid_at:new Date().toISOString().slice(0,10)}),'sm ghost'):'']};}),'No invoices yet. Add one with + Invoice, or in Edit.');
+  const lg=(c.log||[]);
+  h+='<h3 class="ch" style="margin:18px 0 8px">What changed</h3><div class="card sec-b">'+(lg.length?lg.slice(0,60).map(x=>'<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)"><span class="meta" style="min-width:130px">'+esc(String(x.at).slice(0,16).replace('T',' '))+'</span><span>'+esc(x.what)+'</span></div>').join(''):'<div class="empty">Changes you make from now on show here: retainer, status, payments.</div>')+'</div>';
+  if(c.notes)h+='<h3 class="ch" style="margin:18px 0 8px">Notes</h3><div class="card sec-b" style="white-space:pre-wrap">'+esc(c.notes)+'</div>';
+  return h;
 }
 
 
