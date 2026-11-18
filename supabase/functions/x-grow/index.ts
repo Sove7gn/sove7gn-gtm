@@ -240,13 +240,28 @@ const REPLY_PROMPT = (r: any, i: number) =>
   "You write a reply under an X post, as Reyansh: 20, Indian founder of a small GTM agency for startups, casual and a bit funny, types fast on his phone.\n" +
   "Post by " + r.name + " (@" + r.author + ", " + (r.followers ?? 0) + " followers, " + (r.kind === "lead" ? "a startup founder" : "a creator who posts about sales and growth") + "):\n\"\"\"\n" +
   String(r.post_text).slice(0, 1200) + "\n\"\"\"\n" +
-  "First work out what the post is really about (work, a product, sales, a joke, sport, travel, life, news). Reply about THAT. " +
-  "If it is not about work (football, food, a meme, a trip, a personal win), reply like a friend would: about that thing only, never bring up GTM, sales, outbound, content or his agency. " +
-  "If it is about work, give one direct point of his own (a quick take, a small example, or agreeing and adding one thing). Mention his own work only if it truly fits, in a few words.\n" +
-  "Style: 1 or 2 short lines, under 140 characters, plain simple words, lowercase is fine, basic grammar is fine, a little humour when it fits. " +
+  // (18 Nov, Reyansh) Only reply where we belong: posts about building, selling or growing a startup. Everything else (where they live,
+  // morning posts, crypto wallets, sport, food, trips, politics, leaks, teasers, memes) is SKIP. Replies must read like a person, not AI.
+  "Step 1, relevance: reply ONLY if the post is about building, launching, selling, marketing, hiring for or growing a startup or product (GTM, sales, outbound, content, customers, pricing, fundraising, founder work, AI tools for business). " +
+  "If it is about anything else (where someone lives, their day, motivation, crypto, sport, food, travel, politics, news gossip, a teaser with no detail, a meme, a personal story), answer SKIP. When in doubt, SKIP.\n" +
+  "Step 2, the reply: say one real thing he actually thinks, the way a founder texts a friend: a specific take or opinion. Never invent stories, clients, numbers or things he did (no 'last month a client...', no 'my week is...'): give a view, not a made-up memory. Talk to the person, about their exact point. Mention his own work only if it truly fits, in a few words.\n" +
+  "Style: one line, ideally 50 to 120 characters, plain words, lowercase is fine, imperfect grammar is fine. " +
   "Make a statement, not a question" + (i % 3 === 2 ? " (one short question at the end is allowed this time)" : " (no question this time)") + ". " +
-  "Never: pitch, links, hashtags, emojis more than one, em dashes, starting with praise (great, love this, so true, congrats, this is gold), 'it's not X, it's Y', sounding like a LinkedIn post, big words. " +
-  "If the post is only a link with no text, or there is nothing natural to say, answer SKIP. Answer with the reply text only.";
+  "Sound human: no 'lol', 'tbh', 'ha,' or 'honestly' fillers, no repeating their post back to them, no neat two-part balanced sentences, no summary of the post, no wise-sounding closing line. " +
+  "Never: pitch, links, hashtags, emojis, em dashes, semicolons, starting with praise (great, love this, so true, congrats, this is gold, bold), 'it's not X, it's Y', 'the real X is Y', sounding like a LinkedIn post, big words. " +
+  "If the post is only a link with no text, it is vague, or there is nothing natural to say, answer SKIP. " +
+  "Answer with the reply text only, exactly as it will be posted: no notes, no thinking, no labels, no explaining what the post is about, no second try. " +
+  "If you are not sure your reply follows every rule, answer SKIP.";
+// (18 Nov, Reyansh) The bot posts drafts with no human check, so anything that isn't a clean reply is skipped. The model once wrote its own
+// notes ("Wait, I need to keep it to 1-2 short lines...", "Reyansh's reply: the post is about...", "Trimming:") and the bot posted them.
+const META = /\b(wait,|trimming|1-2 (short )?lines|under 140|characters\b|reyansh|the post is|this post|post is about|reply:|reply as|replying|statement[- ]only|no question|no pitch|no praise|as a friend would|the rules?\b|draft|here'?s (a|my|the)|let me|i need to keep|okay,? so|ok,? the vibe|generic motivation|nothing specific)/i;
+function replyOk(t: string) {
+  const s = String(t || "").trim();
+  if (!s || s.length > 160 || /\n/.test(s) || META.test(s) || /^skip\b/i.test(s)) return false;   // long ones got cut off mid-word on X ("the rest of y")
+  if (/^(great|love|so true|congrats|amazing|bold|ha\b|honestly)/i.test(s) || /https?:\/\/|#\w|;|\p{Extended_Pictographic}/u.test(s)) return false;
+  if (/\b(lol|tbh|lmao)\s*[.!]?$/i.test(s) || /\bthe real (flex|game|product|x)\b/i.test(s)) return false;   // AI tells he flagged
+  return true;
+}
 async function draftReplies(rows: any[]): Promise<Record<string, string>> {
   const items = rows.map((r, i) => ({ id: String(i), prompt: REPLY_PROMPT(r, i) }));
   const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
@@ -258,7 +273,7 @@ async function draftReplies(rows: any[]): Promise<Record<string, string>> {
   const out = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Write X reply drafts for the CRM" });
   const res = JSON.parse(String(out?.data?.stdout ?? "").split("@@").pop() || "{}");
   const clean: Record<string, string> = {};
-  for (const [k, v] of Object.entries(res)) { const t = String(v || "").trim().replace(/^"|"$/g, ""); if (t && !/^skip\b/i.test(t) && !/^(great|love|so true|congrats|amazing)\b/i.test(t)) clean[k] = t.slice(0, 280); }
+  for (const [k, v] of Object.entries(res)) { const t = String(v || "").trim().replace(/^"|"$/g, ""); if (replyOk(t)) clean[k] = t; }
   return clean;
 }
 

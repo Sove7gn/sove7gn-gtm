@@ -3215,6 +3215,12 @@ async function xr_plan(b: any) {
   const doneBy = new Set((today ?? []).map((r: any) => String(r.author).toLowerCase()));
   const t = (ready ?? []).filter((r: any) => !doneBy.has(String(r.author).toLowerCase())).sort((a: any, c: any) => (c.kind === "lead" ? 1 : 0) - (a.kind === "lead" ? 1 : 0))[0];
   if (!t) return { ...base, tasks: [] };
+  // (18 Nov) last check before X: the model's own notes or a cut-off draft never go out (same rule as x-grow's replyOk)
+  const d = String(t.draft).trim();
+  if (d.length > 160 || /\n/.test(d) || /\b(wait,|trimming|1-2 (short )?lines|under 140|characters\b|reyansh|the post is|this post|post is about|reply:|reply as|statement[- ]only|no question|no pitch|as a friend would|the rules?\b|draft|let me|i need to keep|generic motivation|nothing specific)/i.test(d)) {
+    await db.from("crm_x_reply").update({ status: "skipped", error: "Draft wasn't a clean reply (notes or too long), so the bot skipped it" }).eq("url", t.url).eq("status", "approved");
+    return { ...base, tasks: [] };
+  }
   const { data: got } = await db.from("crm_x_reply").update({ status: "sending", claimed_at: new Date().toISOString() }).eq("url", t.url).eq("status", "approved").select("url");
   if (!got?.length) return { ...base, tasks: [] };
   const id = (String(t.url).match(/status\/(\d+)/) || [])[1] || "";
