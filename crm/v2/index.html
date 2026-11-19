@@ -3070,14 +3070,13 @@ class Component extends DCLogic {
     const COLS=[['review','To approve','First DMs written for them. Check what they raised and who they are, then approve or skip.','var(--ink-4)'],
       ['dm','DM sent','A casual one or two liner: A “saw you’re… is [problem] something you’re dealing with?” or B “might have a client who fits what you’re selling”.','var(--out)'],
       ['fu1','Day 4 · nudge','No reply after 4 days: one short "no worries if the timing’s off" and then nothing more.','oklch(0.72 0.15 65)'],
-      ['old','Old sequence','DMed before the new flow (16 Nov). Their remaining old follow-ups finish on their own; nobody new joins.','var(--ink-4)'],
       ['talks','Replied','They wrote back. Answer them on X.','var(--mid)'],['booked','Call booked','A call is on the calendar.','var(--in)'],
       ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Skipped, not interested, DMs closed, or no reply after follow-up 7.','var(--bad)']];
     const sentOf=(row,k)=>T.find(t=>t.row===row&&t.kind===k&&t.status==='sent');
     const colOf=p=>{const r=p.row;if(p.stage==='Customer')return 'won';if(p.stage==='Closed')return 'lost';if(p.stage==='Call booked')return 'booked';if(p.stage==='Replied')return 'talks';
       if(p.stage==='To send')return AK.xtActive(r,'dm')?'dm':'review';
       // (19 Nov) X is casual now (X3): DM, one nudge. Anyone from the X sales sequence (X2) or before sits in Old sequence.
-      if(!/^X3/.test((p.c||{}).Template||'')&&/^(Contacted|Follow-up 1 sent|Follow-up 2 sent)$/.test(p.stage))return 'old';
+      // (19 Nov) the old X sequence ended: everyone on it was closed ('Old X sequence ended'); the Old sequence column is gone.
       if(p.stage==='Contacted')return 'dm';return 'fu1';};
     const XT2=seqTexts(SEQ_X,((AK.XT.status||{}).x_bot||{}).v2);
     const xb=(AK.XT.status||{}).x_bot||{},XH={from:+(xb.from??8),to:+(xb.to??21)},xwf=/^(Sat|Sun)$/.test(ptInfo(Date.now()).wk)?0.6:1;
@@ -3143,7 +3142,7 @@ class Component extends DCLogic {
         open:()=>this.openC(p.id),hasProfile:!!h,profile:e=>{stopE(e);window.open('https://x.com/'+h,'_blank','noopener');},hasLi:!!((l&&l.linkedin)||p.linkedin),
         liGo:e=>{stopE(e);window.open((l&&l.linkedin)||p.linkedin,'_blank','noopener');},_n:n,_t:Date.parse(lastAt)||0,_w:waiting};};
     const by=new Map(COLS.map(c=>[c[0],[]]));
-    for(const p of P){if(!p.name)continue;const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
+    for(const p of P){if(!p.name)continue;if(((p.c||{}).Segment||'')==='Followed us')continue;/* (19 Nov, Reyansh) follower thank-you DMs are engagement only, never pipeline */const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
       if(q&&![p.name,p.company,p.role,p.handle,k.one,k.fund,k.acc,k.src].join(' ').toLowerCase().includes(q))continue;by.get(col).push(k);}
     const exp=s.xpExp||'';
     const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>(b._w-a._w)||b._n-a._n||b._t-a._t);const n=(s.xpLim||{})[id]||(exp?400:25);
