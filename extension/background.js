@@ -30,7 +30,8 @@ async function pageRun(id, func, args = [], all = false) {
 const X_GRAB = (kind) => {
   const items = []; const users = kind === "my_followers" || kind === "follow_src";
   if (users) {
-    for (const c of document.querySelectorAll('[data-testid="UserCell"]')) {
+    // (19 Nov) only the list in the main column: the sidebar's "Who to follow" cells are not followers
+    for (const c of document.querySelectorAll('[data-testid="primaryColumn"] [data-testid="UserCell"]')) {
       const link = [...c.querySelectorAll('a[href^="/"]')].map((a) => a.getAttribute("href")).find((h) => /^\/\w{1,15}$/.test(h || "")); if (!link) continue;
       const handle = link.slice(1); const texts = [...c.querySelectorAll('div[dir="auto"], span')].map((e) => e.innerText.trim()).filter(Boolean);
       const name = (texts[0] || handle).split("\n")[0];

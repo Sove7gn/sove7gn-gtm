@@ -718,7 +718,12 @@ async function warmDMs() {
     const c = r.cells, h = String(c[5]).replace(/^@/, ""), hl = h.toLowerCase();
     if (seen.has(hl) || inPipe.has(hl) || queuedH.has(hl)) continue;
     seen.add(hl);
-    const row = next++, name = c[6] || h, how = c[4] || "Engaged", dm = String(c[14]).trim();
+    const row = next++, name = c[6] || h, how = c[4] || "Engaged";
+    // (19 Nov, Reyansh: no cross-wiring) the DM says nothing about who they are or what they build: the old judge-written DMs guessed
+    // ("founder of DTechies" to someone who isn't). Followers get the thank-you line; engagers a plain thanks for joining in.
+    const fn = String(name).trim().split(/\s+/)[0].replace(/[^\p{L}'-]/gu, ""), nm = fn && String(name).trim().split(/\s+/).length >= 2 ? " " + fn : "";
+    const dm = how === "Followed" ? "Thanks for the follow" + (nm ? "," + nm : "") + "! Curious what brought you here, was it the " + FOLLOW_TOPIC + " posts?"
+      : "hey" + nm.toLowerCase() + ", thanks for jumping into the conversation on my post. curious what you're working on right now?";
     const sig = how === "Followed" ? "Followed us on X" : how + " on our post: “" + clip(c[10] || c[3] || "", 150) + "”";
     writes.push({ row, col: 3, values: [[name, "Unknown", "", ACCOUNT, "X DM", "Warm", how === "Followed" ? "Followed us" : "Engaged with our post", "9", h, "", "", sig, c[11] || c[2] || "", c[0] || "", "W1", dm, "To send", ""]] });
     writes.push({ row, col: 28, values: [["Warm: added by x-grow on " + istStamp(new Date()) + ". " + (c[19] || "") + " Bio: " + clip(c[7] || "", 160)]] });
