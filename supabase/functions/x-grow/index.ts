@@ -398,7 +398,12 @@ async function dailyPosts(force = false) {
     } else if (s.slot === "Shoutout") {
       const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
         .gte("created_at", since(48)).order("likes", { ascending: false, nullsFirst: false }).limit(30);
-      const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
+      let pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
+      if (!pick) {   // (19 Nov) creator posts stopped coming in with twitterapi.io; the extension reads founders' posts, so credit the founder post that took off
+        const { data: lp } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "lead")
+          .gte("created_at", since(48)).gte("likes", 100).order("likes", { ascending: false, nullsFirst: false }).limit(30);
+        pick = (lp ?? []).filter((c) => String(c.post_text || "").length > 120 && !usedTags.has(String(c.author).toLowerCase()))[0];
+      }
       if (pick) jobs.push({ s, q: "@" + pick.author + " " + String(pick.post_text).slice(0, 120), link: pick.url, their: pick.post_text, append: "\n\n" + pick.url, why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
         prompt: "Write an X post that gives credit to @" + pick.author + " (" + pick.name + ") for this post of theirs:\n\"\"\"\n" + String(pick.post_text).slice(0, 1200) + "\n\"\"\"\n" +
           "Start with @" + pick.author + " and what they got right in one line. Then 2 or 3 short lines on why it matters for startup founders, or how Reyansh is applying it this week (no made-up results). End with a line that asks others to add to it. Do not include their link.\n" + POST_RULES });
@@ -430,7 +435,7 @@ async function dailyPosts(force = false) {
 async function exaWrite(prompt: string, query: string): Promise<string> {
   const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
     body: JSON.stringify({ query: clip(query, 200), numResults: 3, systemPrompt: clip(prompt, 6000),
-      outputSchema: { type: "object", required: ["text"], properties: { text: { type: "string", description: "The finished text, written exactly as the instructions ask, ready to post. Nothing else." } } } }) });
+      outputSchema: { type: "object", required: ["text"], properties: { text: { type: "string", description: "The finished text, written exactly as the instructions ask, ready to post. Short lines, with a blank line (two newline characters) between each line or block, like a real X post. Nothing else." } } } }) });
   if (!r.ok) return "";
   const t = String((await r.json())?.output?.content?.text ?? "").trim();
   return noDash(t.replace(/^"|"$/g, "").replace(/#\w+/g, "").trim());
