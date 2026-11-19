@@ -347,13 +347,28 @@ async function dailyPosts(force = false) {
     const d = new Date(x.getTime() + k * 864e5);
     for (const s of DAILY_SLOTS) {
       if (!s.days.includes(d.getUTCDay()) || find(dateOf(d), s.slot)) continue;
-      const cells = cellsFor(d, s, PLACEHOLDER + ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] + " " + dateOf(d).replace(/ \d{4}$/, "") + " at 4:30 PM IST: " + s.what + ".)");
+      const cells = cellsFor(d, s, PLACEHOLDER + (() => { const pd = new Date(d.getTime() - 864e5); return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][pd.getUTCDay()] + " " + dateOf(pd).replace(/ \d{4}$/, ""); })() + " at 4:30 PM IST, the day before: " + s.what + ".)");
       const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells }); if (!error) { placed++; rows.push({ row: next - 1, cells }); }
     }
   }
-  // 2. Today's posts.
-  const todays = DAILY_SLOTS.filter((s) => (s.days.includes(dow) || (force && s.slot === "Shoutout")) && (() => { const r = find(date, s.slot); return !r || isPlaceholder(r.cells?.[9]); })());
-  const jobs: { s: typeof DAILY_SLOTS[0]; prompt: string; their?: string; link?: string; why: string; append?: string }[] = [];
+  // 2. (19 Nov, Reyansh) Posts are written the day before, like the other 3 posts, so he can schedule them: each run fills
+  //    tomorrow, plus any of today's slots still ahead that are empty. The AI model (Composio invoke_llm) has a $5 a day budget that
+  //    is often spent by the afternoon, so Exa (its own credits) writes the text when the model returns nothing.
+  const slotAt = (d: Date, s: typeof DAILY_SLOTS[0]) => { const m = s.time.match(/(\d+):(\d+) (AM|PM)/)!; const h = (+m[1] % 12) + (m[3] === "PM" ? 12 : 0);
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + (h * 60 + +m[2]) * 60e3 - 330 * 60e3; };
+  let added = 0; const slotsDone: string[] = [];
+  for (const ahead of [1, 0]) {
+    const tx = new Date(x.getTime() + ahead * 864e5);
+    const r = await fillDay(tx, ahead === 0);
+    added += r.added; slotsDone.push(...r.slots.map((z) => dateOf(tx).replace(/ \d{4}$/, "") + " " + z));
+  }
+  return { added, slots: slotsDone, placeholders: placed };
+
+  async function fillDay(tx: Date, today: boolean) {
+  const date = dateOf(tx), dow = tx.getUTCDay();
+  const todays = DAILY_SLOTS.filter((s) => (s.days.includes(dow) || (force && !today && s.slot === "Shoutout")) && (!today || slotAt(tx, s) > now.getTime() + 20 * 60e3) &&
+    (() => { const r = find(date, s.slot); return !r || isPlaceholder(r.cells?.[9]); })());
+  const jobs: { s: typeof DAILY_SLOTS[0]; prompt: string; their?: string; link?: string; why: string; append?: string; q?: string }[] = [];
   const since = (h: number) => new Date(now.getTime() - h * 3600e3).toISOString();
   const exaPick = async (query: string, hours: number, schema: any, sys: string) => {
     const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
@@ -366,34 +381,36 @@ async function dailyPosts(force = false) {
         headline: { type: "string", description: "The single biggest story of the last day that startup founders are talking about: a big AI launch, a big raise or acquisition, a big move by a known founder or company" },
         what: { type: "string", description: "3 to 5 plain facts: who, what, numbers, why founders care" }, who: { type: "string", description: "The product, company or person name people will search for" }, url: { type: "string" } } },
         "Pick one story only, from the last 24 hours. Use the search results as the source.");
-      if (n?.headline) jobs.push({ s, link: n.url || "", their: n.headline + "\n\n" + n.what, why: "News (TOFU): people search for " + (n.who || "this") + " today. Post within the hour. Source: " + (n.url || "search"),
+      if (n?.headline) jobs.push({ s, q: n.headline, link: n.url || "", their: n.headline + "\n\n" + n.what, why: "News (TOFU): people search for " + (n.who || "this") + " today. Post within the hour. Source: " + (n.url || "search"),
         prompt: "Write an X post reacting to today's news. Name " + (n.who || "it") + " in the first line. Give Reyansh's take for startup founders: what it means for how they build, sell or get customers. News: " + n.headline + ". Facts: " + n.what + "\n" + TWIST_RULES + "\n" + POST_RULES });
     } else if (s.slot === "AI tool") {
       const t = await exaPick("new AI tool or AI agent launched this week for sales, marketing or founders", 96, { type: "object", required: ["tool", "what", "steps", "url"], properties: {
         tool: { type: "string", description: "Name of one new or newly updated AI tool, model feature or agent useful for a startup founder getting customers (sales, outreach, content, research)" },
         what: { type: "string", description: "What it does, in 2 plain sentences, facts only" }, steps: { type: "string", description: "3 short steps a founder could follow to use it for getting customers" }, url: { type: "string" } } },
         "Pick one tool launched or updated in the last few days. Prefer tools that are actually usable today. Use the search results as the source.");
-      if (t?.tool) jobs.push({ s, link: t.url || "", their: t.tool + ": " + t.what, append: t.url ? "\n\n" + t.url : "", why: "AI discovery (TOFU): a new tool people are searching for, with a how-to they can save. Source: " + (t.url || "search"),
+      if (t?.tool) jobs.push({ s, q: t.tool + " " + t.what, link: t.url || "", their: t.tool + ": " + t.what, append: t.url ? "\n\n" + t.url : "", why: "AI discovery (TOFU): a new tool people are searching for, with a how-to they can save. Source: " + (t.url || "search"),
         prompt: "Write an X post about a new AI tool. Line 1: name " + t.tool + " and what it does for founders in under 120 characters. Then 3 short numbered steps for how a founder can use it to get customers. End with a short line asking if they have tried it. Tool facts: " + t.what + " Steps idea: " + t.steps + "\n" + POST_RULES.replace("under 500 characters", "under 600 characters") });
     } else if (s.slot === "Article") {
       const topic = ARTICLE_TOPICS[Math.floor(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()) / (7 * 864e5)) % ARTICLE_TOPICS.length];
-      jobs.push({ s, their: topic, why: "X Article (MOFU): a long, saveable playbook. Bookmarks push it far, and it proves we know the work. Post it with X's Articles button, then share it with its first line.",
+      jobs.push({ s, q: topic, their: topic, why: "X Article (MOFU): a long, saveable playbook. Bookmarks push it far, and it proves we know the work. Post it with X's Articles button, then share it with its first line.",
         prompt: "Write an X Article (long post) titled: \"" + topic + "\". 800 to 1,100 words. First line is the title, then a 2-line intro, then 4 to 6 sections with short headers in plain text, short paragraphs and numbered steps, written as Reyansh in first person. " +
           "End with: if you want this run for you, DM me \"GTM\". " + OUR_FACTS + " No em dashes, no hashtags, no emojis, no 'it's not X, it's Y'. Answer with the article text only." });
     } else if (s.slot === "Shoutout") {
       const { data: cand } = await db.from("crm_x_reply").select("url,author,name,post_text,likes,views,followers").eq("kind", "creator")
         .gte("created_at", since(48)).order("likes", { ascending: false, nullsFirst: false }).limit(30);
       const pick = (cand ?? []).filter((c) => String(c.post_text || "").length > 120 && (c.followers ?? 0) >= 3000).sort((a, b) => (usedTags.has(a.author.toLowerCase()) ? 1 : 0) - (usedTags.has(b.author.toLowerCase()) ? 1 : 0))[0];
-      if (pick) jobs.push({ s, link: pick.url, their: pick.post_text, append: "\n\n" + pick.url, why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
+      if (pick) jobs.push({ s, q: "@" + pick.author + " " + String(pick.post_text).slice(0, 120), link: pick.url, their: pick.post_text, append: "\n\n" + pick.url, why: "Shoutout (TOFU): makes @" + pick.author + " look good in front of our followers, so they and their audience see us. The link at the end shows their post under ours.",
         prompt: "Write an X post that gives credit to @" + pick.author + " (" + pick.name + ") for this post of theirs:\n\"\"\"\n" + String(pick.post_text).slice(0, 1200) + "\n\"\"\"\n" +
           "Start with @" + pick.author + " and what they got right in one line. Then 2 or 3 short lines on why it matters for startup founders, or how Reyansh is applying it this week (no made-up results). End with a line that asks others to add to it. Do not include their link.\n" + POST_RULES });
     }
   }
-  if (!jobs.length) return { added: 0, placeholders: placed };
-  const texts = await llm(jobs.map((j) => j.prompt));
+  if (!jobs.length) return { added: 0, slots: [] as string[] };
+  const texts = await llm(jobs.map((j) => j.prompt)).catch(() => jobs.map(() => ""));
   let added = 0;
   for (const [i, jb] of jobs.entries()) {
-    let t = texts[i]; if (!t || /^skip/i.test(t)) continue;
+    let t = texts[i];
+    if (!t) t = await exaWrite(jb.prompt, jb.q || jb.s.what).catch(() => "");
+    if (!t || /^skip/i.test(t)) continue;
     t = t + (jb.append ?? "");
     const extra = { 7: jb.link || "", 8: jb.their || "", 10: jb.why };
     const have = find(date, jb.s.slot);
@@ -402,11 +419,21 @@ async function dailyPosts(force = false) {
       c[7] = jb.link || ""; c[8] = jb.their || ""; c[9] = t; c[10] = jb.why;
       const { error } = await db.from("crm_sheet").update({ cells: c, updated_at: new Date().toISOString() }).eq("tab", "Our Posts").eq("row", have.row); if (error) continue;
     } else {
-      const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells: cellsFor(x, jb.s, t, extra) }); if (error) continue;
+      const { error } = await db.from("crm_sheet").insert({ tab: "Our Posts", row: next++, cells: cellsFor(tx, jb.s, t, extra) }); if (error) continue;
     }
     added++;
   }
-  return { added, slots: jobs.map((j) => j.s.slot), placeholders: placed };
+  return { added, slots: jobs.map((j) => j.s.slot) };
+  }
+}
+// Exa writes the text when the AI model's daily budget is spent: a search on the topic with our writing prompt as its instructions.
+async function exaWrite(prompt: string, query: string): Promise<string> {
+  const r = await exaFetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": EXA, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: clip(query, 200), numResults: 3, systemPrompt: clip(prompt, 6000),
+      outputSchema: { type: "object", required: ["text"], properties: { text: { type: "string", description: "The finished text, written exactly as the instructions ask, ready to post. Nothing else." } } } }) });
+  if (!r.ok) return "";
+  const t = String((await r.json())?.output?.content?.text ?? "").trim();
+  return noDash(t.replace(/^"|"$/g, "").replace(/#\w+/g, "").trim());
 }
 
 // 5. Followers of our client's founders (16 Nov): people who follow Shreenabh (@ShreenabhA) and Karan (@karanwalia_ai) of Aktoria

@@ -2072,16 +2072,27 @@ class Component extends DCLogic {
     for(const l of LD){const h=String(l.x_handle||((l.fields||{}).li_icp||{}).x||'').replace(/^@/,'').toLowerCase();if(h&&!byH.has(h))byH.set(h,l);const n=GTM.normName(l.name);if(n&&!byN.has(n))byN.set(n,l);}
     const leadOf=p=>byH.get(String(p.handle||'').replace(/^@/,'').toLowerCase())||byN.get(GTM.normName(p.name))||null;
     const FUK=['fu3','fu4','fu5','fu6','fu7'];
-    const COLS=[['review','To approve','First DMs written for them. Check what they raised and who they are, then approve or skip.','var(--ink-4)'],
+    // (19 Nov, Reyansh) Two X boards. New = the A/B cold DMs (X3) for people never DMed before. Old = everyone already on the X sales
+    // sequence (X2, same as LinkedIn: day 3, 5, 8, 12) and anyone DMed before it; their follow-ups keep going.
+    const xBoard=s.xpBoard==='old'?'old':s.xpBoard==='new'?'new':'all';   // 'all' (other pages, person panel): both boards' people
+    const isNewP=p=>/^X3/.test((p.c||{}).Template||'')||p.stage==='To send';
+    const COLS_OLD=[['dm','First DM sent','On the X sales sequence (same as LinkedIn). Follow-up 1 goes on day 3.','var(--out)'],
+      ['fu1','Day 3','Follow-up 1 sent. Next on day 5.','oklch(0.72 0.15 65)'],['fu2','Day 5','Follow-up 2 sent. Next on day 8.','oklch(0.72 0.15 65)'],
+      ['fu3','Day 8','Follow-up 3 sent. The last one goes on day 12.','oklch(0.72 0.15 65)'],['fu4','Day 12 · done','All 4 follow-ups are out; nothing more goes.','var(--ink-4)'],
+      ['old','Before 16 Nov','DMed with the first scripts (A1, B1, C1, warm, inbound). That sequence ended on 16 Nov.','var(--ink-4)'],
+      ['talks','Replied','They wrote back. Answer them on X.','var(--mid)'],['booked','Call booked','A call is on the calendar.','var(--in)'],
+      ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Not interested, DMs closed, or skipped.','var(--bad)']];
+    const COLS_NEW=[['review','To approve','First DMs written for them. Check what they raised and who they are, then approve or skip.','var(--ink-4)'],
       ['dm','DM sent','A casual one or two liner: A “saw you’re… is [problem] something you’re dealing with?” or B “might have a client who fits what you’re selling”.','var(--out)'],
       ['fu1','Day 4 · nudge','No reply after 4 days: one short "no worries if the timing’s off" and then nothing more.','oklch(0.72 0.15 65)'],
       ['talks','Replied','They wrote back. Answer them on X.','var(--mid)'],['booked','Call booked','A call is on the calendar.','var(--in)'],
-      ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Skipped, not interested, DMs closed, or no reply after follow-up 7.','var(--bad)']];
+      ['won','Customer','They became a client.','var(--ok)'],['lost','Closed','Skipped, not interested, DMs closed, or no reply after the nudge.','var(--bad)']];
+    const COLS=xBoard==='old'?COLS_OLD:xBoard==='new'?COLS_NEW:[...COLS_NEW,...COLS_OLD.filter(c=>!COLS_NEW.some(n=>n[0]===c[0]))];
     const sentOf=(row,k)=>T.find(t=>t.row===row&&t.kind===k&&t.status==='sent');
     const colOf=p=>{const r=p.row;if(p.stage==='Customer')return 'won';if(p.stage==='Closed')return 'lost';if(p.stage==='Call booked')return 'booked';if(p.stage==='Replied')return 'talks';
       if(p.stage==='To send')return AK.xtActive(r,'dm')?'dm':'review';
       // (19 Nov) X is casual now (X3): DM, one nudge. Anyone from the X sales sequence (X2) or before sits in Old sequence.
-      // (19 Nov) the old X sequence ended: everyone on it was closed ('Old X sequence ended'); the Old sequence column is gone.
+      if(!isNewP(p)){if(!/^X2/.test((p.c||{}).Template||''))return 'old';const k=['fu4','fu3','fu2','fu1'].find(z=>sentOf(r,z));return k||'dm';}
       if(p.stage==='Contacted')return 'dm';return 'fu1';};
     const XT2=seqTexts(SEQ_X,((AK.XT.status||{}).x_bot||{}).v2);
     const xb=(AK.XT.status||{}).x_bot||{},XH={from:+(xb.from??8),to:+(xb.to??21)},xwf=/^(Sat|Sun)$/.test(ptInfo(Date.now()).wk)?0.6:1;
@@ -2123,14 +2134,18 @@ class Component extends DCLogic {
       const x3=/^X3/.test(c.Template||''),nudge=sentMs+4*864e5,first=String(p.name||'').trim().split(/\s+/)[0].toLowerCase();
       const nx=col==='review'?{next:x3?(c.Template==='X3A'?'Variant A (personal)':'Variant B (client who fits)'):'',nextMsg:''}
         :col==='dm'&&x3&&sentMs?{next:'Next: day 4 nudge · '+dayFmt(nudge),nextMsg:"no worries if the timing's off "+first+", just didn't want this to get buried",...etaPill(qE||inWindow(Math.max(nudge,Date.now()),XH.from,XH.to))}
-        :col==='fu1'?{next:'Nudge sent: nothing more goes out',nextMsg:''}:col==='old'?{next:'Old X sequence: stopped, nothing more goes out',nextMsg:''}:{next:'',nextMsg:''};
+        :col==='fu1'&&x3?{next:'Nudge sent: nothing more goes out',nextMsg:''}:col==='old'?{next:'First X sequence: ended 16 Nov, nothing more goes out',nextMsg:''}
+        :!x3&&v2&&/^(dm|fu1|fu2|fu3)$/.test(col)?(()=>{const i=col==='dm'?0:+col.slice(2);const day=[3,5,8,12][i];const due=sentMs+day*864e5;
+          return{next:'Next: follow-up '+(i+1)+' on day '+day+' · '+dayFmt(due),nextMsg:'',...(qE?etaPill(qE):{})};})()
+        :col==='fu4'&&!x3?{next:'Sequence done: nothing more goes out',nextMsg:''}:{next:'',nextMsg:''};
       const xfb=(()=>{const after=()=>queueEta(XQ.length,(+xb.gap_min||18)+5,XH.from,XH.to,Math.floor((+xb.cap||25)*xwf)-xSentToday);
         if(col==='review')return !h?pill2('you','🔎 find their X','No X handle yet: search on X and add it.'):failed?pill2('you','⚠ try again','It didn’t go through.'):pill2('you','⏳ your OK · then '+rel(after()),'Waiting for your approval. Approve now and it goes out in about '+rel(after())+'.');
-        if(col==='old')return pill2('done','⏸ stopped','The old X sequence stopped on 16 Nov; nothing more goes to them.');
+        if(col==='old')return pill2('done','⏸ ended','The first X sequence (A1, B1, C1) ended on 16 Nov; nothing more goes to them.');
+        if(col==='fu4'&&!x3)return pill2('done','✓ sequence done','All 4 follow-ups went out.');
         if(col==='talks')return pill2('you','↩ your move'+(lastAt?' · '+ago(Date.parse(lastAt)):''),'They replied. Answer them on X.');
         if(col==='booked')return pill2(p.call?'go':'done','📞 '+(p.call||'booked'),'Call booked');
         if(col==='won')return pill2('done','✓ customer','');if(col==='lost')return pill2('done','✕ closed',p.result||'Closed');
-        if(col==='fu1')return pill2('them','⌛ nudge sent','One nudge went out; nothing more is sent.');
+        if(col==='fu1'&&x3)return pill2('them','⌛ nudge sent','One nudge went out; nothing more is sent.');
         return pill2('them','⌛ waiting'+(lastAt?' '+ago(Date.parse(lastAt)):''),'Waiting on them.');})();
       return{id:p.id,...xfb,...(qE?etaPill(qE):{}),...nx,...avatar(p.name||'?'),name:p.name||'(no name)',sub:[p.role,h?'@'+h:'',p.company].filter(Boolean).join(' · '),score:n?String(n):'–',sBg:tn.bg,sFg:tn.fg,
         one:one||why,hasOne:!!(one||why),oneC:'var(--ink-2)',fund:fund?'Raised '+String(fund).replace(/^raised\s*/i,''):'Raise not found',hasFund:true,fundC:fund?'#0a66c2':'var(--ink-4)',fundBg:fund?'#e8f1fb':'var(--n-soft-2)',
@@ -2147,18 +2162,20 @@ class Component extends DCLogic {
         open:()=>this.openC(p.id),hasProfile:!!h,profile:e=>{stopE(e);window.open('https://x.com/'+h,'_blank','noopener');},hasLi:!!((l&&l.linkedin)||p.linkedin),
         liGo:e=>{stopE(e);window.open((l&&l.linkedin)||p.linkedin,'_blank','noopener');},_n:n,_t:Date.parse(lastAt)||0,_w:waiting};};
     const by=new Map(COLS.map(c=>[c[0],[]]));
-    for(const p of P){if(!p.name)continue;if(((p.c||{}).Segment||'')==='Followed us')continue;/* (19 Nov, Reyansh) follower thank-you DMs are engagement only, never pipeline */const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
+    for(const p of P){if(!p.name)continue;if(((p.c||{}).Segment||'')==='Followed us')continue;/* (19 Nov, Reyansh) follower thank-you DMs are engagement only, never pipeline */if(xBoard!=='all'&&isNewP(p)!==(xBoard==='new'))continue;const col=colOf(p);const k=card(p,col);if(min&&k._n<min&&['review','dm'].includes(col))continue;
       if(q&&![p.name,p.company,p.role,p.handle,k.one,k.fund,k.acc,k.src].join(' ').toLowerCase().includes(q))continue;by.get(col).push(k);}
     const exp=s.xpExp||'';
     const cols=COLS.map(([id,name,hint,dot])=>{const list=by.get(id).sort((a,b)=>(b._w-a._w)||b._n-a._n||b._t-a._t);const n=(s.xpLim||{})[id]||(exp?400:25);
       const good=list.filter(k=>k._w&&k._n>=7),allW=list.filter(k=>k._w);
       const bulkGo=L=>()=>{if(!AK.canEdit())return;AK.xtQueue(L.map(k=>{const p=P.find(x=>x.id===k.id);const c=p.c||{};return{row:p.row,name:c.Name||p.name,company:c.Company||p.company,handle:String(p.handle||'').replace(/^@/,''),user_id:p.xid,kind:'dm',text:k.msg};}));};
-      return{id,name,hint,dot,msg:id==='dm'?"A: hey {first}, saw you're [launching / hiring for / growing] [their thing]. we help [type of business] with [one result]. is [problem] something you're dealing with right now?\n\nB: hey {first}, i might have a client who'd be a fit for what you're selling. lmk if you're taking on more leads right now?":id==='fu1'?"no worries if the timing's off {first}, just didn't want this to get buried":'',n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({xpLim:{...(z.xpLim||{}),[id]:n+50}})),
+      return{id,name,hint,dot,msg:xBoard==='old'?'':id==='dm'?"A: hey {first}, saw you're [launching / hiring for / growing] [their thing]. we help [type of business] with [one result]. is [problem] something you're dealing with right now?\n\nB: hey {first}, i might have a client who'd be a fit for what you're selling. lmk if you're taking on more leads right now?":id==='fu1'?"no worries if the timing's off {first}, just didn't want this to get buried":'',n:String(list.length),cards:list.slice(0,n),more:list.length>n,moreN:String(list.length-n),showMore:()=>this.setState(z=>({xpLim:{...(z.xpLim||{}),[id]:n+50}})),
         hasBulk:good.length>0,bulkLabel:'Approve all 7+ ('+good.length+')',bulk:bulkGo(good),hasAll:allW.length>0,allLabel:'Approve all '+allW.length,all:bulkGo(allW),
         expand:()=>this.setState({xpExp:id}),empty:!list.length};});
     const ex=cols.find(c=>c.id===exp);const st=(AK.XT.status||{}).x_bot||{};const cool=Date.parse(st.cooldown_until||'')>Date.now();
     const step=d=>{const b=document.getElementById('x-board');if(b)b.scrollBy({left:d*300*2,behavior:'smooth'});};
-    return{cols,board:!ex,expanded:!!ex,ex:ex||{cards:[]},back:()=>this.setState({xpExp:''}),q:s.xpQ||'',onQ:e=>this.setState({xpQ:e.target.value}),
+    const nB=P.filter(p=>p.name&&((p.c||{}).Segment||'')!=='Followed us'),nNew=nB.filter(isNewP).length;
+    return{cols,xBoard,boards:[['new','New pipeline · A/B DMs',nNew],['old','Old pipeline · X sequence',nB.length-nNew]],setBoard:v=>this.setState({xpBoard:v,xpExp:''}),
+      board:!ex,expanded:!!ex,ex:ex||{cards:[]},back:()=>this.setState({xpExp:''}),q:s.xpQ||'',onQ:e=>this.setState({xpQ:e.target.value}),
       min:String(s.xpMin||0),onMin:e=>this.setState({xpMin:+e.target.value}),mins:[{v:'0',l:'Any score'},{v:'5',l:'Score 5+'},{v:'7',l:'Score 7+'},{v:'8',l:'Score 8+'}],
       total:String(P.length),left:()=>step(-1),right:()=>step(1),pan:e=>this.calPan(e),
       bot:(cool?'X asked us to slow down: sending resumes at '+new Date(st.cooldown_until).toLocaleString([], {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+' · ':'')+this.xBotVals(this.lists(P)).text.replace(/ · sends .*$/,''),

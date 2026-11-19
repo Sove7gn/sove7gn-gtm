@@ -3127,7 +3127,7 @@ async function xAutoFollowups(): Promise<number> {
       add.push({ row: r.row, name, company: c["Company"] ?? "", handle, user_id: c["X user ID"] || null, kind: "fu1", text: X3_NUDGE.replace(/\{first\}/g, String(name).trim().split(/\s+/)[0].toLowerCase()), status: "ready", decided_by: "auto: x3 nudge" });
       if (add.length >= 30) break; continue;
     }
-    if (/^X2/.test(c["Template"] || "")) { continue;   // (19 Nov) the sales sequence is LinkedIn only now: X2 rows get nothing more
+    if (/^X2/.test(c["Template"] || "")) {   // (19 Nov, Reyansh) people already on the X sales sequence (same as LinkedIn) finish it; only NEW people get the A/B DMs
       if (!sent || !/^(sent|fu1 sent|fu2 sent)$/i.test(st)) continue;
       const i = XV2_KINDS.findIndex((k) => !done.has(r.row + ":" + k)); if (i < 0) continue;
       const lastAt = i === 0 ? sent : (sentAt.get(r.row + ":" + XV2_KINDS[i - 1]) ?? 0);

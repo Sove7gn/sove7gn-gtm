@@ -593,7 +593,10 @@ function pgPipeline(){
     +'<input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>';
   const LIM={};['found','req','dm','fu1','fu2','fu3','fu4','fu5','fu6','fu7','talks','booked','won','lost','review'].forEach(k=>LIM[k]=400);
   if(cur==='LinkedIn'){const B=withState({lpExp:'',lpQ:V.q.pipe||'',lpMin:min,lpOut:false,lpLim:LIM},()=>safe(()=>L.liPipeVals(),{cols:[]}));h+=fbar(B.total+' people · '+(B.bot||''))+board(B,'li');}
-  else if(cur==='X'){const B=withState({xpExp:'',xpQ:V.q.pipe||'',xpMin:min,xpLim:LIM},()=>safe(()=>L.xPipeVals(P),{cols:[]}));h+=fbar('First DMs wait in To approve; follow-ups go out on their own')+board(B,'x');}
+  else if(cur==='X'){const xb=V.f.xboard||'new';const B=withState({xpExp:'',xpQ:V.q.pipe||'',xpMin:min,xpLim:LIM,xpBoard:xb},()=>safe(()=>L.xPipeVals(P),{cols:[]}));
+    /* (19 Nov) two X boards: New (A/B cold DMs to people never DMed) and Old (the X sales sequence, same as LinkedIn) */
+    h+='<div class="chips" style="margin-top:12px">'+(B.boards||[]).map(([k,l,n])=>'<button type="button" class="chip'+(xb===k?' on':'')+'"'+act(()=>{V.f.xboard=k;schedule();})+'>'+esc(l)+' <span class="faint">'+n+'</span></button>').join('')+'</div>';
+    h+=fbar(xb==='old'?'People already on the X sales sequence: follow-ups on day 3, 5, 8 and 12 go out on their own':'A/B first DMs wait in To approve; one nudge on day 4')+board(B,'x');}
   else if(cur==='Instagram')h+=fbar('Instagram DMs, read every hour')+board(igBoard(),'ig');
   else if(cur==='Email')h+='<div class="soonbox" style="margin-top:16px"><h2>Email isn’t set up yet</h2><div>Its own pipeline shows here once email outreach starts.</div></div>';
   else{const L2=leadsOpen().filter(l=>matchQ('tbl',l.name,l.company,l.source,l.stage));

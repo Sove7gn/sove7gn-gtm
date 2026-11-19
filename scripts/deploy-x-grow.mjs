@@ -23,7 +23,8 @@ const JOBS = [
   { name: "x-grow-replies", cron: "10 12-23,0-2 * * *", body: { replies: true } },
   { name: "x-grow-followers", cron: "40 1,7,13,19 * * *", body: { followers: true } },
   { name: "x-grow-follow-src", cron: "30 2 * * *", body: { follow_src: true } },   // 8 AM IST: followers of our client's founders -> ICP check -> X > Pipeline > To approve
-  { name: "x-grow-posts", cron: "0 11 * * *", body: { posts: true } },   // 4:30 PM IST: AI tool (5:45 PM), News (6:30 PM), Thu Article (8:30 PM), Mon/Wed/Fri Shoutout (10:45 PM); placeholders a week ahead
+  { name: "x-grow-posts", cron: "0 11 * * *", body: { posts: true } },   // (19 Nov) writes TOMORROW's posts (a day ahead, so Reyansh can schedule them)
+  { name: "x-grow-posts-retry", cron: "30 14 * * *", body: { posts: true } },   // second try for anything still empty (8 PM IST)   // 4:30 PM IST: AI tool (5:45 PM), News (6:30 PM), Thu Article (8:30 PM), Mon/Wed/Fri Shoutout (10:45 PM); placeholders a week ahead
 ];
 const sql = postgres(env.DATABASE_URL, { ssl: "require", max: 1, onnotice: () => {} });
 try {
