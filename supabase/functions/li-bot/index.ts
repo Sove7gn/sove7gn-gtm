@@ -3213,7 +3213,8 @@ async function x_plan(b: any) {
   for (const t of ready ?? []) {
     if (tasks.length) break;
     // (18 Nov) a first DM goes out with their lead page: held while it's researched (max 24 hours), rewritten once it's ready
-    if (t.kind === "dm" && !/leads\/\?k=/.test(String(t.text ?? ""))) {
+    // (19 Nov) X first DMs are the casual A/B ones now: no waiting on a lead page (it held new DMs up to a day, then got rewritten anyway)
+    if (false && t.kind === "dm" && !/leads\/\?k=/.test(String(t.text ?? ""))) {
       const up = await xDropUpgrade(t).catch(() => "old");
       if (up === "wait") continue;
       if (up && up !== "old") t.text = up;
