@@ -633,7 +633,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze, x3_preview } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, seen, watch, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze, x3_preview } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -1556,7 +1556,7 @@ async function state(b: any) {
   // (16 Nov) What this run saw, for the Bots page and for checking reply detection: chats read, chats with a message from
   // them, how many matched a lead, and a few unmatched ids.
   const th = (b.threads ?? []) as any[], withThem = th.filter((t) => t.them_at), matched = withThem.filter((t) => find(t));
-  await saveStatus({ last_state: now(), state_seen: { chats: th.length, from_them: withThem.length, matched: matched.length,
+  if (!b.quiet) await saveStatus({ last_state: now(), state_seen: { chats: th.length, from_them: withThem.length, matched: matched.length,
     newest_them: withThem.map((t) => t.them_at).sort().pop() ?? null, unmatched: withThem.filter((t) => !find(t)).slice(0, 5).map((t) => ({ urn: t.urn, pid: t.pid ?? "", name: t.name ?? "" })) } }).catch(() => {});
   return { accepted, replied, asked };
 }
@@ -1858,6 +1858,44 @@ async function plan(_b: any) {
 }
 
 // claim: right before sending, make sure it's still approved (not skipped, not already sent, they haven't replied).
+// (22 Nov, Reyansh) Instinct reports what it saw on LinkedIn for one person: they accepted, and/or they wrote back. It goes
+// through state() exactly like the extension's reading, so an accept triggers the Day 0 message (with their lead-list link,
+// written by plan() on the next run) and a reply stops the sequence and gets sorted with a drafted answer in Needs you.
+// watch: who Instinct should look at on each run: requests waiting to be accepted, and people mid-sequence (to spot replies).
+// Each comes with the lead_id to report back with, so matching never depends on which profile link LinkedIn shows.
+async function watch(b: any) {
+  if (b?.executor !== "instinct") return { error: "watch is for the assistant (executor: instinct)" };
+  const leads = await pool({ include_warm: true } as Bot);
+  const row = (l: Lead, why: string) => { const li = l.fields?.li ?? {}; return { lead_id: l.id, name: l.name, company: l.company ?? "", profile: l.linkedin ?? "", why,
+    request_sent: li.req ?? null, accepted: li.acc ?? null, last_message: li.last ?? li.dm ?? null }; };
+  const live = (l: Lead) => { const li = l.fields?.li ?? {}; return !li.stop && !li.replied && !(l as any).archived; };
+  const awaiting = leads.filter((l) => live(l) && l.fields?.li?.req && !l.fields?.li?.acc).map((l) => row(l, "Request sent: check if they accepted"));
+  const midway = leads.filter((l) => live(l) && l.fields?.li?.dm).map((l) => row(l, "In the sequence: check if they replied"));
+  return { awaiting_accept: awaiting.slice(0, 300), in_sequence: midway.slice(0, 300) };
+}
+async function seen(b: any) {
+  if (b?.executor !== "instinct") return { error: "seen is for the assistant (executor: instinct)" };
+  let pid = "";
+  if (b.lead_id) {                                                       // preferred: the lead_id from watch / plan
+    const { data: l } = await db.from("crm_leads").select("id,linkedin,fields").eq("id", b.lead_id).maybeSingle();
+    if (!l) return { error: "No such lead" };
+    const mm = String((l as any).linkedin ?? "").match(/\/in\/([^/?#]+)/i);
+    pid = mm ? decodeURIComponent(mm[1]).toLowerCase() : String((l as any).fields?.li?.urn ?? "").toLowerCase();
+  } else {
+    const m = String(b.profile ?? "").match(/\/in\/([^/?#]+)/i);
+    pid = (m ? decodeURIComponent(m[1]) : String(b.pid ?? "")).toLowerCase().replace(/\/+$/, "");
+  }
+  if (!pid) return { error: "Send the lead_id (from watch or plan), or their LinkedIn profile link" };
+  const viaUrn = /^urn:|^acoa/i.test(pid) && !String(pid).includes("-") ? pid : "";
+  const at = (x: unknown) => { const t = Date.parse(String(x ?? "")); return isNaN(t) ? now() : new Date(t).toISOString(); };
+  const who = viaUrn ? { pid, urn: viaUrn } : { pid };
+  const connections = b.accepted ? [{ ...who, at: at(b.accepted_at) }] : [];
+  const threads = b.reply && String(b.reply.text ?? "").trim() ? [{ ...who, them_at: at(b.reply.at), them_text: String(b.reply.text) }] : [];
+  if (!connections.length && !threads.length) return { error: "Nothing to record: send accepted: true and/or reply: {text, at}" };
+  const r: any = await state({ connections, threads, quiet: true });
+  return { ok: true, accepted: r.accepted ?? 0, replied: r.replied ?? 0, matched: (r.accepted ?? 0) + (r.replied ?? 0) > 0 };
+}
+
 async function claim(b: any) {
   const ex = (await settings()).executor;
   if (ex !== (b?.executor === "instinct" ? "instinct" : "extension")) return { ok: false, why: "LinkedIn sending is assigned to " + ex };
