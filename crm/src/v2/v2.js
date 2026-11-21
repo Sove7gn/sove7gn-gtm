@@ -752,15 +752,21 @@ function aqLoad(){if(AQ.loading||AQ.data||AQ.err)return;AQ.loading=true;
 function aqGet(){try{return JSON.parse(localStorage.getItem(AQ_KEY)||'{}')||{};}catch(e){return {};}}
 function aqPut(st){try{localStorage.setItem(AQ_KEY,JSON.stringify(st));}catch(e){}}
 function aqLog(st,ev,detail){st.audit=[{at:new Date().toISOString(),ev,detail:detail||''},...(st.audit||[])].slice(0,50);}
-function aqCheckReport(r,item){const errs=[];if(!r||typeof r!=='object')return['Not a JSON object.'];
-  if(r.item_id!==item.id)errs.push('item_id must be "'+item.id+'".');
-  if(r.state!=='REHEARSED')errs.push('state must be "REHEARSED" (nothing is ever sent in a mock run).');
-  if(!['WOULD_SEND','HOLD','STOP_AND_ASK'].includes(r.decision))errs.push('decision must be WOULD_SEND, HOLD or STOP_AND_ASK.');
-  if(!r.thread||typeof r.thread!=='object'||!r.thread.last_message)errs.push('thread.last_message is missing.');
-  if(!r.text_check||typeof r.text_check!=='object')errs.push('text_check is missing.');
-  if(!r.reason||String(r.reason).trim().length<10)errs.push('reason is missing or too short.');
-  if(/\b(i|we) (sent|have sent|delivered)\b/i.test(JSON.stringify(r)))errs.push('The report claims something was sent. A mock run never sends.');
-  return errs;}
+// (22 Nov, Reyansh: "we care about the output, not the method") Instinct reports in its own words, any format.
+// A pasted report is kept as written. JSON is shown laid out; anything else is shown as text. Nothing is rejected;
+// the page only warns (no "Decision:" line, a state other than REHEARSED, wording that may say the follow-up went out).
+const aqDec=x=>{const v=String(x||'').toUpperCase().replace(/_/g,' ').trim();return /^(WOULD )?SEND$/.test(v)?'SEND':v==='HOLD'?'HOLD':/^(ASK( REYANSH)?|STOP AND ASK)$/.test(v)?'ASK REYANSH':'';};
+function aqWrap(raw){const t=String(raw||'').trim();if(!t)return null;let o=null;try{o=JSON.parse(t);}catch(e){}
+  if(o&&typeof o==='object')return{kind:'json',obj:o,decision:aqDec(o.decision)};
+  const m=t.match(/decision\s*[:\-]\s*(would[ _]send|send|hold|ask reyansh|stop[ _]and[ _]ask|ask)\b/i);
+  return{kind:'text',text:t,decision:m?aqDec(m[1]):''};}
+function aqNorm(r){if(!r)return null;return r.kind?r:{kind:'json',obj:r,decision:aqDec(r.decision)};}
+function aqWarn(R,item){const w=[];if(!R.decision)w.push('No “Decision: SEND / HOLD / ASK REYANSH” line found.');
+  const body=R.kind==='json'?JSON.stringify(R.obj):R.text;
+  if(R.kind==='json'&&R.obj.item_id&&R.obj.item_id!==item.id)w.push('It names a different item ('+R.obj.item_id+').');
+  if(R.kind==='json'&&R.obj.state&&R.obj.state!=='REHEARSED')w.push('It reports state '+R.obj.state+'; a mock run can only reach REHEARSED.');
+  if(/\b(i|we)\s+(have\s+|just\s+)?(sent|delivered)\s+(the\s+)?(day ?3|follow-?up|this|it|the question)\b/i.test(body))w.push('It may say this follow-up was sent. A mock run never sends anything.');
+  return w;}
 const aqWhen=x=>{const t=Date.parse(x||'');return isNaN(t)?String(x||''):new Date(t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});};
 const aqBool=v=>v===true||v==='true'?'yes':v===false||v==='false'?'no':esc(v==null?'—':String(v));
 function pgAqMock(){aqLoad();
@@ -768,7 +774,7 @@ function pgAqMock(){aqLoad();
   let h=head('Assistant queue (mock)','LinkedIn only. The assistant rehearses one follow-up and reports what it would do; you review the report.')+banner;
   if(AQ.loading||(!AQ.data&&!AQ.err))return h+'<div class="empty">Loading the mock job…</div>';
   if(AQ.err)return h+'<div class="card" style="padding:16px;color:var(--bad)">Couldn’t load the mock job (assistant-mock.json): '+esc(AQ.err)+'</div>';
-  const J=AQ.data,it=J.item,st=aqGet(),R=J.rehearsal||st.report||null,src=J.rehearsal?'from the fixture file':st.report?'pasted here':'';
+  const J=AQ.data,it=J.item,st=aqGet(),R=aqNorm(J.rehearsal||st.report||null),src=J.rehearsal?'from the fixture file':st.report?'pasted here':'';
   const same=it.approved_text===it.proposed_text;
   const pillV=(t,c)=>'<span class="pill" style="background:'+c[0]+';color:'+c[1]+'">'+esc(t)+'</span>';
   const stateNow=st.reviewed?'REVIEWED':R?'REHEARSED':it.state;
@@ -786,22 +792,22 @@ function pgAqMock(){aqLoad();
     +it.thread_snapshot.messages.map(m=>'<div style="display:flex;flex-wrap:wrap;gap:4px 10px;border-left:3px solid '+(m.from==='them'?'#2F8F5B':'#3B6FD8')+';padding:4px 10px"><span class="note" style="min-width:150px">'+(m.from==='them'?'Them':'Us')+' · '+esc(m.kind)+' · '+esc(aqWhen(m.at))+'</span><span style="white-space:pre-wrap;flex:1 1 320px">'+esc(m.text)+'</span></div>').join('')+'</div></div>';
   // the report
   h+='<div class="card" style="padding:14px 16px;margin-top:16px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><b>Assistant’s rehearsal report</b>'+(R?'<span class="note">'+esc(src)+(st.reportAt&&!J.rehearsal?' · '+esc(aqWhen(st.reportAt)):'')+'</span>':'')+'</div>';
-  if(!R){h+='<div class="note">Waiting for the assistant. Give it the job (LINKEDIN_MOCK_JOB, or the fixture file assistant-mock.json), then paste the JSON report it returns here. Pasting saves it in this browser only.</div>'
-    +'<label style="display:block"><span class="note">Paste the report (JSON)</span><textarea class="in" rows="8" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12.5px"'+inp(e=>{AQ.draft=e.target.value;})+'>'+esc(AQ.draft)+'</textarea></label>'
+  if(!R){h+='<div class="note">Waiting for the assistant. Give it the job (LINKEDIN_MOCK_JOB.txt) and paste whatever it writes back, in any format. Pasting saves it in this browser only.</div>'
+    +'<label style="display:block"><span class="note">Paste Instinct’s report (any format)</span><textarea class="in" rows="8" style="width:100%;box-sizing:border-box;font-size:13.5px"'+inp(e=>{AQ.draft=e.target.value;})+'>'+esc(AQ.draft)+'</textarea></label>'
     +(AQ.pasteErr?'<div style="color:var(--bad);font-size:13px;white-space:pre-wrap">'+esc(AQ.pasteErr)+'</div>':'')
-    +'<div>'+btn('Save report',()=>{let r;try{r=JSON.parse(AQ.draft);}catch(e){AQ.pasteErr='That isn’t valid JSON: '+e.message;schedule();return;}const errs=aqCheckReport(r,it);if(errs.length){AQ.pasteErr='The report doesn’t fit the template:\n• '+errs.join('\n• ');schedule();return;}const s2=aqGet();s2.report=r;s2.reportAt=new Date().toISOString();aqLog(s2,'Report saved','decision '+r.decision+(r.would_set_state?' → '+r.would_set_state:''));aqPut(s2);AQ.pasteErr='';AQ.draft='';schedule();},'pri')+'</div>';}
-  else{const errs=aqCheckReport(R,it),T=R.thread||{},lm=T.last_message||{},tc=R.text_check||{},ho=R.hands_off_check||{};
-    const dc=R.decision==='HOLD'?['#FDF1DE','#A86200']:R.decision==='WOULD_SEND'?['#EEF3FE','#1D4ED8']:['#FCE7E4','#C2392F'];
-    h+=(errs.length?'<div style="color:var(--bad);font-size:13px">⚠ '+esc(errs.join(' '))+'</div>':'')
-      +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'+pillV('Decision: '+(R.decision||'—'),dc)+(R.would_set_state?pillV('Would set: '+R.would_set_state,['#F0F1F4','#3C3F46']):'')+(R.route_to?'<span class="note">Route to: '+esc(R.route_to)+'</span>':'')+'</div>'
-      +'<div><b>Why:</b> '+esc(R.reason||'')+'</div>'
-      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;font-size:13px">'
-      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(a) What the thread shows</b><div class="note">Last message: '+esc(lm.from||'—')+' · '+esc(aqWhen(lm.at))+'</div><div style="white-space:pre-wrap">'+esc(lm.text||'')+'</div><div>Reply found: '+aqBool(T.reply_found)+(T.reply_quote?' · “'+esc(T.reply_quote)+'”':'')+'</div><div>Opt-out / not now: '+aqBool(T.opt_out)+(T.opt_out_reason?' ('+esc(T.opt_out_reason)+')':'')+'</div></div>'
-      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(b) Does the text still match?</b><div>Approved = proposed: '+aqBool(tc.approved_equals_proposed)+'</div><div>Hash checked: '+aqBool(tc.hash_checked)+'</div><div class="note">'+esc(tc.notes||'')+'</div><b style="display:block;margin-top:6px">Hands-off</b><div>Archived '+aqBool(ho.archived)+' · stop '+aqBool(ho.stop)+' · replied in CRM '+aqBool(ho.replied_flag_in_crm)+' · replied in thread '+aqBool(ho.replied_in_thread)+'</div></div>'
-      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(c) What it would do next</b><div>'+esc(R.decision||'')+(R.would_set_state?' → '+esc(R.would_set_state):'')+'</div><div class="note">Rules: '+esc((R.rules_cited||[]).join(', ')||'—')+'</div>'
-      +((R.would_propose_writebacks||[]).length?'<div style="margin-top:6px"><b>Would propose (not applied):</b>'+(R.would_propose_writebacks||[]).map(w=>'<div style="font-family:var(--mono);font-size:12px">'+esc(w.field)+': '+esc(w.from==null?'null':w.from)+' → '+esc(w.to==null?'null':w.to)+'</div>').join('')+'</div>':'')
-      +((R.questions_for_reyansh||[]).length?'<div style="margin-top:6px"><b>Questions for you:</b>'+(R.questions_for_reyansh||[]).map(q=>'<div>• '+esc(q)+'</div>').join('')+'</div>':'')+'</div></div>'
-      +'<details><summary class="note">Raw report JSON</summary><pre style="white-space:pre-wrap;font-size:12px;background:var(--sunk);padding:10px;border-radius:8px;overflow-x:auto">'+esc(JSON.stringify(R,null,2))+'</pre></details>';
+    +'<div>'+btn('Save report',()=>{const r=aqWrap(AQ.draft);if(!r){AQ.pasteErr='Paste the report first.';schedule();return;}const s2=aqGet();s2.report=r;s2.reportAt=new Date().toISOString();aqLog(s2,'Report saved',(r.decision?'decision '+r.decision:'no decision line')+' · '+(r.kind==='json'?'JSON':'text'));aqPut(s2);AQ.pasteErr='';AQ.draft='';schedule();},'pri')+'</div>';}
+  else{const warns=aqWarn(R,it),O=R.kind==='json'?R.obj:{},T=O.thread||{},lm=T.last_message||{},tc=O.text_check||{},ho=O.hands_off_check||{};
+    const dc=R.decision==='HOLD'?['#FDF1DE','#A86200']:R.decision==='SEND'?['#EEF3FE','#1D4ED8']:R.decision?['#FCE7E4','#C2392F']:['#F0F1F4','#3C3F46'];
+    h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'+pillV(R.decision?'Decision: '+R.decision:'Decision: not stated',dc)+(O.would_set_state?pillV('Would set: '+O.would_set_state,['#F0F1F4','#3C3F46']):'')+(O.route_to?'<span class="note">Route to: '+esc(O.route_to)+'</span>':'')+'</div>'
+      +(warns.length?'<div style="color:var(--warn);font-size:13px">'+warns.map(x=>'⚠ '+esc(x)).join('<br>')+'</div>':'');
+    if(R.kind==='text')h+='<div style="white-space:pre-wrap;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:12px 14px;line-height:1.5">'+esc(R.text)+'</div>';
+    else{h+=(O.reason?'<div><b>Why:</b> '+esc(O.reason)+'</div>':'')
+      +(O.thread||O.text_check||O.hands_off_check?'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;font-size:13px">'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>What the thread shows</b><div class="note">Last message: '+esc(lm.from||'—')+' · '+esc(aqWhen(lm.at))+'</div><div style="white-space:pre-wrap">'+esc(lm.text||'')+'</div><div>Reply found: '+aqBool(T.reply_found)+(T.reply_quote?' · “'+esc(T.reply_quote)+'”':'')+'</div><div>Opt-out / not now: '+aqBool(T.opt_out)+(T.opt_out_reason?' ('+esc(T.opt_out_reason)+')':'')+'</div></div>'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>Text and hands-off checks</b><div>Approved = proposed: '+aqBool(tc.approved_equals_proposed)+'</div><div>Hash checked: '+aqBool(tc.hash_checked)+'</div><div class="note">'+esc(tc.notes||'')+'</div><div>Archived '+aqBool(ho.archived)+' · stop '+aqBool(ho.stop)+' · replied in CRM '+aqBool(ho.replied_flag_in_crm)+' · replied in thread '+aqBool(ho.replied_in_thread)+'</div></div>'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>What it would do next</b><div>'+esc(R.decision||'')+(O.would_set_state?' → '+esc(O.would_set_state):'')+'</div><div class="note">Rules: '+esc((O.rules_cited||[]).join(', ')||'—')+'</div>'
+      +((O.would_propose_writebacks||[]).length?'<div style="margin-top:6px"><b>Would propose (not applied):</b>'+(O.would_propose_writebacks||[]).map(w=>'<div style="font-family:var(--mono);font-size:12px">'+esc(w.field)+': '+esc(w.from==null?'null':w.from)+' → '+esc(w.to==null?'null':w.to)+'</div>').join('')+'</div>':'')+'</div></div>':'')
+      +'<details'+(O.thread?'':' open')+'><summary class="note">The report as written (JSON)</summary><pre style="white-space:pre-wrap;font-size:12px;background:var(--sunk);padding:10px;border-radius:8px;overflow-x:auto">'+esc(JSON.stringify(O,null,2))+'</pre></details>';}
     if(!J.rehearsal&&st.report&&!st.reviewed)h+='<div>'+btn('Remove pasted report',()=>{const s2=aqGet();delete s2.report;delete s2.reportAt;aqLog(s2,'Pasted report removed');aqPut(s2);schedule();},'sm')+'</div>';}
   h+='</div>';
   // review
