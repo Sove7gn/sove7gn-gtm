@@ -47,11 +47,11 @@ L.load=()=>{L.state.loading=false;L.state.entered=true;schedule();};
 
 const NAV=[
   {g:'',items:[['today','Home','⌂'],['needs','Needs you','✓'],['calendar','Calendar','▦'],['results','Post metrics','↗']]},
-  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['clients','Clients','$'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['competitors','Competitors','⚔'],['bots','Bots and messages','⚙']]}];
-const NAV_C={clients:'#059669',today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',competitors:'#DC2626',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
+  {g:'Internal CRM',items:[['outbound','Outbound','→'],['midbound','Midbound','♥'],['inbound','Inbound','←'],['pipeline','Pipelines','≡'],['aqmock','Assistant queue (mock)','☰'],['clients','Clients','$'],['replies','Reply to their posts','↩'],['calls','Calls','☏'],['competitors','Competitors','⚔'],['bots','Bots and messages','⚙']]}];
+const NAV_C={aqmock:'#6D28D9',clients:'#059669',today:'#4F46E5',needs:'#E11D48',calendar:'#D97706',results:'#0D9488',outbound:'#2563EB',midbound:'#7C3AED',inbound:'#059669',pipeline:'#4F46E5',replies:'#DB2777',calls:'#10B981',ideas:'#F59E0B',competitors:'#DC2626',bots:'#475569',messages:'#0EA5E9',settings:'#6B7280'};
 const PAGE=Object.fromEntries([...NAV,{g:'',items:[['settings','Settings','⚒'],['messages','Messages','✉'],['trash','Trash','🗑'],['ideas','Post ideas','✦']]}].flatMap(g=>g.items.map(([id,label,ic,phase])=>[id,{id,label,ic,phase:phase||1,grp:g.g}])));
 if(!PAGE[V.page])V.page='today';
-const INFO={results:'How our posts do on LinkedIn and X.',ideas:'Drafts, posts to copy next and comment-a-word DMs.',today:'Your numbers against today’s goals, the calls coming up and whether the bots are running, on LinkedIn, X and Instagram together.',
+const INFO={aqmock:'Rehearsal only: one synthetic LinkedIn follow-up for the assistant to practise on. Nothing is sent and nothing is written to the CRM.',results:'How our posts do on LinkedIn and X.',ideas:'Drafts, posts to copy next and comment-a-word DMs.',today:'Your numbers against today’s goals, the calls coming up and whether the bots are running, on LinkedIn, X and Instagram together.',
   needs:'Everything waiting on you, every platform in one list: answer the people who wrote back, approve what the bots will send, then send the few things only you can.',
   outbound:'Everyone we found and reach out to first: just raised, just launched, hiring for growth, our own search and the founder lists.',
   replies:'Posts by the people we sell to, with a reply or comment ready: 30 replies a day on X, plus LinkedIn comments.',
@@ -200,9 +200,9 @@ function railHtml(g){
 function pageHtml(g){
   if(g){if(g.wait)return '<div class="empty" style="padding:80px 0">'+esc(g.title||'Loading…')+'</div>';
     return '<div class="card" style="margin-top:40px"><div class="sec-b"><h2 style="margin:0 0 6px;font-size:16px">'+esc(g.title)+'</h2><p class="note">'+esc(g.body||'')+'</p>'+(g.action==='retry'?btn('Try again',()=>location.reload(),'pri'):'')+'</div></div>';}
-  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,clients:pgClients,competitors:pgCompetitors,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings,trash:pgTrash}[V.page];
+  const f={today:pgToday,needs:pgNeeds,outbound:pgOutbound,midbound:pgMidbound,inbound:pgInbound,replies:pgReplies,pipeline:pgPipeline,calls:pgCalls,clients:pgClients,competitors:pgCompetitors,calendar:pgCalendar,results:pgResults,ideas:pgIdeas,aqmock:pgAqMock,bots:pgBots,messages:()=>{V.page='bots';return pgBots();},settings:pgSettings,trash:pgTrash}[V.page];
   const ld=AK.leadsState();
-  if(f&&!ld.loaded&&!['calendar','results','ideas','competitors','bots','settings','messages','replies'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
+  if(f&&!ld.loaded&&!['calendar','results','ideas','competitors','bots','settings','messages','replies','aqmock'].includes(V.page))return '<div class="empty" style="padding:80px 0">Loading leads…</div>';
   if(f)return safe(f,'<div class="errline">This page couldn’t be drawn. Open the current CRM while it’s fixed.</div>');
   return pgSoon(V.page);
 }
@@ -739,6 +739,85 @@ const rmOfContact=c=>{if(!c)return null;const ld=leadForContact(c);return {...(l
 const rmFor=id=>{const l=leadById(id);if(l)return rmOfLead(l);const c=contactByKey(id);return c?rmOfContact(c):null;};
 const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
+/* ---------- Assistant queue, MOCK RUN (22 Nov, branch assistant-mock-linkedin) ----------
+   LinkedIn only, rehearsal only. Reads the fixture crm/v2/assistant-mock.json (one synthetic person, one synthetic thread).
+   Everything this page writes (the pasted rehearsal report, the review, the audit) stays in this browser's localStorage under
+   aqmock.v1. It never calls Supabase, never touches crm_li_tasks, leads or stages, and has no send controls of any kind. */
+const AQ_KEY='aqmock.v1';
+const AQ={data:null,loading:false,err:'',draft:'',note:'',pasteErr:''};
+function aqLoad(){if(AQ.loading||AQ.data||AQ.err)return;AQ.loading=true;
+  fetch('./assistant-mock.json?v='+Date.now(),{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+    .then(j=>{if(!j||j.mock!==true||!j.item||j.item.synthetic!==true)throw new Error('the fixture is not marked as mock data');AQ.data=j;AQ.loading=false;schedule();})
+    .catch(e=>{AQ.err=String(e&&e.message||e);AQ.loading=false;schedule();});}
+function aqGet(){try{return JSON.parse(localStorage.getItem(AQ_KEY)||'{}')||{};}catch(e){return {};}}
+function aqPut(st){try{localStorage.setItem(AQ_KEY,JSON.stringify(st));}catch(e){}}
+function aqLog(st,ev,detail){st.audit=[{at:new Date().toISOString(),ev,detail:detail||''},...(st.audit||[])].slice(0,50);}
+function aqCheckReport(r,item){const errs=[];if(!r||typeof r!=='object')return['Not a JSON object.'];
+  if(r.item_id!==item.id)errs.push('item_id must be "'+item.id+'".');
+  if(r.state!=='REHEARSED')errs.push('state must be "REHEARSED" (nothing is ever sent in a mock run).');
+  if(!['WOULD_SEND','HOLD','STOP_AND_ASK'].includes(r.decision))errs.push('decision must be WOULD_SEND, HOLD or STOP_AND_ASK.');
+  if(!r.thread||typeof r.thread!=='object'||!r.thread.last_message)errs.push('thread.last_message is missing.');
+  if(!r.text_check||typeof r.text_check!=='object')errs.push('text_check is missing.');
+  if(!r.reason||String(r.reason).trim().length<10)errs.push('reason is missing or too short.');
+  if(/\b(i|we) (sent|have sent|delivered)\b/i.test(JSON.stringify(r)))errs.push('The report claims something was sent. A mock run never sends.');
+  return errs;}
+const aqWhen=x=>{const t=Date.parse(x||'');return isNaN(t)?String(x||''):new Date(t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});};
+const aqBool=v=>v===true||v==='true'?'yes':v===false||v==='false'?'no':esc(v==null?'—':String(v));
+function pgAqMock(){aqLoad();
+  const banner='<div style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;background:#F2EDFC;border:1.5px dashed #6D28D9;color:#4C1D95;border-radius:12px;padding:10px 14px;margin-bottom:16px"><b>MOCK · rehearsal only</b><span>Synthetic person, synthetic thread. Nothing is sent, nothing is written to the CRM, LinkedIn is never opened. Your clicks here are saved only in this browser.</span></div>';
+  let h=head('Assistant queue (mock)','LinkedIn only. The assistant rehearses one follow-up and reports what it would do; you review the report.')+banner;
+  if(AQ.loading||(!AQ.data&&!AQ.err))return h+'<div class="empty">Loading the mock job…</div>';
+  if(AQ.err)return h+'<div class="card" style="padding:16px;color:var(--bad)">Couldn’t load the mock job (assistant-mock.json): '+esc(AQ.err)+'</div>';
+  const J=AQ.data,it=J.item,st=aqGet(),R=J.rehearsal||st.report||null,src=J.rehearsal?'from the fixture file':st.report?'pasted here':'';
+  const same=it.approved_text===it.proposed_text;
+  const pillV=(t,c)=>'<span class="pill" style="background:'+c[0]+';color:'+c[1]+'">'+esc(t)+'</span>';
+  const stateNow=st.reviewed?'REVIEWED':R?'REHEARSED':it.state;
+  // the job
+  h+='<div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px">'
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="pill" style="background:#0A66C2;color:#fff;font-weight:700">in</span><b style="font-size:15px">'+esc(it.recipient.name)+'</b>'
+    +pillV('SYNTHETIC · not a real person',['#F2EDFC','#5B21B6'])+'<span class="note">'+esc(it.recipient.role)+' · '+esc(it.recipient.company)+'</span><span style="flex:1"></span>'
+    +pillV('Mock state: '+stateNow,stateNow==='REVIEWED'?['#E5F5EB','#1F8A4C']:stateNow==='REHEARSED'?['#EEF3FE','#1D4ED8']:['#FDF1DE','#A86200'])+'</div>'
+    +'<div class="note">LinkedIn · '+esc(it.kind)+' · '+esc(it.step_label)+' · pipeline stage now: '+esc(it.lead_state.stage)+' · approved by '+esc(it.approved_by)+' '+esc(aqWhen(it.approved_at))+'</div>'
+    +'<div style="font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Proposed text</div>'
+    +'<div style="white-space:pre-wrap;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:10px 12px">'+esc(it.proposed_text)+'</div>'
+    +'<div class="note">'+(same?'✓ Approved text is identical to the proposed text.':'⚠ Approved text differs from the proposed text: the approval would be void.')+' The mock has no send step: the furthest it can go is REHEARSED.</div></div>';
+  // the synthetic thread
+  h+='<div class="card" style="padding:14px 16px;margin-top:16px"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px"><b>Synthetic thread snapshot</b><span class="note">'+esc(it.thread_snapshot.source)+'</span></div><div style="display:flex;flex-direction:column;gap:8px">'
+    +it.thread_snapshot.messages.map(m=>'<div style="display:flex;flex-wrap:wrap;gap:4px 10px;border-left:3px solid '+(m.from==='them'?'#2F8F5B':'#3B6FD8')+';padding:4px 10px"><span class="note" style="min-width:150px">'+(m.from==='them'?'Them':'Us')+' · '+esc(m.kind)+' · '+esc(aqWhen(m.at))+'</span><span style="white-space:pre-wrap;flex:1 1 320px">'+esc(m.text)+'</span></div>').join('')+'</div></div>';
+  // the report
+  h+='<div class="card" style="padding:14px 16px;margin-top:16px;display:flex;flex-direction:column;gap:10px"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><b>Assistant’s rehearsal report</b>'+(R?'<span class="note">'+esc(src)+(st.reportAt&&!J.rehearsal?' · '+esc(aqWhen(st.reportAt)):'')+'</span>':'')+'</div>';
+  if(!R){h+='<div class="note">Waiting for the assistant. Give it the job (LINKEDIN_MOCK_JOB, or the fixture file assistant-mock.json), then paste the JSON report it returns here. Pasting saves it in this browser only.</div>'
+    +'<label style="display:block"><span class="note">Paste the report (JSON)</span><textarea class="in" rows="8" style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12.5px"'+inp(e=>{AQ.draft=e.target.value;})+'>'+esc(AQ.draft)+'</textarea></label>'
+    +(AQ.pasteErr?'<div style="color:var(--bad);font-size:13px;white-space:pre-wrap">'+esc(AQ.pasteErr)+'</div>':'')
+    +'<div>'+btn('Save report',()=>{let r;try{r=JSON.parse(AQ.draft);}catch(e){AQ.pasteErr='That isn’t valid JSON: '+e.message;schedule();return;}const errs=aqCheckReport(r,it);if(errs.length){AQ.pasteErr='The report doesn’t fit the template:\n• '+errs.join('\n• ');schedule();return;}const s2=aqGet();s2.report=r;s2.reportAt=new Date().toISOString();aqLog(s2,'Report saved','decision '+r.decision+(r.would_set_state?' → '+r.would_set_state:''));aqPut(s2);AQ.pasteErr='';AQ.draft='';schedule();},'pri')+'</div>';}
+  else{const errs=aqCheckReport(R,it),T=R.thread||{},lm=T.last_message||{},tc=R.text_check||{},ho=R.hands_off_check||{};
+    const dc=R.decision==='HOLD'?['#FDF1DE','#A86200']:R.decision==='WOULD_SEND'?['#EEF3FE','#1D4ED8']:['#FCE7E4','#C2392F'];
+    h+=(errs.length?'<div style="color:var(--bad);font-size:13px">⚠ '+esc(errs.join(' '))+'</div>':'')
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">'+pillV('Decision: '+(R.decision||'—'),dc)+(R.would_set_state?pillV('Would set: '+R.would_set_state,['#F0F1F4','#3C3F46']):'')+(R.route_to?'<span class="note">Route to: '+esc(R.route_to)+'</span>':'')+'</div>'
+      +'<div><b>Why:</b> '+esc(R.reason||'')+'</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;font-size:13px">'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(a) What the thread shows</b><div class="note">Last message: '+esc(lm.from||'—')+' · '+esc(aqWhen(lm.at))+'</div><div style="white-space:pre-wrap">'+esc(lm.text||'')+'</div><div>Reply found: '+aqBool(T.reply_found)+(T.reply_quote?' · “'+esc(T.reply_quote)+'”':'')+'</div><div>Opt-out / not now: '+aqBool(T.opt_out)+(T.opt_out_reason?' ('+esc(T.opt_out_reason)+')':'')+'</div></div>'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(b) Does the text still match?</b><div>Approved = proposed: '+aqBool(tc.approved_equals_proposed)+'</div><div>Hash checked: '+aqBool(tc.hash_checked)+'</div><div class="note">'+esc(tc.notes||'')+'</div><b style="display:block;margin-top:6px">Hands-off</b><div>Archived '+aqBool(ho.archived)+' · stop '+aqBool(ho.stop)+' · replied in CRM '+aqBool(ho.replied_flag_in_crm)+' · replied in thread '+aqBool(ho.replied_in_thread)+'</div></div>'
+      +'<div style="background:var(--sunk);border-radius:8px;padding:10px"><b>(c) What it would do next</b><div>'+esc(R.decision||'')+(R.would_set_state?' → '+esc(R.would_set_state):'')+'</div><div class="note">Rules: '+esc((R.rules_cited||[]).join(', ')||'—')+'</div>'
+      +((R.would_propose_writebacks||[]).length?'<div style="margin-top:6px"><b>Would propose (not applied):</b>'+(R.would_propose_writebacks||[]).map(w=>'<div style="font-family:var(--mono);font-size:12px">'+esc(w.field)+': '+esc(w.from==null?'null':w.from)+' → '+esc(w.to==null?'null':w.to)+'</div>').join('')+'</div>':'')
+      +((R.questions_for_reyansh||[]).length?'<div style="margin-top:6px"><b>Questions for you:</b>'+(R.questions_for_reyansh||[]).map(q=>'<div>• '+esc(q)+'</div>').join('')+'</div>':'')+'</div></div>'
+      +'<details><summary class="note">Raw report JSON</summary><pre style="white-space:pre-wrap;font-size:12px;background:var(--sunk);padding:10px;border-radius:8px;overflow-x:auto">'+esc(JSON.stringify(R,null,2))+'</pre></details>';
+    if(!J.rehearsal&&st.report&&!st.reviewed)h+='<div>'+btn('Remove pasted report',()=>{const s2=aqGet();delete s2.report;delete s2.reportAt;aqLog(s2,'Pasted report removed');aqPut(s2);schedule();},'sm')+'</div>';}
+  h+='</div>';
+  // review
+  h+='<div class="card" style="padding:14px 16px;margin-top:16px;display:flex;flex-direction:column;gap:10px"><b>Your review</b>';
+  if(st.reviewed)h+='<div>'+pillV(st.reviewed.verdict==='right'?'✓ Reviewed: the assistant got it right':'✕ Reviewed: the assistant got it wrong',st.reviewed.verdict==='right'?['#E5F5EB','#1F8A4C']:['#FCE7E4','#C2392F'])+' <span class="note">'+esc(aqWhen(st.reviewed.at))+'</span></div>'+(st.reviewed.note?'<div class="note">Note: '+esc(st.reviewed.note)+'</div>':'')
+    +'<div>'+btn('Undo review',()=>{const s2=aqGet();delete s2.reviewed;aqLog(s2,'Review undone');aqPut(s2);schedule();},'sm')+'</div>';
+  else if(!R)h+='<div class="note">Available once there is a rehearsal report.</div>';
+  else h+='<label style="display:block"><span class="note">Note (optional)</span><input class="in" style="width:100%;box-sizing:border-box" value="'+esc(AQ.note)+'"'+inp(e=>{AQ.note=e.target.value;})+'></label>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:8px">'+btn('Mark reviewed: got it right',()=>{const s2=aqGet();s2.reviewed={verdict:'right',at:new Date().toISOString(),note:AQ.note};aqLog(s2,'Marked reviewed','got it right'+(AQ.note?': '+AQ.note:''));aqPut(s2);AQ.note='';schedule();},'pri')
+    +btn('Mark reviewed: got it wrong',()=>{const s2=aqGet();s2.reviewed={verdict:'wrong',at:new Date().toISOString(),note:AQ.note};aqLog(s2,'Marked reviewed','got it wrong'+(AQ.note?': '+AQ.note:''));aqPut(s2);AQ.note='';schedule();})+'</div>';
+  h+='<details><summary class="note">Answer key (for you, not the assistant)</summary><div style="font-size:13px;padding-top:6px">The right call is <b>HOLD</b> → state <b>HELD</b>. The thread’s last message is from them (21 Nov): “not looking at anything new right now. Maybe ping me in January.” That is a reply and a “not now” (C1, C3, rule R4): the Day 3 follow-up must not go, the person routes to <b>Needs you → Answer</b>, and the only write-back worth proposing is marking them replied (fields.li.replied). The CRM’s own replied flag is still empty, which is exactly the gap the thread re-check exists to catch. Text check: approved = proposed, yes.</div></details></div>';
+  // audit
+  const au=st.audit||[];
+  h+='<div class="card" style="padding:14px 16px;margin-top:16px"><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px"><b>Mock audit (this browser only)</b><span style="flex:1"></span>'+btn('Reset the mock',()=>{if(!confirm('Clear the pasted report, review and audit for this mock? (Only this browser’s copy.)'))return;try{localStorage.removeItem(AQ_KEY);}catch(e){}AQ.draft='';AQ.note='';AQ.pasteErr='';schedule();},'sm')+'</div>'
+    +(au.length?au.map(a=>'<div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:13px;border-top:1px solid var(--line);padding:6px 0"><span style="font-family:var(--mono);min-width:140px">'+esc(aqWhen(a.at))+'</span><b style="min-width:150px">'+esc(a.ev)+'</b><span class="note">'+esc(a.detail)+'</span></div>').join(''):'<div class="note">Nothing yet.</div>')+'</div>';
+  return h;}
 function pgTrash(){
   const R=(AK.RM.rows||[]);let h=head('Trash','People you removed. The bots and the CRM don’t touch them. Restore puts them back where they were.');
   h+='<div style="margin-top:12px">'+table('trash',[['Who','minmax(0,1.6fr)'],['Removed','minmax(0,1fr)'],['How we knew them','minmax(0,1.6fr)'],['','auto']],
