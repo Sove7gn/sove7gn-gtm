@@ -1327,6 +1327,27 @@ async function xgRun(){
   finally{XG.running=false;await xgLoad()}
 }
 /* LinkedIn bot (11 Nov): the Chrome extension's queue (crm_li_tasks). Approve, edit or skip here; the extension sends. */
+/* LinkedIn assistant trial (22 Nov, branch li-assistant-trial). Reads crm_li_trial and the li_trial setting; every change goes
+   through the trial's own database functions (crm_li_trial_*), which check the team login. Until those tables exist (they're a
+   proposal: supabase/proposals/li_trial.sql) TR.missing is true and the board says so. Nothing here touches crm_li_tasks. */
+const TR={rows:[],events:[],cfg:null,loaded:false,loading:false,missing:false,err:""};
+async function trLoad(){
+  if(!sb||TR.loading)return;TR.loading=true;emit();
+  try{const {data,error}=await sb.from("crm_li_trial").select("*").order("created_at");
+    if(error){TR.missing=/does not exist|schema cache|relation/i.test(error.message||"");TR.err=error.message||String(error);TR.rows=[];}
+    else{TR.missing=false;TR.err="";TR.rows=data||[];
+      const ev=await sb.from("crm_li_trial_events").select("*").order("at",{ascending:false}).limit(300);TR.events=ev.data||[];
+      const st=await sb.from("crm_lead_settings").select("value").eq("key","li_trial").maybeSingle();TR.cfg=(st.data&&st.data.value)||null;}
+  }catch(e){TR.err=String(e&&e.message||e);}
+  TR.loaded=true;TR.loading=false;emit();
+}
+async function trRpc(fn,args){
+  if(!sb||!canEdit())return{error:"Sign in to change the trial."};
+  if(!/^crm_li_trial_(add|edit|approve|resolve|retry|stop|answered|resume)$/.test(fn))return{error:"Not a trial action."};
+  const {data,error}=await sb.rpc(fn,args||{});
+  if(error)return{error:error.message||String(error)};
+  await trLoad();return{data};
+}
 const LBT={rows:[],loaded:false,running:false,at:0};
 async function lbtLoad(){
   if(!sb||!session||!member)return;
@@ -1828,7 +1849,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  NT,ntLoad,ntDesk,CA,compAnalyze,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  NT,ntLoad,ntDesk,CA,compAnalyze,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,TR,trLoad,trRpc,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,RM,rmLoad,removePerson,restorePerson,isRemoved,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,
