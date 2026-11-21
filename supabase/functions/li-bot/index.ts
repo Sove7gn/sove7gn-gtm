@@ -72,6 +72,18 @@ const CRON = Deno.env.get("CRON_SECRET") ?? "";
 const COMPOSIO = Deno.env.get("COMPOSIO_API_KEY") ?? "";
 const CAL_SECRET = Deno.env.get("CAL_WEBHOOK_SECRET") ?? "";
 const db = createClient(SB_URL, SERVICE, { auth: { persistSession: false } });
+// (22 Nov) A list of ids goes into the request's URL, and past about 450 ids (≈17 KB) the request fails. plan() read its open
+// tasks that way, the failure was ignored, every lead looked like it had no tasks, and from 19 Nov (617 LinkedIn leads) no new
+// request, first DM or follow-up got written. Big id lists now go in batches of 150, and a failed batch stops the run.
+async function inIds<T = any>(ids: string[], q: (part: string[]) => PromiseLike<{ data: any; error: any }>, size = 150): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += size) {
+    const { data, error } = await q(ids.slice(i, i + size));
+    if (error) throw new Error("lookup failed: " + String(error.message ?? error).slice(0, 160));
+    out.push(...((data ?? []) as T[]));
+  }
+  return out;
+}
 const BY = "li-bot";
 
 const cors = {
@@ -1184,9 +1196,9 @@ async function drops_apply() {
   // LinkedIn: queued request notes and first DMs of leads whose page is ready
   const leadIds = ready.map((d: any) => d.lead_id).filter(Boolean);
   if (leadIds.length) {
-    const { data: lt } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,status").in("kind", ["invite", "dm"]).eq("step", 0).in("status", ["ready", "review"]).in("lead_id", leadIds);
+    const lt = await inIds(leadIds, (part) => db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,status").in("kind", ["invite", "dm"]).eq("step", 0).in("status", ["ready", "review"]).in("lead_id", part));
     const ids = [...new Set((lt ?? []).map((t: any) => t.lead_id))];
-    const leads = ids.length ? ((await db.from("crm_leads").select("*").in("id", ids)).data ?? []) as Lead[] : [];
+    const leads = await inIds<Lead>(ids as string[], (part) => db.from("crm_leads").select("*").in("id", part));
     for (const t of lt ?? []) {
       const l = leads.find((y) => y.id === t.lead_id); const dr = ready.find((d: any) => d.lead_id === t.lead_id) as Drop | undefined; if (!l || !dr) continue;
       if (t.kind === "invite" && /Had a look at your [\s\S]*$/.test(String(t.text ?? ""))) {
@@ -1581,8 +1593,8 @@ async function plan(_b: any) {
   await fromComments().catch(() => 0);
   const set = await settings();
   const leads = await pool(set);
-  const { data: open } = await db.from("crm_li_tasks").select("lead_id,kind,step,status,subject,updated_at").in("lead_id", leads.map((l) => l.id).slice(0, 2000));
-  const { data: dmTexts } = await db.from("crm_li_tasks").select("lead_id,kind,step,text").eq("kind", "dm").eq("status", "skipped").in("lead_id", leads.filter((l) => l.fields?.li?.acc && !l.fields?.tips?.sent_at && (l.fields?.li?.promised || l.fields?.li?.src === "list")).map((l) => l.id).slice(0, 500));
+  const open = await inIds(leads.map((l) => l.id), (part) => db.from("crm_li_tasks").select("lead_id,kind,step,status,subject,updated_at").in("lead_id", part));
+  const dmTexts = await inIds(leads.filter((l) => l.fields?.li?.acc && !l.fields?.tips?.sent_at && (l.fields?.li?.promised || l.fields?.li?.src === "list")).map((l) => l.id), (part) => db.from("crm_li_tasks").select("lead_id,kind,step,text").eq("kind", "dm").eq("status", "skipped").in("lead_id", part));
   for (const d of dmTexts ?? []) { const o = (open ?? []).find((x: any) => x.lead_id === d.lead_id && x.kind === "dm" && x.step === d.step && x.status === "skipped"); if (o) (o as any).text = d.text; }
   const tipsWanted: string[] = [];
   const tasksOf = new Map<string, any[]>();
@@ -1602,7 +1614,7 @@ async function plan(_b: any) {
     const r = reached.get(k) ?? { req: false, dm: false, id: l.id }; r.req = r.req || !!(x.req || x.acc); r.dm = r.dm || !!x.dm || !!x.replied; reached.set(k, r); }
   const twin = (l: Lead, what: "req" | "dm") => { const r = reached.get(nameKey(l)); return !!r && r[what] && !((l.fields?.li ?? {})[what]); };
   const twins = leads.filter((l) => twin(l, "req") || twin(l, "dm")).map((l) => l.id);
-  if (twins.length) await db.from("crm_li_tasks").update({ status: "skipped", error: "Same person as another lead we already reached" }).in("status", ["review", "ready"]).in("kind", ["invite", "dm"]).in("lead_id", twins);
+  if (twins.length) await inIds(twins, (part) => db.from("crm_li_tasks").update({ status: "skipped", error: "Same person as another lead we already reached" }).in("status", ["review", "ready"]).in("kind", ["invite", "dm"]).in("lead_id", part));
   let finished = 0;
   for (const l of leads) {
     const li = { ...(l.fields?.li ?? {}) };
@@ -1749,7 +1761,8 @@ async function plan(_b: any) {
     for (const l of needHook.slice(0, 40)) {
       let text = "";
       // (18 Nov) research first: the request waits (max 24 hours) for their lead page; the note offers it when it's ready
-      const dr = await dropOfLead(l, 2), ds = dropState(dr);
+      // (22 Nov) at most 6 hours, not 24: a batch of new leads sat on "writing" all day while their pages queued up
+      const dr = await dropOfLead(l, 2), ds = dropState(dr, dr ? Date.parse(dr.created_at) + 6 * 3600e3 : undefined);
       if (ds === "wait") continue;
       const tpl = ds === "ready" ? "{hook} " + set.v2.note_drop : set.note;
       if (notesLeft > 0) {
@@ -1765,7 +1778,7 @@ async function plan(_b: any) {
   }
   // Requests already written for people who turned out not to fit (after their research came in) are taken back.
   const unfit = leads.filter((l) => !l.fields?.li?.req && notFit(l)).map((l) => l.id);
-  if (unfit.length) await db.from("crm_li_tasks").update({ status: "skipped", error: "Not a fit for our ICP" }).eq("kind", "invite").in("status", ["review", "ready"]).in("lead_id", unfit);
+  if (unfit.length) await inIds(unfit, (part) => db.from("crm_li_tasks").update({ status: "skipped", error: "Not a fit for our ICP" }).eq("kind", "invite").in("status", ["review", "ready"]).in("lead_id", part));
   if (newRows.length) {
     // (14 Nov) Every row gets the same columns: a batch where only some rows carry subject sends null for the rest, which the
     // table refuses (subject is NOT NULL), and then nothing at all gets queued.
@@ -3193,7 +3206,7 @@ async function x_plan(b: any) {
   await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
   const dayStart = ptDayStart();
   // (17 Nov) Replies to posts have their own cap (x_bot.reply_cap), so only DMs and follow-ups count here.
-  const { data: sentRows } = await db.from("crm_x_tasks").select("kind").eq("status", "sent").gte("sent_at", dayStart).not("kind", "in", "(reply,close)").limit(500);
+  const { data: sentRows } = await db.from("crm_x_tasks").select("kind,decided_by").eq("status", "sent").gte("sent_at", dayStart).not("kind", "in", "(reply,close)").limit(500);
   const sentToday = (sentRows ?? []).length, dmToday = (sentRows ?? []).filter((r: any) => r.kind === "dm").length, fuToday = sentToday - dmToday;
   const left = Math.max(0, set.cap - (sentToday ?? 0));
   const inHours = inHoursPT(set.from, set.to);
@@ -3207,7 +3220,13 @@ async function x_plan(b: any) {
   // (17 Nov) New founders get their share: until x_bot.daily_new (10) first DMs are out today, first DMs and follow-ups take turns.
   const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
   const dailyNew = +((xb?.value as any)?.daily_new ?? 10) || 10, dmFirst = dmToday < dailyNew && fuToday >= dmToday;
-  const rank = (t: any) => (String(t.decided_by ?? "").startsWith("auto: warm") ? 0 : (t.kind === "dm") === dmFirst ? 1 : 2);
+  // (22 Nov) Warm DMs always went first, so on a busy day no new cold DM went out at all (none since 20 Nov). Now warm ones lead
+  // only while they're behind the new first DMs sent today; after that a new first DM gets the next slot.
+  const isWarm = (t: any) => String(t.decided_by ?? "").startsWith("auto: warm");
+  const warmToday = (sentRows ?? []).filter((r: any) => r.kind === "dm" && isWarm(r)).length, coldToday = dmToday - warmToday;
+  const rank = (t: any) => isWarm(t) ? (warmToday <= coldToday ? 0 : 1.5)
+    : t.kind === "dm" ? (warmToday > coldToday && coldToday < dailyNew ? 0.5 : dmFirst ? 1 : 2)
+    : dmFirst ? 2 : 1;
   const ready = [...(pool ?? [])].sort((a: any, b: any) => rank(a) - rank(b));
   const tasks: any[] = [];
   for (const t of ready ?? []) {
