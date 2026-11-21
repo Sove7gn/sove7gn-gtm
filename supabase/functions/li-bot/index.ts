@@ -645,7 +645,7 @@ Deno.serve(async (req) => {
 
 // ───────── settings and status ─────────
 type Bot = { mode: "review" | "auto"; paused: boolean; include_warm: boolean; week_cap: number; notes_month: number; followups: number;
-  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean; localTime: boolean; v2: V2Texts };
+  gap_days: number; hours: { from: number; to: number }; note: string; dm1: string; fu: string[]; rush: boolean; localTime: boolean; v2: V2Texts; executor: string };
 async function settings(): Promise<Bot> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot").maybeSingle();
   const v = (data?.value ?? {}) as Partial<Bot>;
@@ -656,7 +656,10 @@ async function settings(): Promise<Bot> {
     // Fast mode (11 Nov): until rush_until, approved items go out as soon as they can (no local-time window, 30 min after the warm touch).
     rush: !!(v as any).rush_until && Date.parse((v as any).rush_until) > Date.now(),
     // (12 Nov) local_time false = only Reyansh's IST window counts (hours), not each person's local morning.
-    localTime: (v as any).local_time !== false };
+    localTime: (v as any).local_time !== false,
+    // (22 Nov, Reyansh) Who sends LinkedIn: "extension" (default) or "instinct" (his AI assistant). Everything else stays the same:
+    // the planner, approvals, the board, and the extension still reading accepts and replies. Only the hand-out changes owner.
+    executor: (v as any).executor === "instinct" ? "instinct" : "extension" };
 }
 async function saveStatus(patch: Record<string, unknown>) {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "li_bot_status").maybeSingle();
@@ -1788,11 +1791,16 @@ async function plan(_b: any) {
   }
 
   // Hand out what's approved, at a human pace: a few per run, and never past LinkedIn's weekly request ceiling.
-  await db.from("crm_li_tasks").update({ status: "ready" }).eq("status", "sending").lt("created_at", new Date(Date.now() - 3600e3).toISOString());
+  const mine = set.executor === (_b?.executor === "instinct" ? "instinct" : "extension");
+  if (set.executor === "instinct") {
+    // (22 Nov) The assistant never gets an automatic retry: a send it didn't report within an hour may have gone out, so it is
+    // marked failed with UNCLEAR for Reyansh to check the chat (Try again on the card only if it really didn't go out).
+    await db.from("crm_li_tasks").update({ status: "failed", error: "UNCLEAR: the assistant didn't report this within an hour. Check their LinkedIn chat; press Try again only if it didn't go out." }).eq("status", "sending").lt("updated_at", new Date(Date.now() - 3600e3).toISOString());
+  } else await db.from("crm_li_tasks").update({ status: "ready" }).eq("status", "sending").lt("created_at", new Date(Date.now() - 3600e3).toISOString());
   let tasks: any[] = [];
   // (18 Nov, Reyansh) Whoever accepts hears from us within ~7 hours: messages go out 6:00-23:00 PT, requests keep set.hours.
   const reqHours = inHours(set.hours), msgHours = inHoursPT(6, 23);
-  if (!set.paused && (reqHours || msgHours)) {
+  if (!set.paused && mine && (reqHours || msgHours)) {
     const wk = new Date(Date.now() - 7 * 86400e3).toISOString();
     const { count: weekSent } = await db.from("crm_li_tasks").select("id", { count: "exact", head: true }).eq("kind", "invite").eq("status", "sent").gte("sent_at", wk);
     // (17 Nov) Human pace: at most 2 requests and 2 messages handed out per 20-minute check, and daily caps (60% on weekends).
@@ -1851,6 +1859,8 @@ async function plan(_b: any) {
 
 // claim: right before sending, make sure it's still approved (not skipped, not already sent, they haven't replied).
 async function claim(b: any) {
+  const ex = (await settings()).executor;
+  if (ex !== (b?.executor === "instinct" ? "instinct" : "extension")) return { ok: false, why: "LinkedIn sending is assigned to " + ex };
   const { data } = await db.from("crm_li_tasks").update({ status: "sending" }).eq("id", b.id).in("status", ["sending", "ready"]).select("id,lead_id,kind,step,subject,text");
   if (!data?.length) return { ok: false };
   // (18 Nov) A first DM queued with the old idea text while their lead page is being built: back in the queue until it's done
