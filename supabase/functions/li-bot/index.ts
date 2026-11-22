@@ -1814,7 +1814,10 @@ async function plan(_b: any) {
     // (16 Nov) A request that failed on the warm touch (LinkedIn's tab too slow to like their post) goes again without it.
     await db.from("crm_li_tasks").update({ status: "ready", error: "no warm touch (it timed out)" }).eq("kind", "invite").eq("status", "failed").ilike("error", "%likeLatest%");
     // (18 Nov) Messages and requests read separately: 170+ queued requests (blocked by the weekly cap) once hid every message.
-    const { data: readyInv } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").eq("kind", "invite").order("created_at").limit(40);
+    // (22 Nov, Reyansh) Newest approval first, so a request he just approved goes ahead of old ready ones with no approval time
+    // (approved_at is stamped by the crm_li_tasks_approved_at trigger when an invite goes review -> ready); then newest created.
+    const { data: readyInv } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").eq("kind", "invite")
+      .order("approved_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(40);
     const { data: readyMsg } = await db.from("crm_li_tasks").select("id,lead_id,kind,step,text,subject,error").eq("status", "ready").neq("kind", "invite").order("created_at").limit(60);
     // first DMs to people who just accepted go before follow-ups
     const ready = [...(readyMsg ?? []).sort((a: any, b: any) => (a.kind === "dm" && a.step === 0 ? 0 : 1) - (b.kind === "dm" && b.step === 0 ? 0 : 1)), ...(readyInv ?? [])];
