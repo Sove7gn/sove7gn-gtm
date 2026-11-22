@@ -643,9 +643,10 @@ function pgInbound(){
 /* ---------- Reply to their posts: skimmable cards with who they are ---------- */
 function pgReplies(){
   const rp=safe(()=>L.repliesVals(),{rows:[]});const li=safe(()=>L.lisVals(),{cards:[]});const cur=V.f.rep||'x';
-  let h=head('Reply to their posts','Show up under the posts of the people we sell to. Approve and the X bot likes the post and replies (30 a day, 15+ min apart).');
-  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['posted','Posted (live)',(AK.XG.rows||[]).filter(r=>/^(done|posted)$/.test(r.status)&&ms(r.done_at)>Date.now()-D).length],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
+  let h=head('Reply to their posts','Show up under the posts of the people we sell to. Automatic X replies are off: post them by hand from the Manual tab (same 30-a-day cap and checks).');
+  h+=tabsBar('rep',[['x','X replies',rp.openN||0],['man','Manual',(AK.XG.rows||[]).filter(r=>r.source==='manual'&&/^(new|approved|sending|failed)$/.test(r.status)).length],['posted','Posted (live)',(AK.XG.rows||[]).filter(r=>/^(done|posted)$/.test(r.status)&&ms(r.done_at)>Date.now()-D).length],['li','LinkedIn comments',(li.cards||[]).filter(c=>c.isNew).length]]);
   if(cur==='posted')return h+postedHtml();
+  if(cur==='man')return h+manualHtml();
   if(cur==='x'){const done=+(rp.doneN||0);
     h+='<div class="rp-top">'+ring(done/30,'#7C3AED',done+'/30')+'<div><b>'+done+' of 30 replies today</b><div class="note">'+esc(rp.botLine||'')+(rp.lastRun?' · '+esc(rp.lastRun):'')+'</div></div><span class="sp"></span>'
       +(rp.hasApproveAll&&canEdit()?btn(rp.approveAllLabel,rp.approveAll,'pri sm'):'')+btn(rp.runLabel||'Check X now',rp.run,'sm ghost')+'</div>';
@@ -1359,6 +1360,32 @@ function compAdsHtml(R){
 }
 
 /* Reply to their posts > Posted: every reply that went live, by day */
+/* ---------- Manual X replies (22 Nov): add the post + draft, claim, post it on X, save the published reply's link ----------
+   Automatic replies stay off. Claim runs the bot's checks (shared cap, gap, hours, cooldown, 20-hour freshness, one per person a day).
+   Nothing here posts or likes on X. */
+function manualHtml(){
+  const rows=(AK.XG.rows||[]).filter(r=>r.source==='manual').sort((a,b)=>ms(b.created_at)-ms(a.created_at));
+  const F=V.xm||(V.xm={url:'',draft:'',links:{}});
+  const call=(action,body,ok)=>AK.botCall(action,body).then(r=>{if(!r)return null;if(r.error){L.toast(r.error,null,true);return null;}if(ok)L.toast(ok);AK.xgLoad();return r;});
+  const doneToday=(AK.XG.rows||[]).filter(r=>r.status==='done'&&/^(x bot|manual)$/.test(r.done_by||'')&&ms(r.done_at)>Date.now()-D).length;
+  let h='<div class="card" style="padding:14px 16px;margin-top:12px;display:flex;flex-direction:column;gap:10px">'
+    +'<div><b>Add a reply</b><div class="note">Automatic replies are off. Paste the post you’re replying to and your reply. Claim it right before you post, then save the link of the reply you published. Nothing is posted or liked for you.</div></div>'
+    +'<label style="display:flex;flex-direction:column;gap:3px"><span class="note">Target post link</span><input class="in" placeholder="https://x.com/handle/status/…" value="'+esc(F.url)+'"'+inp(e=>{F.url=e.target.value;})+'></label>'
+    +'<label style="display:flex;flex-direction:column;gap:3px"><span class="note">Your reply (max 280)</span><textarea class="in" rows="3"'+inp(e=>{F.draft=e.target.value;})+'>'+esc(F.draft)+'</textarea></label>'
+    +'<div>'+(canEdit()?btn('Add',()=>call('xr_manual_add',{url:F.url,draft:F.draft},'Added. Claim it right before you post.').then(r=>{if(r){V.xm={url:'',draft:'',links:F.links};schedule();}}),'pri sm'):'<span class="note">Sign in to add replies.</span>')+'</div></div>';
+  const sec=(title,list,fn)=>'<div style="margin-top:14px"><b>'+esc(title)+'</b> <span class="cnt">'+list.length+'</span>'+(list.length?'<div class="rgrid" style="margin-top:8px">'+list.map(fn).join('')+'</div>':'<div class="note" style="margin-top:4px">None.</div>')+'</div>';
+  const head2=r=>'<div class="rc-h"><div class="rc-w"><b class="ell">@'+esc(r.author)+'</b><span class="meta ell">'+esc(r.url)+'</span></div><span class="sp"></span>'+btn('Open post ↗',()=>window.open(r.url,'_blank','noopener'),'sm ghost')+'</div>'
+    +'<div class="rc-r"><span class="rc-l">Our reply</span><div style="white-space:pre-wrap">'+esc(r.draft||'')+'</div></div>';
+  const waiting=rows.filter(r=>/^(new|approved|failed|skipped)$/.test(r.status)),claimed=rows.filter(r=>r.status==='sending'),done=rows.filter(r=>/^(done|posted)$/.test(r.status));
+  h+='<p class="note" style="margin-top:12px">Today: '+doneToday+' replies posted (bot + manual share one cap). Claiming checks the cap, the gap since the last reply, sending hours (US Pacific), X’s cooldown, that the post is under 20 hours old, and one reply per person a day.</p>';
+  h+=sec('Ready to claim',waiting,r=>'<div class="rc">'+head2(r)+(r.status==='failed'&&r.error?'<div class="note" style="color:var(--bad)">'+esc(r.error)+'</div>':'')
+    +'<div class="rc-a">'+(canEdit()&&r.status!=='failed'?btn('Claim',()=>call('xr_manual_claim',{url:r.url},'Claimed. Post it on X now, then paste your reply’s link here.'),'pri sm'):'')+'</div></div>');
+  h+=sec('Claimed: post it, then save the link',claimed,r=>'<div class="rc" style="border-color:#BFDBFE">'+head2(r)+'<div class="note">Claimed '+esc(new Date(r.claimed_at||Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))+'</div>'
+    +'<label style="display:flex;flex-direction:column;gap:3px"><span class="note">Link of the reply you published</span><input class="in" placeholder="https://x.com/you/status/…" value="'+esc(F.links[r.url]||'')+'"'+inp(e=>{F.links[r.url]=e.target.value;})+'></label>'
+    +'<div class="rc-a">'+(canEdit()?btn('Save link + mark done',()=>call('xr_manual_done',{url:r.url,reply_url:F.links[r.url]||''},'Saved. It shows in Posted (live).').then(x=>{if(x){delete F.links[r.url];}}),'pri sm')+btn('Release',()=>call('xr_manual_release',{url:r.url},'Released.'),'sm ghost'):'')+'</div></div>');
+  h+=sec('Done',done.slice(0,30),r=>'<div class="rc">'+head2(r)+'<div class="note">Posted '+esc(new Date(r.done_at||Date.now()).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</div>'
+    +(r.reply_url?'<div class="rc-a">'+btn('Open our reply ↗',()=>window.open(r.reply_url,'_blank','noopener'),'sm')+'</div>':'')+'</div>');
+  return h;}
 function postedHtml(){
   const R=(AK.XG.rows||[]).filter(r=>/^(done|posted)$/.test(r.status)&&r.done_at).sort((a,b)=>ms(b.done_at)-ms(a.done_at));
   const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-6+i);return d;});
@@ -1366,9 +1393,9 @@ function postedHtml(){
   let h='<div class="card sec-b" style="margin:12px 0"><h3 class="ch">Replies live on X, last 7 days</h3>'+barChart([{n:'Replies posted',c:'#7C3AED',data:per}],days.map(d=>d.getDate()+' '+AK.MON[d.getMonth()]),90)+'</div>';
   let last='';
   h+='<div class="tb">'+(R.length?R.slice(0,V.more.posted?300:60).map(r=>{const d=new Date(r.done_at);const day=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'});const head2=day!==last?'<div class="tb-day">'+esc(day)+' · '+R.filter(x=>new Date(x.done_at).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short'})===day).length+' replies</div>':'';last=day;
-    const bot=!/@/.test(r.done_by||'');
+    const bot=r.done_by==='x bot'||r.status==='posted',man=r.done_by==='manual';
     return head2+'<div class="tb-r" style="grid-template-columns:70px minmax(0,1.2fr) minmax(0,2fr) auto"'+act(()=>window.open(r.url,'_blank','noopener'),false)+'><span class="meta">'+esc(d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))+'</span>'+pcell(r.name||r.author,'@'+r.author,'X')
-      +'<div class="tc"><div class="ell"><b>Our reply:</b> '+esc(r.draft||'')+'</div><div class="ell meta">On: '+esc(String(r.post_text||'').replace(/\s+/g,' '))+'</div></div>'+tagp(bot?'Posted by the bot':'Posted by you',bot?'#7C3AED':'#059669')+'</div>';}).join(''):'<div class="empty">No replies posted yet.</div>')+'</div>'
+      +'<div class="tc"><div class="ell"><b>Our reply:</b> '+esc(r.draft||'')+'</div><div class="ell meta">On: '+esc(String(r.post_text||r.url||'').replace(/\s+/g,' '))+'</div>'+(r.reply_url?'<div class="ell meta">Reply link: <button type="button" class="lnk"'+act(()=>window.open(r.reply_url,'_blank','noopener'))+'>'+esc(r.reply_url)+'</button></div>':'')+'</div>'+tagp(bot?'Posted by the bot':man?'Posted manually':'Posted by you',bot?'#7C3AED':man?'#2563EB':'#059669')+'</div>';}).join(''):'<div class="empty">No replies posted yet.</div>')+'</div>'
     +(R.length>60&&!V.more.posted?'<div style="margin-top:10px">'+btn('Show more',()=>{V.more.posted=true;schedule();},'ghost sm')+'</div>':'');
   return h;
 }

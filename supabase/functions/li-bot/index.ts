@@ -633,7 +633,7 @@ Deno.serve(async (req) => {
   if (!(await allowed(req))) return json({ error: "Not allowed. Check the bot key in the extension's settings." }, 401);
   const body = await req.json().catch(() => ({}));
   try {
-    const out = await ({ hello, engagers, state, seen, watch, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze, x3_preview } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
+    const out = await ({ hello, engagers, state, seen, watch, plan, claim, done, contact, status, enrich, people, warmed, withdrawn, briefs, tips, x_plan, x_claim, x_done, xr_plan, xr_done, xr_manual_add, xr_manual_claim, xr_manual_done, xr_manual_release, x_inbox, x_inbox_targets, x_job, guard, reconcile_li, catchup_apply, catchup_scan, li_move, li_add, refresh, poll, inmail_draft, inmail_test, inmail_tested, funding: (b: any) => funding(b).catch((e) => signalFail("funding", e)), magnets_check, launches: (b: any) => launches(b).catch((e) => signalFail("launches", e)), hiring: (b: any) => hiring(b).catch((e) => signalFail("hiring", e)), signals_daily, signal_find, signal_approve, signal_trash, prospects, day_stats, import_list, x_from_li, xv2_preview, xv2_prepare, drops_apply, comp_daily, comp_send, comp_analyze, x3_preview } as Record<string, (b: any) => Promise<unknown>>)[body.action]?.(body);
     if (out === undefined) return json({ error: "Unknown action " + body.action }, 400);
     return json(out);
   } catch (e) {
@@ -3344,20 +3344,20 @@ async function xr_plan(b: any) {
   const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
   const v: any = xb?.value ?? {};
   const cap = Math.max(0, Math.floor(Math.min(60, +(v.reply_cap ?? 30)) * weekendFactor())), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
-  await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("status", "sending").lt("claimed_at", new Date(now - 30 * 60e3).toISOString());
+  await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("status", "sending").neq("source", "manual").lt("claimed_at", new Date(now - 30 * 60e3).toISOString());
   await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("status", "approved").lt("posted_at", new Date(now - 20 * 3600e3).toISOString());
   const dayStart = ptDayStart();
-  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").eq("done_by", "x bot").gte("done_at", dayStart);
+  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").in("done_by", REPLY_BY).gte("done_at", dayStart);
   const { count: waiting } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "approved");
   const base = { posted_today: postedToday ?? 0, cap, waiting: waiting ?? 0, paused: xs.paused || !!v.replies_paused };
   if (!b.me?.signed_in || xs.paused || v.replies_paused || !cap || (postedToday ?? 0) >= cap) return { ...base, tasks: [] };
   if (!inHoursPT(xs.from, xs.to)) return { ...base, tasks: [], in_hours: false };
-  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "done").eq("done_by", "x bot").order("done_at", { ascending: false }).limit(1);
+  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "done").in("done_by", REPLY_BY).order("done_at", { ascending: false }).limit(1);
   const since = now - (Date.parse(last?.[0]?.done_at ?? "") || 0);
   const wait = (gap + Math.random() * 10) * 60e3;
   if (since < wait) return { ...base, tasks: [], wait_min: Math.ceil((wait - since) / 60e3) };
   // newest post first (a reply in the first hour is worth most), leads before creators when equally fresh
-  const { data: ready } = await db.from("crm_x_reply").select("url,author,name,draft,kind,posted_at").eq("status", "approved").neq("draft", "")
+  const { data: ready } = await db.from("crm_x_reply").select("url,author,name,draft,kind,posted_at").eq("status", "approved").neq("draft", "").neq("source", "manual")
     .gte("posted_at", new Date(now - 20 * 3600e3).toISOString()).order("posted_at", { ascending: false }).limit(20);
   // (16 Nov) never more than one reply per person a day: their other approved posts wait (and drop after 20 hours)
   const { data: today } = await db.from("crm_x_reply").select("author").eq("status", "done").gte("done_at", dayStart);   // by the bot or by hand: one reply per person a day
@@ -3394,6 +3394,87 @@ async function xr_done(b: any) {
   }
   await db.from("crm_x_reply").update({ status: "failed", done_at: now, error: err }).eq("url", url);
   return { ok: true };
+}
+
+// ───────── Manual X replies (22 Nov) ─────────
+// Automatic replies are off (x_bot.replies_paused). A reply can still be done by hand or by the assistant: add the target post
+// and the draft, claim it (the same checks the bot used: shared daily cap, pacing gap, sending hours, X cooldown, 20-hour
+// freshness, one reply per person a day), post it on X, then close it with the URL of the reply that was actually published.
+// Nothing here likes, posts or changes limits; the claim only reserves the slot.
+const REPLY_BY = ["x bot", "manual"];
+function xrPost(u: unknown): { url: string; author: string; id: string; posted_at: string | null } | null {
+  const m = String(u ?? "").trim().match(/^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status(?:es)?\/(\d{5,25})/i);
+  if (!m) return null;
+  let at: string | null = null;
+  try { const ms = Number((BigInt(m[2]) >> 22n) + 1288834974657n); if (ms > 1.2e12 && ms < Date.now() + 864e5) at = new Date(ms).toISOString(); } catch (_) { /* old-style id */ }
+  return { url: "https://x.com/" + m[1] + "/status/" + m[2], author: m[1], id: m[2], posted_at: at };
+}
+async function xr_manual_add(b: any) {
+  const p = xrPost(b.url); if (!p) return { error: "Paste the X post's link (x.com/<handle>/status/<number>)" };
+  const draft = String(b.draft ?? "").trim();
+  if (!draft) return { error: "Write the reply first" };
+  if (draft.length > 280) return { error: "The reply is " + draft.length + " characters; X allows 280" };
+  const { data: old } = await db.from("crm_x_reply").select("url,status,reply_url").eq("url", p.url).maybeSingle();
+  if (old && /^(done|posted)$/.test(old.status)) return { error: "Already replied to this post" + (old.reply_url ? ": " + old.reply_url : ""), duplicate: true };
+  if (old && old.status === "sending") return { error: "This post is already claimed. Finish it or release it first.", duplicate: true };
+  const row: any = { status: "approved", draft, source: "manual", error: "", claimed_at: null };
+  if (old) await db.from("crm_x_reply").update(row).eq("url", p.url);
+  else await db.from("crm_x_reply").insert({ ...row, url: p.url, author: p.author, name: String(b.name ?? "").trim() || p.author, kind: "creator", post_text: clip(String(b.post_text ?? ""), 1000), posted_at: p.posted_at });
+  return { ok: true, url: p.url, posted_at: p.posted_at };
+}
+async function xr_manual_claim(b: any) {
+  const p = xrPost(b.url); if (!p) return { error: "Not an X post link" };
+  const { data: r } = await db.from("crm_x_reply").select("*").eq("url", p.url).maybeSingle();
+  if (!r) return { error: "Add the post first" };
+  if (/^(done|posted)$/.test(r.status)) return { error: "Already replied to this post" + (r.reply_url ? ": " + r.reply_url : ""), duplicate: true };
+  if (r.status === "sending") return { error: "Already claimed " + String(r.claimed_at ?? "").slice(0, 16).replace("T", " ") + " UTC. Finish it or release it.", duplicate: true };
+  if (!String(r.draft ?? "").trim()) return { error: "This post has no reply written yet" };
+  const xs = await xSettings(), now = Date.now();
+  const { data: xb } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+  const v: any = xb?.value ?? {};
+  if (xs.cooling) return { error: "X asked us to slow down: paused until " + String(xs.cooldown_until).slice(0, 16).replace("T", " ") + " UTC", wait: "cooldown" };
+  if (xs.paused) return { error: "X sending is paused on the Bots page", wait: "paused" };
+  if (!inHoursPT(xs.from, xs.to)) return { error: "Outside sending hours (" + xs.from + ":00 to " + xs.to + ":00 US Pacific)", wait: "hours" };
+  const fresh = Date.parse(r.posted_at ?? "") || 0;
+  if (!fresh || now - fresh > 20 * 3600e3) {
+    await db.from("crm_x_reply").update({ status: "failed", error: "The post was more than 20 hours old by the time it came up" }).eq("url", p.url).in("status", ["new", "approved"]);
+    return { error: "The post is more than 20 hours old, so it's too late to reply", stale: true };
+  }
+  const cap = Math.max(0, Math.floor(Math.min(60, +(v.reply_cap ?? 30)) * weekendFactor())), gap = Math.max(10, +(v.reply_gap_min ?? 15) || 15);
+  const dayStart = ptDayStart();
+  const { count: postedToday } = await db.from("crm_x_reply").select("url", { count: "exact", head: true }).eq("status", "done").in("done_by", REPLY_BY).gte("done_at", dayStart);
+  if ((postedToday ?? 0) >= cap) return { error: "Today's reply cap is reached (" + postedToday + "/" + cap + ")", wait: "cap" };
+  const { data: last } = await db.from("crm_x_reply").select("done_at").eq("status", "done").in("done_by", REPLY_BY).order("done_at", { ascending: false }).limit(1);
+  const since = now - (Date.parse(last?.[0]?.done_at ?? "") || 0);
+  if (since < gap * 60e3) return { error: "Too soon after the last reply: wait " + Math.ceil((gap * 60e3 - since) / 60e3) + " more minutes", wait: "gap", wait_min: Math.ceil((gap * 60e3 - since) / 60e3) };
+  const { data: today } = await db.from("crm_x_reply").select("author,url").eq("status", "done").gte("done_at", dayStart);
+  if ((today ?? []).some((x: any) => String(x.author).toLowerCase() === p.author.toLowerCase())) return { error: "Already replied to @" + p.author + " today (one reply per person a day)", duplicate: true };
+  const { data: busy } = await db.from("crm_x_reply").select("url").eq("status", "sending").ilike("author", p.author).neq("url", p.url).limit(1);
+  if (busy?.length) return { error: "Another post by @" + p.author + " is already claimed", duplicate: true };
+  const { data: got } = await db.from("crm_x_reply").update({ status: "sending", claimed_at: new Date().toISOString(), source: "manual", error: "" }).eq("url", p.url).in("status", ["new", "approved", "failed", "skipped"]).select("url,draft");
+  if (!got?.length) return { error: "Someone else just claimed it" };
+  return { ok: true, url: p.url, draft: got[0].draft, cap, posted_today: postedToday ?? 0 };
+}
+async function xr_manual_done(b: any) {
+  const p = xrPost(b.url); if (!p) return { error: "Not an X post link" };
+  const rp = xrPost(b.reply_url); if (!rp) return { error: "Paste the link of the reply you published (x.com/<you>/status/<number>)" };
+  if (rp.url === p.url) return { error: "That's the original post's link, not your reply's" };
+  const { data: r } = await db.from("crm_x_reply").select("url,status,reply_url").eq("url", p.url).maybeSingle();
+  if (!r) return { error: "No such post" };
+  if (/^(done|posted)$/.test(r.status)) return { error: "Already marked done" + (r.reply_url ? ": " + r.reply_url : ""), duplicate: true };
+  if (r.status !== "sending") return { error: "Claim it before posting (it isn't claimed)" };
+  const { data: used } = await db.from("crm_x_reply").select("url").eq("reply_url", rp.url).limit(1);
+  if (used?.length) return { error: "That reply link is already saved for another post", duplicate: true };
+  const at = new Date().toISOString();
+  const { data: got } = await db.from("crm_x_reply").update({ status: "done", done_at: at, done_by: "manual", reply_url: rp.url, error: "" }).eq("url", p.url).eq("status", "sending").select("url");
+  if (!got?.length) return { error: "It changed meanwhile; refresh and check" };
+  await xStatus({ last_reply_at: at });
+  return { ok: true, url: p.url, reply_url: rp.url };
+}
+async function xr_manual_release(b: any) {
+  const p = xrPost(b.url); if (!p) return { error: "Not an X post link" };
+  const { data: got } = await db.from("crm_x_reply").update({ status: "approved", claimed_at: null }).eq("url", p.url).eq("status", "sending").select("url");
+  return got?.length ? { ok: true } : { error: "It isn't claimed" };
 }
 
 async function x_claim(b: any) {

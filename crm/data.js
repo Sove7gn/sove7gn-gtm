@@ -1264,7 +1264,7 @@ async function ntLoad(){
     const [a,b,c]=await Promise.all([
       sb.from("crm_li_tasks").select("id,lead_id,kind,step,status,text,error,sent_at,updated_at").in("status",["sent","failed"]).gte("updated_at",since).order("updated_at",{ascending:false}).limit(400),
       sb.from("crm_x_tasks").select("id,row,name,handle,kind,status,text,error,sent_at,claimed_at,created_at").in("status",["sent","failed"]).or("sent_at.gte."+since+",claimed_at.gte."+since).limit(400),
-      sb.from("crm_x_reply").select("url,author,name,kind,post_text,draft,status,done_by,done_at,error").gte("done_at",since).limit(200)]);
+      sb.from("crm_x_reply").select("url,author,name,kind,post_text,draft,status,done_by,done_at,error,reply_url,source").gte("done_at",since).limit(200)]);
     const fresh=[];
     const add=e=>{if(NT.seen.has(e.id))return;NT.seen.add(e.id);NT.items.push(e);if(!first)fresh.push(e)};
     for(const t of a.data||[]){const l=(LD.rows||[]).find(x=>x.id===t.lead_id)||{};
@@ -1275,9 +1275,9 @@ async function ntLoad(){
       add({id:"x"+t.id+t.status,at:t.status==="sent"?t.sent_at:(t.claimed_at||t.created_at),chan:"X",ok:t.status==="sent",
         what:(t.kind==="dm"?"First DM":fu?"Follow-up "+fu[1]:t.kind)+(t.status==="sent"?" sent":" didn’t go through"),
         who:t.name||("@"+t.handle),sub:t.handle?"@"+String(t.handle).replace(/^@/,""):"",text:t.status==="sent"?String(t.text||""):String(t.error||""),link:t.handle?"https://x.com/"+String(t.handle).replace(/^@/,""):""})}
-    for(const r of c.data||[]){if(!r.done_at||!/^(done|failed)$/.test(r.status||""))continue;const bot=!/@/.test(r.done_by||"");
-      add({id:"xr"+r.url+r.status,at:r.done_at,chan:"X",ok:r.status==="done",what:(r.status==="done"?"Replied to their post":"Reply didn’t go through")+(bot?"":" (by hand)"),
-        who:r.name||("@"+r.author),sub:r.author?"@"+r.author:"",text:r.status==="done"?String(r.draft||""):String(r.error||""),quote:String(r.post_text||""),link:r.url||""})}
+    for(const r of c.data||[]){if(!r.done_at||!/^(done|failed)$/.test(r.status||""))continue;const bot=r.done_by==="x bot",man=r.done_by==="manual";
+      add({id:"xr"+r.url+r.status,at:r.done_at,chan:"X",ok:r.status==="done",what:(r.status==="done"?"Replied to their post":"Reply didn’t go through")+(bot?"":man?" (manual)":" (by hand)"),
+        who:r.name||("@"+r.author),sub:r.author?"@"+r.author:"",text:r.status==="done"?(r.reply_url?"Reply: "+r.reply_url+" · ":"")+String(r.draft||""):String(r.error||""),quote:String(r.post_text||""),link:r.reply_url||r.url||"",replyUrl:r.reply_url||""})}
     NT.items.sort((x,y)=>Date.parse(y.at||0)-Date.parse(x.at||0));if(NT.items.length>600)NT.items.length=600;
     NT.since=stamp;NT.loaded=true;NT.err=null;
     if(fresh.length)ntDesktop(fresh);

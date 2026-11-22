@@ -795,7 +795,7 @@ class Component extends DCLogic {
     const open=all.filter(r=>r.status==='new').sort((a,b)=>(fresh(b)-fresh(a))||((b.kind==='lead')-(a.kind==='lead'))||(ts(b)-ts(a)));
     const queued=all.filter(r=>r.status==='approved'||r.status==='sending').sort((a,b)=>ts(b)-ts(a));
     const doneToday=all.filter(r=>/^(done|posted|skipped|failed)$/.test(r.status)&&r.done_at&&sameDay(new Date(r.done_at))).sort((a,b)=>new Date(b.done_at)-new Date(a.done_at));
-    const byBot=r=>r.status==='posted'||(r.status==='done'&&!/@/.test(r.done_by||''));const postedN=doneToday.filter(byBot).length,mineN=doneToday.filter(r=>r.status==='done'&&!byBot(r)).length,repliedN=postedN+mineN;const lim=s.more.rp||15;
+    const byBot=r=>r.status==='posted'||(r.status==='done'&&r.done_by==='x bot');const postedN=doneToday.filter(byBot).length,mineN=doneToday.filter(r=>r.status==='done'&&!byBot(r)).length,repliedN=postedN+mineN;const lim=s.more.rp||15;
     const mine=(r,draft)=>{const id=(String(r.url).match(/status\/(\d+)/)||[])[1];if(draft){try{navigator.clipboard.writeText(draft);}catch(e){}}
       window.open(id&&draft?'https://x.com/intent/post?in_reply_to='+id+'&text='+encodeURIComponent(draft):r.url,'_blank','noopener');AK.xgSet(r.url,'done');
       this.toast((repliedN+1)+' of 30 today. Make it sound like you before you post.');};
