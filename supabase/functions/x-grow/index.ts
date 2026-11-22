@@ -89,7 +89,9 @@ Deno.serve(async (req) => {
   const { data: run } = await db.from("crm_sync_runs").insert({ platform: "x-grow" }).select("id").single();
   const out: Record<string, unknown> = {};
   try {
-    if (both || body.replies) out.replies = await replyTargets().catch((e) => ({ error: String((e as Error).message ?? e) }));
+    // (22 Nov) X replies are done by Instinct: no reply targets or drafts while x_bot.replies_paused is on
+    const rp = !!((await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle()).data?.value as any)?.replies_paused;
+    if ((both || body.replies) && !rp) out.replies = await replyTargets().catch((e) => ({ error: String((e as Error).message ?? e) }));
     if (both || body.followers) out.followers = await newFollowers().catch((e) => ({ error: String((e as Error).message ?? e) }));   // twitterapi.io may be out of credits: the extension reads followers too
     if (both || body.followers || body.warm) out.warm = await warmDMs();
     if (both || body.li_ideas) out.li_ideas = await liReplyIdeas().catch((e) => ({ error: String((e as Error).message ?? e) }));
@@ -655,9 +657,12 @@ async function readPlan(b: any) {
     await db.from("crm_lead_settings").upsert({ key: "x_bot_status", value: { ...((bs?.value as any) ?? {}), reply_short_reason: reason, reply_short_at: reason ? new Date().toISOString() : null } }, { onConflict: "key" });
   }
   let job: any = null;
+  // (22 Nov, Reyansh) X replies are done by Instinct now: while x_bot.replies_paused is on, the extension stops searching for posts to reply to.
+  const { data: xbr } = await db.from("crm_lead_settings").select("value").eq("key", "x_bot").maybeSingle();
+  const repliesOff = !!(xbr?.value as any)?.replies_paused;
   // (16 Nov) our own posts and follower count, every 2 hours, off our profile page (the old X data service is off)
   if (due("our_posts")) job = { kind: "our_posts", url: "https://x.com/" + HANDLE, scrolls: 6 };
-  if (!job && due("replies")) {
+  if (!job && !repliesOff && due("replies")) {
     const hs = await icpHandles(); const per = 14, chunks = Math.max(1, Math.ceil(hs.length / per)); const i = (s.reply_turn ?? 0) % chunks;
     const part = hs.slice(i * per, i * per + per);
     if (part.length) { job = { kind: "replies", url: searchUrl("(" + part.map((h) => "from:" + h).join(" OR ") + ") -filter:replies -filter:retweets"), scrolls: 3 }; s.reply_turn = i + 1; }

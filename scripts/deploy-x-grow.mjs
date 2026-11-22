@@ -20,7 +20,8 @@ console.log("function: x-grow deployed (version " + ((await r.json()).version ??
 
 const url = env.NEXT_PUBLIC_SUPABASE_URL + "/functions/v1/x-grow";
 const JOBS = [
-  { name: "x-grow-replies", cron: "10 12-23,0-2 * * *", body: { replies: true } },
+  // (22 Nov) x-grow-replies is off: X replies are done by Instinct. Re-add this line (and set x_bot.replies_paused false) to bring it back.
+  // { name: "x-grow-replies", cron: "10 12-23,0-2 * * *", body: { replies: true } },
   { name: "x-grow-followers", cron: "40 1,7,13,19 * * *", body: { followers: true } },
   { name: "x-grow-follow-src", cron: "30 2 * * *", body: { follow_src: true } },   // 8 AM IST: followers of our client's founders -> ICP check -> X > Pipeline > To approve
   { name: "x-grow-posts", cron: "0 11 * * *", body: { posts: true } },   // (19 Nov) writes TOMORROW's posts (a day ahead, so Reyansh can schedule them)
