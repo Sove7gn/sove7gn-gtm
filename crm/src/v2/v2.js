@@ -758,6 +758,13 @@ function emNext(r){
 }
 const emHold=r=>{const l=leadById(r.lead_id);return !!l&&isHandLi(l)&&/^(approved|active|new|found|ready)$/.test(r.stage);};
 const emBin=r=>/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage)?'':'<button type="button" class="trash" title="'+(r.e1_at?'Stop the emails to this person':'Remove from the email pipeline: no email goes to them (they stay in the CRM)')+'"'+act(()=>{if(confirm((r.e1_at?'Stop the remaining emails to ':'Remove ')+r.name+(r.e1_at?'?':' from the email pipeline? No email will be sent to them. They stay in the CRM.')))AK.emCall('skip',{id:r.id}).then(x=>{if(x)L.toast(r.name+(r.e1_at?': emails stopped.':' removed from the email pipeline.'));});})+'>🗑</button>';
+/* Approve moves the card at once (before the bot answers); if the bot refuses, it goes back. */
+function emApprove(ids){
+  const E=AK.EM,prev=E.leads.filter(r=>ids.includes(r.id)).map(r=>[r,r.stage,r.pre_approved]);
+  prev.forEach(([r,st])=>{if(st==='candidate'){r.stage='new';r.pre_approved=true;}else if(st==='ready')r.stage='approved';});V.emSel={};schedule();
+  return AK.emCall(ids.length>1?'approve_many':'approve',ids.length>1?{ids}:{id:ids[0]}).then(x=>{if(!x||(x.failed&&x.failed.length&&!x.approved)){prev.forEach(([r,st,pa])=>{r.stage=st;r.pre_approved=pa;});schedule();}
+    else if(x.failed&&x.failed.length)L.toast(x.failed.length+' could not be approved: '+x.failed[0],true);return x;});
+}
 function emCard(r){
   const exp=!!(V.emExp||{})[r.id];
   const tone=r.stage==='ready'?['#FFFBEB','#B45309','#FDE68A']:r.stage==='replied'?['#FCE7E4','#C2392F','#F5C2BC']:['#ECFDF5','#047857','#A7F3D0'];
@@ -775,9 +782,9 @@ function emCard(r){
     +'<div class="kc-one">'+esc(emHold(r)?'✋ On hold: you took them over by hand. No email goes out until you resume.':emNext(r))+'</div>'
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
     +'<div class="note" style="font-size:11.5px;margin-top:2px">'+esc(r.via||('via '+(r.channel==='x'?'X':'LinkedIn')))+' · '+esc(emDay(r.first_touch_at))+'</div>'
-    +(r.stage==='ready'&&!(r.warnings||[]).length&&canEdit()?'<div style="margin-top:4px">'+btn('Approve',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x)L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');}),'pri sm')+'</div>':'')
+    +(r.stage==='ready'&&!(r.warnings||[]).length&&canEdit()?'<div style="margin-top:4px">'+btn('Approve',()=>emApprove([r.id]),'pri sm')+'</div>':'')
     +(r.stage==='candidate'&&!exp&&r.first_touch_text?'<details class="bc-msg" onclick="event.stopPropagation()"><summary>What we said</summary><div class="msgbox">'+esc(r.first_touch_text)+'</div></details>':'')
-    +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x)L.toast('Approved. Finding '+r.name.split(' ')[0]+'’s email now; email 1 is queued once it is verified.');}),'pri sm')+'</div>':'')+'</div>';
+    +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>emApprove([r.id]),'pri sm')+'</div>':'')+'</div>';
 }
 function pgEmail(){
   const E=AK.EM;if(!E.loaded&&!E.loading)AK.emLoad();else if(E.loaded&&!E.loading&&Date.now()-E.at>60000)AK.emLoad();
@@ -785,6 +792,7 @@ function pgEmail(){
   if(E.loaded&&E.missing)return '<div class="card" style="padding:16px;margin-top:12px"><b>The email tables aren’t set up yet.</b><div class="note">Apply supabase/migrations/20261123000001_email_pipeline.sql.</div></div>';
   if(E.err&&E.loaded)return '<div class="card" style="padding:16px;margin-top:12px;color:var(--bad)">Couldn’t load the email pipeline: '+esc(E.err)+'</div>';
   if(!E.loaded)return '<div class="empty" style="padding:60px 0">Loading the email pipeline…</div>';
+  if(E.loaded&&!E.loading&&(E.leads||[]).some(r=>/^(new|found)$/.test(r.stage))){const el=Date.now()-E.at;if(el>2500)AK.emLoad(true);else setTimeout(schedule,2600-el);}   /* people being looked up: refresh every ~3s so they move the moment the bot is done */
   const rows=E.leads||[],open=V.emOpen&&rows.find(r=>r.id===V.emOpen),st=E.stats||{},cfg=E.cfg||{},paused=cfg.paused!==false;
   if(open)return emDetail(open);
   const cap=(st.cap||{});
@@ -802,7 +810,7 @@ function pgEmail(){
   h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we send a LinkedIn invite or an X DM to lands in the first column; Approve and the bot finds and verifies their email, then runs the seven emails</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
   const sel=Object.keys(V.emSel||{}).filter(id=>rows.some(r=>r.id===id&&r.stage==='candidate'));
   h+='<div class="board2" style="height:max(560px,calc(100vh - 110px))">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f),shown=id==='cand'?cs.slice(0,80):cs;
-    const tools=id==='cand'&&cs.length&&canEdit()?'<div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px 0">'+btn(sel.length?'Clear':'Select all',()=>{V.emSel=sel.length?{}:Object.fromEntries(shown.map(r=>[r.id,1]));schedule();},'sm ghost')+(sel.length?btn('Approve '+sel.length+' selected',()=>{if(confirm('Approve '+sel.length+' people? Their emails are looked up and verified, then email 1 goes out over the next days at the daily start limit.'))AK.emCall('approve_many',{ids:sel}).then(x=>{if(x){V.emSel={};L.toast('Approved '+x.approved+(x.failed&&x.failed.length?' · '+x.failed.length+' could not be approved':'')+'.');}});},'pri sm'):'')+'</div>':'';
+    const tools=id==='cand'&&cs.length&&canEdit()?'<div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px 0">'+btn(sel.length?'Clear':'Select all',()=>{V.emSel=sel.length?{}:Object.fromEntries(shown.map(r=>[r.id,1]));schedule();},'sm ghost')+(sel.length?btn('Approve '+sel.length+' selected',()=>{if(confirm('Approve '+sel.length+' people? Their emails are looked up and verified, then email 1 goes out over the next days at the daily start limit.'))emApprove(sel).then(x=>{if(x)L.toast('Approved '+(x.approved!=null?x.approved:sel.length)+'.');});},'pri sm'):'')+'</div>':'';
     return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div>'+tools+'<div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?shown.map(emCard).join('')+(cs.length>shown.length?'<div class="note" style="text-align:center">+ '+(cs.length-shown.length)+' older, approve some to see more</div>':''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
   return h;
 }
@@ -832,7 +840,7 @@ function emDetail(r){
     h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
     if(editable&&X)h+=btn('Save changes',()=>AK.emCall('edit',{id:r.id,draft:{subject:X.subject,...X.d}}).then(x=>{if(x){V.emE=null;L.toast(x.voided?'Saved. The approval was cleared: approve again.':'Saved.');}}),'pri sm')+btn('Cancel',()=>{V.emE=null;schedule();},'sm');
     else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:Object.fromEntries(N.map(n=>['e'+n,(r.draft||{})['e'+n]]))};schedule();},'sm');
-    if(r.stage==='candidate')h+=btn('Approve: find their email and start the emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 is queued once their address is verified.');V.emOpen=null;schedule();}}),'pri sm');
+    if(r.stage==='candidate')h+=btn('Approve: find their email and start the emails',()=>{V.emOpen=null;emApprove([r.id]);},'pri sm');
     if(r.stage==='ready'&&!X)h+=btn('Approve all seven emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
     const ld=leadById(r.lead_id);if(ld&&!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=handBtn(isHandLi(ld),()=>{handLi(ld,!isHandLi(ld));setTimeout(schedule,400);});
     if(!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=btn(r.e1_at?'Stop the sequence':'Skip this person',()=>{if(confirm(r.e1_at?'Stop the remaining emails to '+r.name+'?':'Skip '+r.name+'? No email will be sent.'))AK.emCall('skip',{id:r.id}).then(x=>{if(x){V.emOpen=null;schedule();}});},'sm ghost');

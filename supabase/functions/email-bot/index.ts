@@ -160,11 +160,27 @@ async function enrichOne(r: any, c: Cfg, tpl: M.Templates) {
   if (r.pre_approved) { const a = await approve({ id: r.id }, r.approved_by || "approved earlier", true); if (a.error) { await setR({ error: a.error }); return "ready"; } return "queued"; }
   return "ready";
 }
+/** Take a person for lookup (new -> found) so the instant path and the 5-minute tick never work on the same one. */
+async function claimNew(id: string) { const { data } = await db.from("crm_email_leads").update({ stage: "found" }).eq("id", id).eq("stage", "new").select("*"); return data?.[0] as any; }
+async function enrichClaimed(id: string, c: Cfg, tpl: M.Templates, out: Record<string, number>) {
+  const r = await claimNew(id); if (!r) return;
+  try { const k = await enrichOne(r, c, tpl); out[k] = (out[k] ?? 0) + 1; if (k === "retry") await db.from("crm_email_leads").update({ stage: "new" }).eq("id", id).eq("stage", "found"); }
+  catch (e) { out.error = (out.error ?? 0) + 1; await db.from("crm_email_leads").update({ stage: "new", error: clip((e as Error).message, 160) }).eq("id", id).eq("stage", "found"); }
+}
 async function enrich(c: Cfg) {
-  const tpl = await templates(), { data: rows } = await db.from("crm_email_leads").select("*").eq("stage", "new").order("created_at").limit(c.finds_per_run), out: Record<string, number> = {};
-  for (const r of rows ?? []) { try { const k = await enrichOne(r, c, tpl); out[k] = (out[k] ?? 0) + 1; } catch (e) { out.error = (out.error ?? 0) + 1; await db.from("crm_email_leads").update({ error: clip((e as Error).message, 160) }).eq("id", r.id); } }
+  await db.from("crm_email_leads").update({ stage: "new" }).eq("stage", "found").lt("updated_at", new Date(Date.now() - 5 * 60e3).toISOString());   // a lookup that died halfway is retried
+  const tpl = await templates(), { data: rows } = await db.from("crm_email_leads").select("id").eq("stage", "new").order("created_at").limit(c.finds_per_run), out: Record<string, number> = {};
+  for (const r of rows ?? []) await enrichClaimed(r.id, c, tpl, out);
   return out;
 }
+/** Right after an Approve: look the people up now (3 at a time) and send what is due, instead of waiting for the next 5-minute tick. The caps, windows and gaps still apply. */
+async function kickNow(ids: string[]) {
+  const c = await cfg(), tpl = await templates(), out: Record<string, number> = {};
+  for (let i = 0; i < ids.length; i += 3) await Promise.all(ids.slice(i, i + 3).map((id) => enrichClaimed(id, c, tpl, out)));
+  await kickSend();
+}
+async function kickSend() { if (!(await lock(120))) return; try { await sendRun(await cfg()); } finally { await unlock(); } }
+const bg = (p: Promise<unknown>) => { const q = p.catch((e) => console.error("background:", (e as Error).message)); try { (globalThis as any).EdgeRuntime?.waitUntil?.(q); } catch (_) { /* runs anyway until the response ends */ } };
 
 // ───────── 3. the team's buttons ─────────
 async function getRow(id: string) { const { data } = await db.from("crm_email_leads").select("*").eq("id", id).maybeSingle(); return data as any; }
@@ -175,6 +191,7 @@ async function approve(b: any, who: string, fromBot = false) {
     if (!l || l.archived) return { error: "They were removed from the CRM" };
     if (li.replied || xf.replied || li.stop) return { error: "They already replied or were stopped on another channel" };
     await db.from("crm_email_leads").update({ stage: "new", pre_approved: true, approved_by: who, approved_at: now(), error: null }).eq("id", r.id); await ev(r.id, "approve", null, { by: who, candidate: true });
+    if (!b.noKick) bg(kickNow([r.id]));
     return { ok: true, looking_up: true };
   }
   if (r.stage !== "ready") return { error: "Only a card in Ready to approve can be approved" };
@@ -194,11 +211,14 @@ async function approve(b: any, who: string, fromBot = false) {
   const hash = await sha(JSON.stringify([r.email, r.subject, r.draft, inbox]));
   await db.from("crm_email_leads").update({ draft: r.draft, stage: "approved", inbox, approved_at: now(), approved_hash: hash, next_step: 1, next_due: now(), error: null }).eq("id", r.id);
   await ev(r.id, "approve", inbox, { by: who, hash: hash.slice(0, 12) });
+  if (!fromBot && !b.noKick) bg(kickSend());
   return { ok: true, inbox };
 }
 async function approveMany(b: any, who: string) {
   const ids: string[] = Array.isArray(b.ids) ? b.ids.slice(0, 200) : [], out = { approved: 0, failed: [] as string[] };
-  for (const id of ids) { const r = await approve({ id }, who); if (r.error) out.failed.push(r.error); else out.approved++; }
+  const go: string[] = [];
+  for (const id of ids) { const r = await approve({ id, noKick: true }, who); if (r.error) out.failed.push(r.error); else { out.approved++; go.push(id); } }
+  if (go.length) bg(kickNow(go));
   return out;
 }
 async function sha(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", M.enc.encode(s)))).map((x) => x.toString(16).padStart(2, "0")).join(""); }

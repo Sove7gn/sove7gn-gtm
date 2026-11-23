@@ -1330,14 +1330,14 @@ async function xgRun(){
 /* Email pipeline (23 Nov). Reads crm_email_leads / crm_email_inboxes / crm_email_events (team read-only); every change goes through the
    email-bot function (approve, edit, skip, pause, resume). Nothing here sends: the bot sends only what is approved, while not paused. */
 const EM={leads:[],inboxes:[],events:[],stats:null,cfg:null,loaded:false,loading:false,missing:false,err:"",at:0};
-async function emLoad(){
+async function emLoad(fast){
   if(!sb||!session||!member||EM.loading)return;EM.loading=true;
   try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(1500);
     if(a.error){EM.missing=/does not exist|schema cache|relation/i.test(a.error.message||"");EM.err=a.error.message||String(a.error);}
     else{EM.missing=false;EM.err="";EM.leads=a.data||[];
       const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),sb.from("crm_email_events").select("id,email_lead_id,at,kind,inbox,step,detail").order("at",{ascending:false}).limit(400),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
       EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;
-      try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error)EM.stats=s.data;}catch(e){}}
+      if(!fast)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error)EM.stats=s.data;}catch(e){}}
   }catch(e){EM.err=String(e&&e.message||e);}
   EM.loaded=true;EM.loading=false;EM.at=Date.now();emit();
 }
