@@ -742,7 +742,7 @@ const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
 /* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 3 emails once you Approve ---------- */
 const EM_COLS=[['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Ready to approve','#A86200',r=>r.stage==='ready'],['approved','Approved · queued','#6D28D9',r=>r.stage==='approved'],
-  ['e1','Email 1 sent','#3B6FD8',r=>r.stage==='active'&&r.next_step===2],['e2','Email 2 sent','#3B6FD8',r=>r.stage==='active'&&r.next_step===3],['done','Finished','#2F8F5B',r=>r.stage==='done'],
+  ['seq','In the sequence','#3B6FD8',r=>r.stage==='active'],['done','Finished','#2F8F5B',r=>r.stage==='done'],
   ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
 const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
 const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
@@ -750,8 +750,8 @@ function emNext(r){
   if(r.stage==='new'||r.stage==='found')return 'Looking up and verifying their email';
   if(r.stage==='ready')return (r.warnings||[]).length?'Needs an edit before you can approve':'Needs your OK';
   if(r.stage==='approved')return 'Email 1 goes from '+(r.inbox||'an inbox')+' in the next window';
-  if(r.stage==='active')return 'Next: email '+r.next_step+' · '+emDay(r.next_due);
-  if(r.stage==='done')return 'All three sent';
+  if(r.stage==='active')return 'Email '+(r.next_step-1)+' of 7 sent · next: email '+r.next_step+', '+emDay(r.next_due);
+  if(r.stage==='done')return 'All seven sent';
   if(r.stage==='replied')return 'They replied: answer them';
   return r.stop_reason||r.error||'';
 }
@@ -781,11 +781,11 @@ function pgEmail(){
     +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px"><b>Daily limit per inbox</b><div style="font-size:22px;font-weight:600">'+esc(cap.cap!=null?cap.cap:(cfg.cap_steps||[5])[0])+' <span class="note" style="font-weight:400">a day each · '+esc(((cap.cap||(cfg.cap_steps||[5])[0])*4))+' in total</span></div>'
       +'<div class="note">Ramp: '+esc((cfg.cap_steps||[5,10,15,20,25]).join(' → '))+', a step every '+esc(cfg.step_days||4)+' days from the first send'+(cap.held?'. <b style="color:var(--warn)">Held a step back: '+esc(cap.why)+'.</b>':'. '+esc(cap.why||''))+'</div>'
       +'<div class="note">Verification credits left: '+esc(st.mv_credits!=null?st.mv_credits:'?')+'</div></div>'
-    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">3 plain-text emails (day 0, 3, 7 business days), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only.</div></div></div>';
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">7 plain-text emails (business days 0, 2, 4, 6, 8, 11, 14), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only.</div></div></div>';
   h+='<div class="card sec-b" style="margin-top:12px;padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:8px 12px">Inbox</th><th style="padding:8px 12px">Today</th><th style="padding:8px 12px">Sent (30d)</th><th style="padding:8px 12px">Replies</th><th style="padding:8px 12px">Bounces</th><th style="padding:8px 12px">Next send</th><th style="padding:8px 12px">Status</th></tr></thead><tbody>'
     +(((st.inboxes&&st.inboxes.length?st.inboxes:(E.inboxes||[]).map(b=>({addr:b.addr,paused:b.paused,paused_reason:b.paused_reason,has_password:true,last_error:b.last_error,next_send_at:b.next_send_at,sent_today:0,sent_30d:0,replies_30d:0,bounces_30d:0,bounce_pct:0})))).map(b=>'<tr style="border-top:1px solid var(--line)"><td style="padding:8px 12px"><b>'+esc(b.addr)+'</b></td><td style="padding:8px 12px">'+b.sent_today+'/'+esc(cap.cap!=null?cap.cap:5)+'</td><td style="padding:8px 12px">'+b.sent_30d+'</td><td style="padding:8px 12px">'+b.replies_30d+'</td><td style="padding:8px 12px">'+b.bounces_30d+(b.sent_30d?' ('+b.bounce_pct+'%)':'')+'</td><td style="padding:8px 12px">'+(b.next_send_at&&ms(b.next_send_at)>Date.now()?'in '+esc(emIn(b.next_send_at)):'—')+'</td><td style="padding:8px 12px">'
       +(b.paused?'<span style="color:var(--bad)">Paused: '+esc(b.paused_reason||'')+'</span> '+(canEdit()?btn('Resume',()=>AK.emCall('resume_inbox',{addr:b.addr}),'sm'):''):!b.has_password?'<span style="color:var(--warn)">App password not set</span>':b.last_error?'<span style="color:var(--warn)" title="'+esc(b.last_error)+'">Check: '+esc(b.last_error.slice(0,40))+'</span>':'<span style="color:#1F8A4C">Ready</span>')+'</td></tr>').join('')||'<tr><td colspan="7" class="note" style="padding:12px">Loading…</td></tr>')+'</tbody></table></div>';
-  h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we contact on LinkedIn also lands here with a verified work email and three drafts</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
+  h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we contact on LinkedIn also lands here with a verified work email and seven drafts</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
   h+='<div class="board2">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f);return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div><div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?cs.map(emCard).join(''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
   return h;
 }
@@ -803,19 +803,19 @@ function emDetail(r){
   if(r.error&&!/^(stopped|skipped)$/.test(r.stage))h+='<div class="note" style="color:var(--bad)">'+esc(r.error)+'</div>';
   if(r.stage==='replied')h+='<div style="border:1px solid #F5C2BC;border-radius:10px;padding:10px 12px;background:#FFF5F4"><b>They replied '+esc(emDay(r.replied_at))+'</b><div style="white-space:pre-wrap;margin-top:4px">“'+esc(r.reply_text||'')+'”</div><div class="note" style="margin-top:4px">All three channels have stopped. Answer them from '+esc(r.inbox||'the inbox')+'.</div></div>';
   if(r.stop_reason&&/^(stopped|skipped)$/.test(r.stage))h+='<div class="note">Stopped: '+esc(r.stop_reason)+'</div>';
-  const sentAt={1:r.e1_at,2:r.e2_at,3:r.e3_at},when={1:'Day 0',2:'Day 3 (business days)',3:'Day 7 (business days)'};
+  const N=[1,2,3,4,5,6,7],sd=(E.cfg&&E.cfg.steps_days)||[0,2,4,6,8,11,14],sentAt={1:r.e1_at,2:r.e2_at,3:r.e3_at,4:r.e4_at,5:r.e5_at,6:r.e6_at,7:r.e7_at},when=n=>sd[n-1]===0?'Day 0':'Day '+sd[n-1]+' (business days)';
   const subj=n=>n===1?(X?X.subject:r.subject):'Re: '+(X?X.subject:r.subject);
   if(r.draft&&(r.draft.e1||X)){
     if(editable&&X)h+='<label style="display:flex;flex-direction:column;gap:3px"><span class="note">Subject (emails 2 and 3 are “Re: …” in the same thread)</span><input class="in" value="'+esc(X.subject)+'"'+inp(e=>{X.subject=e.target.value;})+'></label>';
-    h+=[1,2,3].map(n=>'<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline"><b>Email '+n+'</b><span class="note">'+when[n]+' · subject: '+esc(subj(n))+'</span><span style="flex:1"></span>'
+    h+=N.map(n=>'<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline"><b>Email '+n+'</b><span class="note">'+when(n)+' · subject: '+esc(subj(n))+'</span><span style="flex:1"></span>'
       +(sentAt[n]?'<span class="pill" style="background:#E5F5EB;color:#1F8A4C">✓ sent '+esc(new Date(sentAt[n]).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</span>':(r.stage==='active'&&r.next_step===n&&r.next_due?'<span class="pill">⏱ '+esc(emIn(r.next_due))+'</span>':''))+'</div>'
-      +(editable&&X?'<textarea class="in" rows="9" style="width:100%;box-sizing:border-box;margin-top:6px;font-family:var(--mono);font-size:12.5px"'+inp(e=>{X.d['e'+n]=e.target.value;})+'>'+esc(d['e'+n]||'')+'</textarea>':'<div style="white-space:pre-wrap;margin-top:6px;background:var(--sunk);border-radius:8px;padding:8px 10px">'+esc(d['e'+n]||'')+'</div>')+'</div>').join('');
+      +(editable&&X?'<textarea class="in" rows="8" style="width:100%;box-sizing:border-box;margin-top:6px;font-family:var(--mono);font-size:12.5px"'+inp(e=>{X.d['e'+n]=e.target.value;})+'>'+esc(d['e'+n]||'')+'</textarea>':'<div style="white-space:pre-wrap;margin-top:6px;background:var(--sunk);border-radius:8px;padding:8px 10px">'+esc(d['e'+n]||'')+'</div>')+'</div>').join('');
   }
   if(canEdit()){
     h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
-    if(editable&&X)h+=btn('Save changes',()=>AK.emCall('edit',{id:r.id,draft:{subject:X.subject,e1:X.d.e1,e2:X.d.e2,e3:X.d.e3}}).then(x=>{if(x){V.emE=null;L.toast(x.voided?'Saved. The approval was cleared: approve again.':'Saved.');}}),'pri sm')+btn('Cancel',()=>{V.emE=null;schedule();},'sm');
-    else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:{e1:(r.draft||{}).e1,e2:(r.draft||{}).e2,e3:(r.draft||{}).e3}};schedule();},'sm');
-    if(r.stage==='ready'&&!X)h+=btn('Approve all three emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
+    if(editable&&X)h+=btn('Save changes',()=>AK.emCall('edit',{id:r.id,draft:{subject:X.subject,...X.d}}).then(x=>{if(x){V.emE=null;L.toast(x.voided?'Saved. The approval was cleared: approve again.':'Saved.');}}),'pri sm')+btn('Cancel',()=>{V.emE=null;schedule();},'sm');
+    else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:Object.fromEntries(N.map(n=>['e'+n,(r.draft||{})['e'+n]]))};schedule();},'sm');
+    if(r.stage==='ready'&&!X)h+=btn('Approve all seven emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
     if(!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=btn(r.e1_at?'Stop the sequence':'Skip this person',()=>{if(confirm(r.e1_at?'Stop the remaining emails to '+r.name+'?':'Skip '+r.name+'? No email will be sent.'))AK.emCall('skip',{id:r.id}).then(x=>{if(x){V.emOpen=null;schedule();}});},'sm ghost');
     h+='</div>';
   }

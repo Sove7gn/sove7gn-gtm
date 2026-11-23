@@ -4,38 +4,63 @@ import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import * as M from "./mail.ts";
 
 const lead = { name: "Priya Shah", company: "Ledgerly", funding: "Seed · $2M · Oct 2026", one_liner: "Payments software for small credit unions.", channel: "linkedin" };
+const drop = { n: 7, items: ["1. AtriCure, hiring an Accounts Payable Specialist", "2. DV Trading, hiring an Accounts Payable Specialist"] };
+const TOUCH = "Hope you liked the post I tagged you in. Was researching Ledgerly and found a few companies looking for what you sell right now. Put them on one page for you, happy to send it over :)";
+const KEYS = ["e1", "e2", "e3", "e4", "e5", "e6", "e7"] as const;
 
-Deno.test("drafts follow the handoff's copy rules", () => {
-  const d = M.buildDrafts(lead, M.DEFAULT_TEMPLATES, new Date("2026-11-23"));
-  for (const [step, body] of [[1, d.e1], [2, d.e2], [3, d.e3]] as const) assertEquals(M.lintEmail(step, body, "Hope you liked the post I tagged you in. Had a look at your LinkedIn."), [], "email " + step);
-  assertStringIncludes(d.e1, "Congrats on Ledgerly's Seed ($2M)");
-  assertStringIncludes(d.e1, "Reyansh reached out on LinkedIn; figured email might be easier");
-  assertStringIncludes(d.e1, M.OPT_OUT); assertStringIncludes(d.e3, "reply \"growth\"");
+Deno.test("all seven emails follow the handoff's copy rules", () => {
+  const d = M.buildDrafts(lead, M.DEFAULT_TEMPLATES, new Date("2026-11-23"), drop);
+  KEYS.forEach((k, i) => assertEquals(M.lintEmail(i + 1, d[k], TOUCH), [], k));
+  assertEquals(d.has_drop, true); assertEquals(d.warnings, []);
+  assertStringIncludes(d.e1, "Hi Priya,"); assertStringIncludes(d.e1, "My name is Emily and I work with Reyansh Juneja at SOVE7GN");
+  assertStringIncludes(d.e1, "10+ founders"); assertStringIncludes(d.e1, "more than 30 enterprise sales calls in 2 weeks"); assertStringIncludes(d.e1, "Let's talk?");
+  assertStringIncludes(d.e2, "found 7 companies"); assertStringIncludes(d.e2, "1. AtriCure, hiring an Accounts Payable Specialist\n2. DV Trading"); assertStringIncludes(d.e2, "Let me know if you want the full list.");
+  assertStringIncludes(d.e3, "Curious: if you could fix one thing this quarter");
+  assertStringIncludes(d.e4, "Speed to lead"); assertStringIncludes(d.e4, "Be everywhere");
+  for (const k of KEYS) { assertStringIncludes(d[k], M.OPT_OUT); assert(d[k].endsWith(M.SIGNATURE)); }
   assertEquals(d.subject, "Sales calls for Ledgerly");
-  assert(!/https?:|www\./.test(d.e1 + d.e2 + d.e3));
+  assert(!/https?:|www\.|sove7gn\.org|gtm\./i.test(KEYS.map((k) => d[k]).join(" ")), "no link or domain anywhere");
 });
-Deno.test("acronyms, domain-like company names and the channel line", () => {
-  const d = M.buildDrafts({ name: "Frank Yang", company: "Workmagic.io", funding: "", one_liner: "AI marketing platform automating targeted outreach", channel: "linkedin" });
-  assertStringIncludes(d.e1, "Saw what Workmagic is building: AI marketing platform"); assertStringIncludes(d.e1, "figured email might be easier.\n");
-  assertEquals(d.subject, "Sales calls for Workmagic"); assertEquals(M.lintEmail(1, d.e1), []);
+Deno.test("without a ready lead page, email 2 is the no-list version (never an empty list)", () => {
+  for (const nodrop of [null, { n: 1, items: ["1. A"] }, { n: 7, items: [] }]) {
+    const d = M.buildDrafts(lead, M.DEFAULT_TEMPLATES, new Date("2026-11-23"), nodrop);
+    assertEquals(d.has_drop, false); assertStringIncludes(d.e2, "Quick follow up on my note"); assert(!/\{|found \d+ companies/.test(d.e2)); assertEquals(M.lintEmail(2, d.e2, TOUCH), []);
+  }
 });
-Deno.test("fact falls back to what they build, and a missing fact is flagged, not invented", () => {
-  assertStringIncludes(M.buildDrafts({ ...lead, funding: "Seed · $2M · Jan 2025" }, M.DEFAULT_TEMPLATES, new Date("2026-11-23")).e1, "Saw what Ledgerly is building: payments software");
-  const none = M.buildDrafts({ ...lead, funding: "", one_liner: "" });
-  assert(none.warnings.some((w) => /No real fact/.test(w))); assert(!/\{fact\}|\. \./.test(none.e1));
+Deno.test("every email is under 90 words and the opt-out and signature are always there", () => {
+  const d = M.buildDrafts({ ...lead, company: "A Rather Long Company Name Incorporated" }, M.DEFAULT_TEMPLATES, new Date(), drop);
+  KEYS.forEach((k, i) => assert(M.lintEmail(i + 1, d[k]).length === 0, k));
+});
+Deno.test("lead page companies become clean list lines", () => {
+  const leads = [
+    { company: "Atricure", opener: "Judd, saw AtriCure is hiring an Accounts Payable Specialist. Growing AP teams...", channel: "jobs", quote: "Accounts Payable Specialist at Atricure" },
+    { company: "Dvtrading", opener: "James, saw DV Trading is hiring a Procurement Lead. Many firms...", channel: "jobs", quote: "Procurement Lead at Dvtrading" },
+    { company: "Third", opener: "x", channel: "post", quote: "" }];
+  assertEquals(M.dropItems(leads), ["1. AtriCure, hiring an Accounts Payable Specialist", "2. DV Trading, hiring a Procurement Lead"]);
+  assertEquals(M.dropItems([{ company: "Northpass", opener: "", channel: "post", quote: "" }, { company: "Corelane", opener: "", channel: "post" }]), ["1. Northpass", "2. Corelane"]);
+  assertEquals(M.dropItems([]), []);
+});
+Deno.test("a template with {fact} uses a real fact, falls back to what they build, and flags a missing one", () => {
+  const T = { ...M.DEFAULT_TEMPLATES, e1: "Hi {first},\n\n{fact}. {channel_line}\n\nWorth a call?" };
+  const a = M.buildDrafts(lead, T, new Date("2026-11-23")); assertStringIncludes(a.e1, "Congrats on Ledgerly's Seed ($2M)"); assertStringIncludes(a.e1, "Reyansh reached out on LinkedIn; figured email might be easier.");
+  assertStringIncludes(M.buildDrafts({ ...lead, funding: "Seed · $2M · Jan 2025" }, T, new Date("2026-11-23")).e1, "Saw what Ledgerly is building: payments software");
+  assertStringIncludes(M.buildDrafts({ ...lead, funding: "", company: "Workmagic.io", one_liner: "AI marketing platform automating outreach" }, T).e1, "Saw what Workmagic is building: AI marketing platform");
+  const none = M.buildDrafts({ ...lead, funding: "", one_liner: "" }, T); assert(none.warnings.some((w) => /No real fact/.test(w))); assert(!/\{fact\}|\. \./.test(none.e1));
+  assertEquals(M.buildDrafts({ ...lead, funding: "", one_liner: "" }).warnings, [], "the default template needs no fact");
 });
 Deno.test("lint catches every banned thing", () => {
-  const ok = M.buildDrafts(lead).e1;
-  assert(M.lintEmail(1, ok.replace("Worth", "Worth — really")).some((p) => /dash/.test(p)));
-  assert(M.lintEmail(1, ok.replace("hire.", "hire!")).some((p) => /exclamation/.test(p)));
-  assert(M.lintEmail(1, ok.replace("stalls", "leverages")).some((p) => /Banned/.test(p)));
+  const ok = M.buildDrafts(lead, M.DEFAULT_TEMPLATES, new Date(), drop).e1;
+  assert(M.lintEmail(1, ok.replace("Let's talk?", "Let's talk — now?")).some((p) => /dash/.test(p)));
+  assert(M.lintEmail(1, ok.replace("Let's talk?", "Let's talk!")).some((p) => /exclamation/.test(p)));
+  assert(M.lintEmail(1, ok.replace("growth studio", "leveraging studio")).some((p) => /Banned/.test(p)));
   assert(M.lintEmail(1, ok + "\nsee sove7gn.org").some((p) => /link/.test(p)));
+  assert(M.lintEmail(1, ok.replace("My name", "Visit gtm.sove7gn.org. My name")).some((p) => /link/.test(p)));
   assert(M.lintEmail(1, ok.replace(M.SIGNATURE, "Emily")).some((p) => /Signature/.test(p)));
   assert(M.lintEmail(1, ok.replace(M.OPT_OUT, "")).some((p) => /Opt-out/.test(p)));
   assert(M.lintEmail(1, ok.replace("Hi Priya,", "Hi {first},")).some((p) => /placeholder/.test(p)));
-  assert(M.lintEmail(1, ok.replace("Worth a 15 minute call next week?", "word ".repeat(80))).some((p) => /Over 90/.test(p)));
-  const touch = "Founder-led outbound usually stalls once the product gets busy and we run it for you";
-  assert(M.lintEmail(1, ok, touch).some((p) => /word for word/.test(p)));
+  assert(M.lintEmail(1, ok.replace("Let's talk?", "word ".repeat(80))).some((p) => /Over 90/.test(p)));
+  assert(M.lintEmail(1, ok, "We are a growth studio for seed to Series C founders: we scale their social media and more").some((p) => /word for word/.test(p)));
+  assertEquals(M.lintEmail(2, ok, "We are a growth studio for seed to Series C founders: we scale their social media"), [], "only email 1 is compared with the first touch");
 });
 Deno.test("address rules", () => {
   assert(M.isFreeMail("kaushikg3333@gmail.com")); assert(!M.isFreeMail("tarun@gauntlet.xyz"));

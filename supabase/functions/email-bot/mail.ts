@@ -34,15 +34,22 @@ export function addBusinessDays(from: Date, n: number, tz: string, holidays: str
 // ───────── drafts ─────────
 export const SIGNATURE = "Emily Jones\nGrowth Lead, SOVE7GN\nA2/84, Rajouri Garden, New Delhi 110027, India";
 export const OPT_OUT = 'Not relevant? Reply "no" and I won\'t email again.';
-export type Templates = { subject: string; e1: string; e2: string; e3: string };
-// {first} {company} {fact} {channel_line}. Editable in the CRM settings (crm_lead_settings 'email_templates'); these are the defaults.
+export type Templates = { subject: string; e1: string; e2: string; e2_nodrop: string; e3: string; e4: string; e5: string; e6: string; e7: string };
+export const STEPS = 7;
+// {first} {company} {n} {list} {fact} {channel_line}. Editable in the CRM settings (crm_lead_settings 'email_templates'); these are the defaults.
+// Email 1 is Reyansh's wording (23 Nov), tidied. Email 2 is the lead list (same idea as the LinkedIn day 0 message), email 3 the LinkedIn
+// day 3 question. No links anywhere, and no domain name (a sove7gn.org mention can be auto-linked and hurts delivery).
 export const DEFAULT_TEMPLATES: Templates = {
   subject: "Sales calls for {company}",
-  e1: "Hi {first},\n\n{fact}. {channel_line}\n\nFounder-led outbound usually stalls once the product gets busy. We run it for VC-backed B2B founders: posts in your voice, replies under your buyers' posts and warm DMs, so calls get booked without a hire.\n\nWorth a 15 minute call next week?",
-  e2: "Hi {first},\n\nOne idea for {company}: reply under five of your buyers' posts a day before pitching anyone. It puts your name in front of the right people with no cold ask, and it is the first thing we set up for founders.\n\nHappy to show what that looks like for you. Open to a 15 minute call?",
-  e3: "Hi {first},\n\nI'll stop here so I don't clog your inbox. If more sales calls from founder content is a priority this quarter, reply \"growth\" and I'll send how it works.",
+  e1: "Hi {first},\n\nMy name is Emily and I work with Reyansh Juneja at SOVE7GN. We are a growth studio for seed to Series C founders: we scale their social media and turn it into hot leads, using real-time data to decide who to reach and when. We work with 10+ founders, and one of them got more than 30 enterprise sales calls in 2 weeks.\n\nLet's talk?",
+  e2: "Hi {first},\n\nI looked into {company} and found {n} companies that look ready to buy what you sell right now. A few of them:\n\n{list}\n\nLet me know if you want the full list.",
+  e2_nodrop: "Hi {first},\n\nQuick follow up on my note. We build lists of companies that are actively looking for what {company} sells, using real-time signals like hiring and funding. Want me to put one together for you?",
+  e3: "Hi {first},\n\nCurious: if you could fix one thing this quarter, is it getting found, getting replies, or getting calls booked?",
+  e4: "Hi {first},\n\nTwo things you can try this week, no cost:\n\n1. Speed to lead. People who like or comment on your posts are warm for about a day. Message them within the hour with one question about what brought them there.\n\n2. Be everywhere. Pick your 50 best-fit buyers and reach each one on LinkedIn, X and email in the same week. Seeing you three times makes the next message feel warm.",
+  e5: "Hi {first},\n\nIf we worked together, week one for {company} would be: pick the 50 buyers most likely to need you, post twice a week on what they worry about, and message everyone who engages the same day.\n\nWant me to send the plan for {company}? Just reply \"plan\".",
+  e6: "Hi {first},\n\nIs growing sales calls not a priority right now, or is it just bad timing? If it is timing, I will check back in January. If someone else owns this at {company}, who should I talk to?",
+  e7: "Hi {first},\n\nI'll close this out so I don't clog your inbox. If more sales calls from founder content becomes a priority, reply \"growth\" and I'll pick it back up. Good luck with {company}.",
 };
-// "AI marketing platform" stays as is; only an ordinary capitalised word is lowered
 const lowerFirst = (s: string) => /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 /** "Workmagic.io" reads as a link to a spam filter: drop the domain ending in the copy. */
 export const cleanCompany = (c: string) => c.trim().replace(/\.(io|ai|com|co|app|xyz|dev|net|org|so|gg|tech)$/i, "");
@@ -50,7 +57,7 @@ export function firstNameOf(name: string): string {
   const w = String(name ?? "").replace(/[^\p{L}\s'-]/gu, " ").replace(/\b(dr|prof|mr|mrs|ms|phd|md)\b/gi, " ").trim().split(/\s+/).filter(Boolean)[0] ?? "";
   return w.length >= 2 ? w.charAt(0).toUpperCase() + w.slice(1) : "";
 }
-/** One real fact from the lead's research: a funding round (if recent and clean), else what the company builds. Never invented. */
+/** One real fact from the lead's research: a funding round (if recent and clean), else what the company builds. Never invented. Only used if a template has {fact}. */
 export function factFor(l: { company: string; funding?: string; one_liner?: string }, now = new Date()): string | null {
   const co = l.company.trim();
   const f = String(l.funding ?? "").split(/\s+[·•]\s+/).map((x) => x.trim());
@@ -62,25 +69,42 @@ export function factFor(l: { company: string; funding?: string; one_liner?: stri
   if (o.length >= 20) { if (o.length > 120) o = o.slice(0, 120).replace(/\s+\S*$/, ""); return "Saw what " + co + " is building: " + lowerFirst(o); }
   return null;
 }
+/** Lines for the lead-list email from a lead page's `leads` array: a proper company name and, for a job post, what they are hiring for. */
+export function dropItems(leads: any[], max = 2): string[] {
+  const out: string[] = [];
+  for (const l of leads ?? []) {
+    let name = String(l.opener ?? "").match(/\b(?:saw|noticed)\s+(.{2,40}?)\s+(?:is|are|just|has|raised|posted|announced|launched)\b/i)?.[1]?.trim() || String(l.company ?? "").trim();
+    name = name.replace(/^that\s+/i, "");
+    if (!name || name.length > 40) continue;
+    const job = l.channel === "jobs" ? String(l.quote ?? "").match(/^(.{4,60}?)\s+at\s/i)?.[1]?.trim() : "";
+    out.push((out.length + 1) + ". " + name + (job ? ", hiring " + (/^[aeiou]/i.test(job) ? "an " : "a ") + job : ""));
+    if (out.length >= max) break;
+  }
+  return out;
+}
 export type Lead = { name: string; company: string; funding?: string; one_liner?: string; channel: string };
-export function buildDrafts(l: Lead, t: Templates = DEFAULT_TEMPLATES, now = new Date()) {
-  const co = cleanCompany(l.company), first = firstNameOf(l.name), fact = factFor({ ...l, company: co }, now);
-  const ch = l.channel === "x" ? "X" : "LinkedIn";
-  const fill = (s: string) => s.replace(/\{first\}/g, first || "there").replace(/\{company\}/g, co).replace(/\{fact\}/g, fact ?? "").replace(/\{channel_line\}/g, "Reyansh reached out on " + ch + "; figured email might be easier.");
-  let e1 = fill(t.e1); if (!fact) e1 = e1.replace(/^(Hi [^\n]*,\n\n)\. /, "$1").replace(/\n\n\. /, "\n\n");
+export type Drop = { n: number; items: string[] } | null;
+export function buildDrafts(l: Lead, t: Templates = DEFAULT_TEMPLATES, now = new Date(), drop: Drop = null) {
+  const co = cleanCompany(l.company), first = firstNameOf(l.name), usesFact = /\{fact\}/.test(t.e1), fact = usesFact ? factFor({ ...l, company: co }, now) : null;
+  const ch = l.channel === "x" ? "X" : "LinkedIn", hasDrop = !!drop && drop.items.length >= 2 && drop.n >= 2;
+  const fill = (s: string) => s.replace(/\{first\}/g, first || "there").replace(/\{company\}/g, co).replace(/\{fact\}/g, fact ?? "").replace(/\{n\}/g, String(drop?.n ?? "")).replace(/\{list\}/g, drop?.items.join("\n") ?? "")
+    .replace(/\{channel_line\}/g, "Reyansh reached out on " + ch + "; figured email might be easier.");
   const subject = fill(t.subject).replace(/[^\x20-\x7e]/g, "").trim() || "Quick question";
   const full = (b: string) => b + "\n\n" + OPT_OUT + "\n\n" + SIGNATURE;
+  let e1 = fill(t.e1); if (usesFact && !fact) e1 = e1.replace(/^(Hi [^\n]*,\n\n)\. /, "$1").replace(/\n\n\. /, "\n\n");
   const warnings: string[] = [];
-  if (!fact) warnings.push("No real fact about them in the CRM: add one before approving");
+  if (usesFact && !fact) warnings.push("No real fact about them in the CRM: add one before approving");
   if (!first) warnings.push("No usable first name");
-  return { subject, e1: full(e1), e2: full(fill(t.e2)), e3: full(fill(t.e3)), fact: fact ?? "", warnings };
+  const out: Record<string, string> = { e1: full(e1), e2: full(fill(hasDrop ? t.e2 : t.e2_nodrop)) };
+  for (const k of ["e3", "e4", "e5", "e6", "e7"] as const) out[k] = full(fill(t[k]));
+  return { subject, ...out, fact: fact ?? "", warnings, has_drop: hasDrop } as { subject: string; e1: string; e2: string; e3: string; e4: string; e5: string; e6: string; e7: string; fact: string; warnings: string[]; has_drop: boolean };
 }
 
 // ───────── copy rules (the handoff's) ─────────
 const BANNED = /\b(leverag\w*|unlock\w*|game-?changer\w*|elevat\w*|delv\w*|seamless\w*|robust\w*|synerg\w*|empower\w*)\b/i;
 const words = (s: string) => (s.match(/\S+/g) ?? []).length;
 export function stripSignature(b: string) { const i = b.lastIndexOf("\n\n" + SIGNATURE.split("\n")[0]); return i >= 0 ? b.slice(0, i) : b; }
-export function lintEmail(step: 1 | 2 | 3, body: string, firstTouch = ""): string[] {
+export function lintEmail(step: number, body: string, firstTouch = ""): string[] {
   const p: string[] = [], core = body.replace(SIGNATURE, "");   // everything except the signature is checked, wherever it sits
   if (!body.trim().endsWith(SIGNATURE)) p.push("Signature is missing, changed, or not at the end");
   if (!core.includes(OPT_OUT)) p.push("Opt-out line is missing");
@@ -91,7 +115,7 @@ export function lintEmail(step: 1 | 2 | 3, body: string, firstTouch = ""): strin
   if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|org|net|io|ai|co|xyz|app)\b/i.test(core)) p.push("Has a link or domain (none allowed)");
   if (/\{[a-z_]+\}|\[[^\]]+\]/i.test(body)) p.push("Unfilled placeholder");
   if (!/^Hi [^\n,]+,\n/.test(body)) p.push("Should start with a greeting (Hi <name>,)");
-  if (firstTouch) {
+  if (firstTouch && step === 1) {   // only the first email must differ from the LinkedIn/X message (the lead-list email deliberately echoes it)
     const w = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean), a = w(firstTouch), c = w(core);
     const grams = new Set<string>(); for (let i = 0; i + 8 <= a.length; i++) grams.add(a.slice(i, i + 8).join(" "));
     for (let i = 0; i + 8 <= c.length; i++) if (grams.has(c.slice(i, i + 8).join(" "))) { p.push("Repeats the LinkedIn/X message word for word"); break; }

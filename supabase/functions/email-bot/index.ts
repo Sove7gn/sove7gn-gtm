@@ -21,12 +21,12 @@ const inChunks = async <T>(ids: string[], q: (part: string[]) => PromiseLike<{ d
 
 // ───────── settings ─────────
 type Cfg = { paused: boolean; cap_steps: number[]; step_days: number; ramp_start: string | null; ramp_hold_bounce_pct: number; window_from: number; window_to: number; default_tz: string;
-  gap_min: number; gap_max: number; countries: string[]; holidays: string[]; bounce_pause_pct: number; bounce_min_sends: number; verify_max_age_days: number;
+  gap_min: number; gap_max: number; countries: string[]; holidays: string[]; bounce_pause_pct: number; bounce_min_sends: number; verify_max_age_days: number; steps_days: number[];
   intake_days: number; intake_per_day: number; finds_per_run: number; apollo: boolean; test_recipients: string[] };
 async function cfg(): Promise<Cfg> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_bot").maybeSingle();
   return { paused: true, cap_steps: [5, 10, 15, 20, 25], step_days: 4, ramp_start: null, ramp_hold_bounce_pct: 2, window_from: 8, window_to: 17, default_tz: "America/New_York", gap_min: 10, gap_max: 20,
-    countries: ["united states", "usa", "u.s."], holidays: [], bounce_pause_pct: 3, bounce_min_sends: 20, verify_max_age_days: 14, intake_days: 30, intake_per_day: 6, finds_per_run: 2, apollo: true, test_recipients: [], ...((data?.value as any) ?? {}) };
+    countries: ["united states", "usa", "u.s."], holidays: [], bounce_pause_pct: 3, bounce_min_sends: 20, verify_max_age_days: 14, steps_days: [0, 2, 4, 6, 8, 11, 14], intake_days: 30, intake_per_day: 6, finds_per_run: 2, apollo: true, test_recipients: [], ...((data?.value as any) ?? {}) };
 }
 const saveCfg = async (patch: Record<string, unknown>) => { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_bot").maybeSingle(); await db.from("crm_lead_settings").upsert({ key: "email_bot", value: { ...((data?.value as any) ?? {}), ...patch } }, { onConflict: "key" }); };
 async function templates(): Promise<M.Templates> { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_templates").maybeSingle(); return { ...M.DEFAULT_TEMPLATES, ...((data?.value as any) ?? {}) }; }
@@ -98,7 +98,16 @@ async function intake(c: Cfg) {
 }
 
 // ───────── 2. find the email, verify it, draft ─────────
-const SKIP_TITLES = /^$/;
+const KEYS = ["e1", "e2", "e3", "e4", "e5", "e6", "e7"] as const;
+/** The lead page made for this person (LinkedIn day 0 uses the same one): its size and the first two companies, or null if it isn't ready. */
+async function dropFor(r: any): Promise<M.Drop> {
+  const since = new Date(Date.now() - 21 * 864e5).toISOString();
+  let d: any = (await db.from("crm_lead_drops").select("n_leads,data,status").eq("lead_id", r.lead_id).in("status", ["ready", "thin"]).gte("created_at", since).order("created_at", { ascending: false }).limit(1)).data?.[0];
+  if (!d && r.company) d = (await db.from("crm_lead_drops").select("n_leads,data,status").ilike("company", r.company).in("status", ["ready", "thin"]).gte("created_at", since).order("created_at", { ascending: false }).limit(1)).data?.[0];
+  if (!d || (d.n_leads ?? 0) < 2) return null;
+  const items = M.dropItems(d.data?.leads ?? []); return items.length >= 2 ? { n: d.n_leads, items } : null;
+}
+const lintAll = (draft: Record<string, string>, touch: string) => KEYS.flatMap((k, i) => M.lintEmail(i + 1, draft[k] ?? "", touch).map((p) => "Email " + (i + 1) + ": " + p));
 async function apolloFind(r: any): Promise<{ email?: string; tz?: string; error?: string }> {
   if (!CMP) return { error: "no COMPOSIO_API_KEY" };
   const vanity = /linkedin\.com\/in\/[a-z0-9-]+\/?$/i.test(r.linkedin ?? "") && !/ACoA/i.test(r.linkedin ?? "");
@@ -142,9 +151,9 @@ async function enrichOne(r: any, c: Cfg, tpl: M.Templates) {
   let v; try { v = await mvCheck(email); } catch (e) { await setR({ error: "Verification failed, will retry: " + clip((e as Error).message, 100) }); return "retry"; }
   await ev(r.id, "verify", null, { email_src: src, result: v.result, sub: v.sub, credits: v.credits });
   if (v.result !== "ok") { await setR({ stage: "rejected", email, email_source: src, email_found_at: now(), verify_result: v.result, verify_sub: v.sub, verified_at: now(), error: "Verification: " + v.result + (v.sub ? " (" + v.sub + ")" : "") }); return "rejected"; }
-  const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl);
-  const warn = [...d.warnings]; for (const [i, b] of [d.e1, d.e2, d.e3].entries()) for (const p of M.lintEmail((i + 1) as 1 | 2 | 3, b, r.first_touch_text)) warn.push("Email " + (i + 1) + ": " + p);
-  await setR({ stage: "ready", email, email_source: src, email_found_at: now(), verify_result: "ok", verify_sub: v.sub, verified_at: now(), tz, subject: d.subject, draft: { e1: d.e1, e2: d.e2, e3: d.e3 }, fact: d.fact, warnings: warn, error: null });
+  const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl, new Date(), await dropFor(r));
+  const draft = Object.fromEntries(KEYS.map((k) => [k, d[k]])), warn = [...d.warnings, ...lintAll(draft, r.first_touch_text)];
+  await setR({ stage: "ready", email, email_source: src, email_found_at: now(), verify_result: "ok", verify_sub: v.sub, verified_at: now(), tz, subject: d.subject, draft: { ...draft, has_drop: d.has_drop }, fact: d.fact, warnings: warn, error: null });
   return "ready";
 }
 async function enrich(c: Cfg) {
@@ -159,7 +168,11 @@ async function approve(b: any, who: string) {
   const r = await getRow(b.id); if (!r) return { error: "No such person" };
   if (r.stage !== "ready") return { error: "Only a card in Ready to approve can be approved" };
   if ((r.warnings ?? []).some((w: string) => /No real fact|first name/.test(w))) return { error: "Edit the draft first: " + (r.warnings as string[]).find((w) => /No real fact|first name/.test(w)) };
-  const probs: string[] = []; for (const [i, k] of ["e1", "e2", "e3"].entries()) for (const p of M.lintEmail((i + 1) as 1 | 2 | 3, r.draft?.[k] ?? "", r.first_touch_text)) probs.push("Email " + (i + 1) + ": " + p);
+  if (!r.draft?.edited) {   // the lead page may have finished since the drafts were made: email 2 uses it if it did
+    const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, await templates(), new Date(), await dropFor(r));
+    r.draft = { ...r.draft, e2: d.e2, has_drop: d.has_drop };
+  }
+  const probs = lintAll(r.draft ?? {}, r.first_touch_text);
   if (probs.length) return { error: "The draft breaks the copy rules: " + probs.join("; ") };
   if (!r.email || r.verify_result !== "ok") return { error: "The address isn't verified" };
   if (await isDnc(r.email)) return { error: "That address is on the do-not-contact list" };
@@ -168,7 +181,7 @@ async function approve(b: any, who: string) {
   const { data: busy } = await db.from("crm_email_leads").select("inbox").in("stage", ["approved", "active"]), n: Record<string, number> = {}; for (const x of busy ?? []) if (x.inbox) n[x.inbox] = (n[x.inbox] ?? 0) + 1;
   const inbox = usable.map((x: any) => x.addr).sort((a: string, c2: string) => (n[a] ?? 0) - (n[c2] ?? 0))[0];
   const hash = await sha(JSON.stringify([r.email, r.subject, r.draft, inbox]));
-  await db.from("crm_email_leads").update({ stage: "approved", inbox, approved_at: now(), approved_hash: hash, next_step: 1, next_due: now(), error: null }).eq("id", r.id);
+  await db.from("crm_email_leads").update({ draft: r.draft, stage: "approved", inbox, approved_at: now(), approved_hash: hash, next_step: 1, next_due: now(), error: null }).eq("id", r.id);
   await ev(r.id, "approve", inbox, { by: who, hash: hash.slice(0, 12) });
   return { ok: true, inbox };
 }
@@ -177,7 +190,7 @@ async function edit(b: any, who: string) {
   const r = await getRow(b.id); if (!r) return { error: "No such person" };
   if (!["ready", "approved"].includes(r.stage) || r.e1_at) return { error: "Texts can only change before the first email goes out" };
   const d = { ...(r.draft ?? {}), edited: true }, probs: string[] = [];
-  for (const k of ["e1", "e2", "e3"]) if (typeof b.draft?.[k] === "string") { d[k] = b.draft[k].replace(/\r/g, "").trimEnd(); for (const p of M.lintEmail(+k[1] as 1 | 2 | 3, d[k], r.first_touch_text)) probs.push("Email " + k[1] + ": " + p); }
+  for (const k of KEYS) if (typeof b.draft?.[k] === "string") { d[k] = b.draft[k].replace(/\r/g, "").trimEnd(); for (const p of M.lintEmail(+k[1], d[k], r.first_touch_text)) probs.push("Email " + k[1] + ": " + p); }
   const subject = typeof b.draft?.subject === "string" ? b.draft.subject.replace(/[^\x20-\x7e]/g, "").trim().slice(0, 90) : r.subject;
   if (!subject) return { error: "The subject can't be empty" };
   if (probs.length) return { error: "Not saved. Copy rules: " + probs.join("; ") };
@@ -191,9 +204,8 @@ async function redraft() {
   const tpl = await templates(), { data: rows } = await db.from("crm_email_leads").select("*").eq("stage", "ready"); let n = 0;
   for (const r of rows ?? []) {
     if (r.draft?.edited) continue;
-    const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl), warn = [...d.warnings];
-    for (const [i, bd] of [d.e1, d.e2, d.e3].entries()) for (const p of M.lintEmail((i + 1) as 1 | 2 | 3, bd, r.first_touch_text)) warn.push("Email " + (i + 1) + ": " + p);
-    await db.from("crm_email_leads").update({ subject: d.subject, draft: { e1: d.e1, e2: d.e2, e3: d.e3 }, fact: d.fact, warnings: warn }).eq("id", r.id); n++;
+    const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl, new Date(), await dropFor(r)), draft = Object.fromEntries(KEYS.map((k) => [k, d[k]]));
+    await db.from("crm_email_leads").update({ subject: d.subject, draft: { ...draft, has_drop: d.has_drop }, fact: d.fact, warnings: [...d.warnings, ...lintAll(draft, r.first_touch_text)] }).eq("id", r.id); n++;
   }
   return { redrafted: n };
 }
@@ -210,7 +222,7 @@ async function imapInit(box: any) {
 async function leadsByAddress(addrs: string[], ids: string[]) {
   const out = new Map<string, any>();
   if (addrs.length) for (const x of (await db.from("crm_email_leads").select("*").in("email", addrs).not("e1_at", "is", null)).data ?? []) out.set(x.id, x);
-  for (const col of ["msgid1", "msgid2", "msgid3"]) if (ids.length) for (const x of (await db.from("crm_email_leads").select("*").in(col, ids)).data ?? []) out.set(x.id, x);
+  for (const col of ["msgid1", "msgid2", "msgid3", "msgid4", "msgid5", "msgid6", "msgid7"]) if (ids.length) for (const x of (await db.from("crm_email_leads").select("*").in(col, ids)).data ?? []) out.set(x.id, x);
   return [...out.values()];
 }
 async function stopOtherChannels(r: any, reply: string, optOut: boolean) {
@@ -230,7 +242,7 @@ async function handleMessage(box: any, m: M.ImapMsg) {
     }
     return rows.length ? "bounce" : "ignored";
   }
-  const rows = await leadsByAddress([from], ids).then((x) => x.filter((r) => r.email === from || ids.some((i) => [r.msgid1, r.msgid2, r.msgid3].includes(i)))); if (!rows.length) return "ignored";   // warmup mail and strangers
+  const rows = await leadsByAddress([from], ids).then((x) => x.filter((r) => r.email === from || ids.some((i) => [r.msgid1, r.msgid2, r.msgid3, r.msgid4, r.msgid5, r.msgid6, r.msgid7].includes(i)))); if (!rows.length) return "ignored";   // warmup mail and strangers
   for (const r of rows) {
     if (kind === "auto_reply") { await ev(r.id, "auto_reply", box.addr, { subject: clip(m.subject, 100) }); continue; }
     const reply = M.replyOnly(m.text).slice(0, 600), optOut = M.isOptOut(reply);
@@ -295,13 +307,13 @@ async function sendRun(c: Cfg) {
     if (sentToday >= cap.cap) { out[box.addr] = "daily cap " + cap.cap + " reached"; continue; }
     if (box.last_uid == null) { try { await imapInit(box); } catch (e) { out[box.addr] = "can't read the inbox yet: " + clip((e as Error).message, 80); continue; } }   // replies must be readable BEFORE the first send
     const r = await pickDue(box.addr, c); if (!r) continue;
-    const step = r.next_step as 1 | 2 | 3, body = r.draft?.["e" + step] ?? "", problems = M.lintEmail(step, body, r.first_touch_text);
+    const step = r.next_step as number, body = r.draft?.["e" + step] ?? "", problems = M.lintEmail(step, body, r.first_touch_text);
     if (problems.length) { await db.from("crm_email_leads").update(step === 1 ? { stage: "ready", approved_at: null, approved_hash: null, inbox: null, next_due: null, error: "Copy rules: " + problems.join("; ") } : { stage: "stopped", stop_reason: "Copy rules: " + problems.join("; "), next_due: null }).eq("id", r.id); continue; }
-    const domain = box.addr.split("@")[1], id = M.newMessageId(domain), refs = [r.msgid1, r.msgid2].filter(Boolean) as string[];
-    const res = await M.smtpSend({ user: box.addr, pass: pw }, { from: box.addr, fromName: "Emily Jones", to: r.email, toName: r.name, subject: step === 1 ? r.subject : "Re: " + r.subject, body, messageId: id, inReplyTo: step > 1 ? r.msgid1 : undefined, references: step > 1 ? refs : undefined, unsubscribeMailto: box.addr });
+    const domain = box.addr.split("@")[1], id = M.newMessageId(domain), refs = Array.from({ length: step - 1 }, (_, i) => r["msgid" + (i + 1)]).filter(Boolean) as string[];
+    const res = await M.smtpSend({ user: box.addr, pass: pw }, { from: box.addr, fromName: "Emily Jones", to: r.email, toName: r.name, subject: step === 1 ? r.subject : "Re: " + r.subject, body, messageId: id, inReplyTo: step > 1 ? refs[refs.length - 1] : undefined, references: step > 1 ? refs : undefined, unsubscribeMailto: box.addr });
     if (res.ok) {
-      const t = new Date(), e1 = step === 1 ? t : new Date(r.e1_at), nextDue = step === 1 ? M.addBusinessDays(e1, 3, M.validTz(r.tz, c.default_tz), c.holidays) : step === 2 ? M.addBusinessDays(e1, 7, M.validTz(r.tz, c.default_tz), c.holidays) : null;
-      await db.from("crm_email_leads").update({ ["e" + step + "_at"]: t.toISOString(), ["msgid" + step]: id, stage: step === 3 ? "done" : "active", next_step: step === 3 ? null : step + 1, next_due: nextDue ? nextDue.toISOString() : null, error: null }).eq("id", r.id);
+      const t = new Date(), e1 = step === 1 ? t : new Date(r.e1_at), last = step >= c.steps_days.length, nextDue = last ? null : M.addBusinessDays(e1, c.steps_days[step], M.validTz(r.tz, c.default_tz), c.holidays);
+      await db.from("crm_email_leads").update({ ["e" + step + "_at"]: t.toISOString(), ["msgid" + step]: id, stage: last ? "done" : "active", next_step: last ? null : step + 1, next_due: nextDue ? nextDue.toISOString() : null, error: null }).eq("id", r.id);
       await ev(r.id, "sent", box.addr, { to: r.email, response: res.response }, { step, message_id: id });
       await db.from("crm_email_inboxes").update({ next_send_at: new Date(Date.now() + rand(c.gap_min, c.gap_max) * 60e3).toISOString() }).eq("addr", box.addr);
       if (!c.ramp_start) { await saveCfg({ ramp_start: now() }); c.ramp_start = now(); }
@@ -365,8 +377,9 @@ if (Deno.env.get("EMAIL_BOT_TEST") !== "1") Deno.serve(async (req) => {
       send_test: async () => {
         const to = M.normEmail(b.to); if (!c.test_recipients.map(M.normEmail).includes(to)) return { error: "That address isn't on the test list (email_bot.test_recipients)" };
         const box = (await db.from("crm_email_inboxes").select("addr").eq("addr", String(b.inbox)).maybeSingle()).data; if (!box || !pwFor(box.addr)) return { error: "Unknown inbox" };
-        const d = M.buildDrafts({ name: "Test Person", company: "Example Co", funding: "", one_liner: "Software that helps teams plan their work", channel: "linkedin" }, await templates());
-        const r = await M.smtpSend({ user: box.addr, pass: pwFor(box.addr) }, { from: box.addr, fromName: "Emily Jones", to, subject: "[TEST] " + d.subject, body: d.e1, messageId: M.newMessageId(box.addr.split("@")[1]) });
+        // exactly what a real email 1 looks like (same builder, same signature); only the subject says it is a test and which inbox sent it
+        const d = M.buildDrafts({ name: String(b.name || "Reyansh"), company: "Example Co", funding: "", one_liner: "Software that helps teams plan their work", channel: "linkedin" }, await templates());
+        const r = await M.smtpSend({ user: box.addr, pass: pwFor(box.addr) }, { from: box.addr, fromName: "Emily Jones", to, toName: String(b.name || "Reyansh"), subject: "[TEST " + box.addr.split("@")[1] + "] " + d.subject, body: d.e1, messageId: M.newMessageId(box.addr.split("@")[1]), unsubscribeMailto: box.addr });
         await ev(null, "test", box.addr, { to, ok: r.ok, stage: r.stage }); return r;
       },
     };
