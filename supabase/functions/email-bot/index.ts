@@ -65,36 +65,39 @@ async function stats(c: Cfg) {
   return { paused: c.paused, cap, ramp_start: c.ramp_start, inboxes: per, mv_credits: mvc?.[0]?.detail?.credits ?? null, window: c.window_from + ":00 to " + c.window_to + ":00 prospect time, Mon to Fri" };
 }
 
-// ───────── 1. intake: who was contacted on LinkedIn ─────────
+// ───────── 1. intake: everyone we contacted on LinkedIn (invite or DM) or X (DM) becomes a card in the first column ─────────
+// No email lookup yet (that costs credits): a person is only looked up once you approve them.
 async function intake(c: Cfg) {
-  const t0 = dayStartMs(c.default_tz), { count: madeToday } = await db.from("crm_email_leads").select("id", { count: "exact", head: true }).gte("created_at", new Date(t0).toISOString());
-  const room = c.intake_per_day - (madeToday ?? 0); if (room <= 0) return { added: 0, why: "today's intake limit (" + c.intake_per_day + ") is reached" };
-  const [{ data: leads }, { data: have }] = await Promise.all([
-    db.from("crm_leads").select("id,name,company,role,linkedin,stage,fields").eq("source", "LinkedIn").eq("archived", false).limit(3000),
-    db.from("crm_email_leads").select("lead_id,company_key,stage")]);
+  const [{ data: leads }, { data: have }, { data: xt }] = await Promise.all([
+    db.from("crm_leads").select("id,name,company,role,linkedin,x_handle,stage,source,fields").eq("archived", false).or("source.eq.LinkedIn,x_handle.neq.").limit(3000),
+    db.from("crm_email_leads").select("lead_id,company_key,stage"),
+    db.from("crm_x_tasks").select("handle,text,sent_at").eq("kind", "dm").eq("status", "sent").not("sent_at", "is", null).order("sent_at").limit(3000)]);
+  const xdm = new Map<string, { at: number; text: string }>(); for (const t of xt ?? []) { const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase(); if (h && !xdm.has(h)) xdm.set(h, { at: Date.parse(t.sent_at), text: t.text ?? "" }); }
   const known = new Set((have ?? []).map((x: any) => x.lead_id)), taken = new Set((have ?? []).filter((x: any) => !["skipped", "no_email", "rejected", "stopped"].includes(x.stage)).map((x: any) => x.company_key));
-  const since = Date.now() - c.intake_days * 864e5, cand: any[] = [];
+  const since = Date.now() - c.intake_days * 864e5, cand: any[] = []; let notUs = 0;
   for (const l of (leads ?? []) as any[]) {
-    const f = l.fields ?? {}, li = f.li ?? {}; if (known.has(l.id) || li.replied || li.stop || /^(in talks|call booked|proposal sent|won|lost|cold lead)$/i.test(l.stage ?? "")) continue;
-    const ts = [li.req, li.dm].filter(Boolean).map((x: string) => Date.parse(x)).filter((x: number) => !isNaN(x)); if (!ts.length) continue;
+    const f = l.fields ?? {}, li = f.li ?? {}, xf = f.x ?? {}; if (known.has(l.id) || li.replied || li.stop || xf.replied || /^(in talks|call booked|proposal sent|won|lost|cold lead)$/i.test(l.stage ?? "")) continue;
+    const lt = [li.req, li.dm].filter(Boolean).map((x: string) => Date.parse(x)).filter((x: number) => !isNaN(x)), xd = xdm.get(String(l.x_handle ?? "").replace(/^@/, "").toLowerCase());
+    const ts = [...lt, ...(xd && !isNaN(xd.at) ? [xd.at] : [])]; if (!ts.length) continue;
     const first = Math.min(...ts); if (first < since) continue;
     const country = String(f.li_icp?.founder_country || f.li_icp?.hq_country || f.gtm?.intel?.hq?.v || "").trim();
-    if (!country || !c.countries.some((x) => country.toLowerCase().includes(x))) continue;
+    if (!country || !c.countries.some((x) => country.toLowerCase().includes(x))) { notUs++; continue; }
     const co = String(l.company ?? "").trim(); if (!co || /^unknown$/i.test(co) || !M.firstNameOf(l.name)) continue;
-    const key = M.companyKey(co); if (!key || taken.has(key)) continue;
-    cand.push({ l, first, country, key, co });
+    const key = M.companyKey(co); if (!key) continue;
+    const via = [li.req ? "LinkedIn invite" : li.dm ? "LinkedIn DM" : "", xd ? "X DM" : ""].filter(Boolean).join(" + ");
+    cand.push({ l, first, country, key, co, via, xd: lt.length ? null : xd });
   }
   cand.sort((a, b) => b.first - a.first);
-  const pick: any[] = []; const seen = new Set<string>(); for (const x of cand) { if (seen.has(x.key)) continue; seen.add(x.key); pick.push(x); if (pick.length >= room) break; }
-  const touches = await inChunks<any>(pick.map((x) => x.l.id), (part) => db.from("crm_li_tasks").select("lead_id,text,sent_at,kind").in("lead_id", part).eq("status", "sent").in("kind", ["invite", "dm", "followup"]).order("sent_at"));
+  const pick: any[] = []; const seen = new Set<string>(); for (const x of cand) { if (seen.has(x.key) || taken.has(x.key)) continue; seen.add(x.key); pick.push(x); }
+  const touches = await inChunks<any>(pick.filter((x) => !x.xd).map((x) => x.l.id), (part) => db.from("crm_li_tasks").select("lead_id,text,sent_at,kind").in("lead_id", part).eq("status", "sent").in("kind", ["invite", "dm", "followup"]).order("sent_at"));
   let added = 0;
   for (const x of pick) {
-    const li = x.l.fields.li ?? {}, text = touches.find((t) => t.lead_id === x.l.id && t.text)?.text ?? "";
-    const { error } = await db.from("crm_email_leads").insert({ lead_id: x.l.id, channel: "linkedin", first_touch_at: new Date(x.first).toISOString(), first_touch_text: clip(text, 1500), name: x.l.name, first_name: M.firstNameOf(x.l.name), company: x.co, company_key: x.key,
-      role: x.l.role ?? "", linkedin: x.l.linkedin ?? "", country: x.country, tz: c.default_tz, one_liner: clip(x.l.fields.li_icp?.one_liner, 300), funding: clip(x.l.fields.li_icp?.funding, 80), stage: "new" });
+    const text = x.xd ? x.xd.text : touches.find((t) => t.lead_id === x.l.id && t.text)?.text ?? "";
+    const { error } = await db.from("crm_email_leads").insert({ lead_id: x.l.id, channel: x.xd ? "x" : "linkedin", via: x.via, x_handle: String(x.l.x_handle ?? "").replace(/^@/, ""), first_touch_at: new Date(x.first).toISOString(), first_touch_text: clip(text, 1500), name: x.l.name, first_name: M.firstNameOf(x.l.name), company: x.co, company_key: x.key,
+      role: x.l.role ?? "", linkedin: x.l.linkedin ?? "", country: x.country, tz: c.default_tz, one_liner: clip(x.l.fields.li_icp?.one_liner, 300), funding: clip(x.l.fields.li_icp?.funding, 80), stage: "candidate" });
     if (!error) added++;
   }
-  return { added, candidates: cand.length };
+  return { added, candidates: cand.length, not_us_or_unknown_country: notUs };
 }
 
 // ───────── 2. find the email, verify it, draft ─────────
@@ -154,6 +157,7 @@ async function enrichOne(r: any, c: Cfg, tpl: M.Templates) {
   const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl, new Date(), await dropFor(r));
   const draft = Object.fromEntries(KEYS.map((k) => [k, d[k]])), warn = [...d.warnings, ...lintAll(draft, r.first_touch_text)];
   await setR({ stage: "ready", email, email_source: src, email_found_at: now(), verify_result: "ok", verify_sub: v.sub, verified_at: now(), tz, subject: d.subject, draft: { ...draft, has_drop: d.has_drop }, fact: d.fact, warnings: warn, error: null });
+  if (r.pre_approved) { const a = await approve({ id: r.id }, r.approved_by || "approved earlier", true); if (a.error) { await setR({ error: a.error }); return "ready"; } return "queued"; }
   return "ready";
 }
 async function enrich(c: Cfg) {
@@ -164,8 +168,15 @@ async function enrich(c: Cfg) {
 
 // ───────── 3. the team's buttons ─────────
 async function getRow(id: string) { const { data } = await db.from("crm_email_leads").select("*").eq("id", id).maybeSingle(); return data as any; }
-async function approve(b: any, who: string) {
+async function approve(b: any, who: string, fromBot = false) {
   const r = await getRow(b.id); if (!r) return { error: "No such person" };
+  if (r.stage === "candidate" && !fromBot) {   // the first click: look up and verify the email, build the seven emails, then queue email 1 automatically
+    const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {}, xf = (l?.fields as any)?.x ?? {};
+    if (!l || l.archived) return { error: "They were removed from the CRM" };
+    if (li.replied || xf.replied || li.stop) return { error: "They already replied or were stopped on another channel" };
+    await db.from("crm_email_leads").update({ stage: "new", pre_approved: true, approved_by: who, approved_at: now(), error: null }).eq("id", r.id); await ev(r.id, "approve", null, { by: who, candidate: true });
+    return { ok: true, looking_up: true };
+  }
   if (r.stage !== "ready") return { error: "Only a card in Ready to approve can be approved" };
   if ((r.warnings ?? []).some((w: string) => /No real fact|first name/.test(w))) return { error: "Edit the draft first: " + (r.warnings as string[]).find((w) => /No real fact|first name/.test(w)) };
   if (!r.draft?.edited) {   // the lead page may have finished since the drafts were made: email 2 uses it if it did
@@ -184,6 +195,11 @@ async function approve(b: any, who: string) {
   await db.from("crm_email_leads").update({ draft: r.draft, stage: "approved", inbox, approved_at: now(), approved_hash: hash, next_step: 1, next_due: now(), error: null }).eq("id", r.id);
   await ev(r.id, "approve", inbox, { by: who, hash: hash.slice(0, 12) });
   return { ok: true, inbox };
+}
+async function approveMany(b: any, who: string) {
+  const ids: string[] = Array.isArray(b.ids) ? b.ids.slice(0, 200) : [], out = { approved: 0, failed: [] as string[] };
+  for (const id of ids) { const r = await approve({ id }, who); if (r.error) out.failed.push(r.error); else out.approved++; }
+  return out;
 }
 async function sha(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", M.enc.encode(s)))).map((x) => x.toString(16).padStart(2, "0")).join(""); }
 async function edit(b: any, who: string) {
@@ -276,11 +292,13 @@ async function poll(c: Cfg, force = false) {
 const DONE_LEAD = /^(in talks|call booked|proposal sent|won|lost)$/i;
 async function pickDue(addr: string, c: Cfg) {
   const { data: rows } = await db.from("crm_email_leads").select("*").eq("inbox", addr).in("stage", ["approved", "active"]).lte("next_due", now()).order("next_step", { ascending: false }).order("next_due").limit(20);
+  const t0 = dayStartMs("America/New_York"), { count: started } = await db.from("crm_email_leads").select("id", { count: "exact", head: true }).gte("e1_at", new Date(t0).toISOString());
   for (const r of rows ?? []) {
+    if (r.next_step === 1 && (started ?? 0) >= c.intake_per_day) continue;   // intake_per_day = how many new people start their sequence each day (0 holds all new starts)
     const tz = M.validTz(r.tz, c.default_tz); if (!M.inWindow(new Date(), tz, c.window_from, c.window_to, c.holidays)) continue;
-    const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {};
-    const why = !l || l.archived ? "Removed from the CRM" : li.replied || li.stop === "replied" ? "They replied on LinkedIn or X" : li.stop === "by hand" ? "You took them over by hand" : DONE_LEAD.test(l.stage ?? "") ? "They are now " + l.stage : "";
-    if (why) { await db.from("crm_email_leads").update({ stage: li.replied ? "replied" : "stopped", stop_reason: why, next_due: null }).eq("id", r.id); await ev(r.id, "stop", addr, { why }); continue; }
+    const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {}, xr = !!(l?.fields as any)?.x?.replied;
+    const why = !l || l.archived ? "Removed from the CRM" : li.replied || xr || li.stop === "replied" ? "They replied on LinkedIn or X" : li.stop === "by hand" ? "You took them over by hand" : DONE_LEAD.test(l.stage ?? "") ? "They are now " + l.stage : "";
+    if (why) { await db.from("crm_email_leads").update({ stage: li.replied || xr ? "replied" : "stopped", stop_reason: why, next_due: null }).eq("id", r.id); await ev(r.id, "stop", addr, { why }); continue; }
     if (await isDnc(r.email)) { await db.from("crm_email_leads").update({ stage: "stopped", stop_reason: "On the do-not-contact list", next_due: null }).eq("id", r.id); continue; }
     if (!r.verified_at || Date.now() - Date.parse(r.verified_at) > c.verify_max_age_days * 864e5) {
       try { const v = await mvCheck(r.email); await ev(r.id, "verify", null, { recheck: true, result: v.result, credits: v.credits });
@@ -365,7 +383,7 @@ if (Deno.env.get("EMAIL_BOT_TEST") !== "1") Deno.serve(async (req) => {
   try {
     const f: Record<string, () => Promise<unknown>> = {
       tick: () => tick(c), intake: () => intake(c), enrich: () => enrich(c), poll: () => poll(c, true), send: () => sendRun(c), stats: () => stats(c),
-      redraft: () => redraft(), approve: () => approve(b, a.who), edit: () => edit(b, a.who), skip: () => skip(b, a.who),
+      redraft: () => redraft(), approve: () => approve(b, a.who), approve_many: () => approveMany(b, a.who), edit: () => edit(b, a.who), skip: () => skip(b, a.who),
       imap_check: () => checks(c, "imap"), smtp_check: () => checks(c, "smtp"),
       pause: async () => { await saveCfg({ paused: true }); await ev(null, "pause", null, { by: a.who }); return { ok: true }; },
       resume: async () => {

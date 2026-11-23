@@ -1332,7 +1332,7 @@ async function xgRun(){
 const EM={leads:[],inboxes:[],events:[],stats:null,cfg:null,loaded:false,loading:false,missing:false,err:"",at:0};
 async function emLoad(){
   if(!sb||!session||!member||EM.loading)return;EM.loading=true;
-  try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(600);
+  try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(1500);
     if(a.error){EM.missing=/does not exist|schema cache|relation/i.test(a.error.message||"");EM.err=a.error.message||String(a.error);}
     else{EM.missing=false;EM.err="";EM.leads=a.data||[];
       const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),sb.from("crm_email_events").select("id,email_lead_id,at,kind,inbox,step,detail").order("at",{ascending:false}).limit(400),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);

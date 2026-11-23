@@ -991,7 +991,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="../data.js?v=344996c194"></script>
+<script src="../data.js?v=7ac16d5f27"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -4518,15 +4518,16 @@ const rmOfContact=c=>{if(!c)return null;const ld=leadForContact(c);return {...(l
 const rmFor=id=>{const l=leadById(id);if(l)return rmOfLead(l);const c=contactByKey(id);return c?rmOfContact(c):null;};
 const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
-/* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 3 emails once you Approve ---------- */
-const EM_COLS=[['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Ready to approve','#A86200',r=>r.stage==='ready'],['approved','Approved · queued','#6D28D9',r=>r.stage==='approved'],
+/* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 7 emails once you Approve ---------- */
+const EM_COLS=[['cand','Contacted · approve to email','#0E7490',r=>r.stage==='candidate'],['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Needs a look','#A86200',r=>r.stage==='ready'],['approved','Approved · queued','#6D28D9',r=>r.stage==='approved'],
   ['seq','In the sequence','#3B6FD8',r=>r.stage==='active'],['done','Finished','#2F8F5B',r=>r.stage==='done'],
   ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
 const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
 const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
 function emNext(r){
-  if(r.stage==='new'||r.stage==='found')return 'Looking up and verifying their email';
-  if(r.stage==='ready')return (r.warnings||[]).length?'Needs an edit before you can approve':'Needs your OK';
+  if(r.stage==='candidate')return 'Approve to find their email and start the emails';
+  if(r.stage==='new'||r.stage==='found')return r.error?r.error:'Approved: finding and verifying their email, then email 1 is queued';
+  if(r.stage==='ready')return r.error?r.error:(r.warnings||[]).length?'Needs an edit before it can be queued':'Needs your OK';
   if(r.stage==='approved')return 'Email 1 goes from '+(r.inbox||'an inbox')+' in the next window';
   if(r.stage==='active')return 'Email '+(r.next_step-1)+' of 7 sent · next: email '+r.next_step+', '+emDay(r.next_due);
   if(r.stage==='done')return 'All seven sent';
@@ -4541,7 +4542,8 @@ function emCard(r){
     +(r.email?'<div class="meta note">'+esc(r.email)+(r.verify_result==='ok'?' · <span style="color:#1F8A4C">✓ verified</span>':'')+'</div>':'')
     +'<div class="kc-one">'+esc(emNext(r))+'</div>'
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
-    +'<div class="note" style="font-size:11.5px;margin-top:2px">via '+esc(r.channel==='x'?'X':'LinkedIn')+' · '+esc(emDay(r.first_touch_at))+'</div></div>';
+    +'<div class="note" style="font-size:11.5px;margin-top:2px">'+esc(r.via||('via '+(r.channel==='x'?'X':'LinkedIn')))+' · '+esc(emDay(r.first_touch_at))+'</div>'
+    +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x)L.toast('Approved. Finding '+r.name.split(' ')[0]+'’s email now; email 1 is queued once it is verified.');}),'pri sm')+'</div>':'')+'</div>';
 }
 function pgEmail(){
   const E=AK.EM;if(!E.loaded&&!E.loading)AK.emLoad();else if(E.loaded&&!E.loading&&Date.now()-E.at>60000)AK.emLoad();
@@ -4559,12 +4561,15 @@ function pgEmail(){
     +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px"><b>Daily limit per inbox</b><div style="font-size:22px;font-weight:600">'+esc(cap.cap!=null?cap.cap:(cfg.cap_steps||[5])[0])+' <span class="note" style="font-weight:400">a day each · '+esc(((cap.cap||(cfg.cap_steps||[5])[0])*4))+' in total</span></div>'
       +'<div class="note">Ramp: '+esc((cfg.cap_steps||[5,10,15,20,25]).join(' → '))+', a step every '+esc(cfg.step_days||4)+' days from the first send'+(cap.held?'. <b style="color:var(--warn)">Held a step back: '+esc(cap.why)+'.</b>':'. '+esc(cap.why||''))+'</div>'
       +'<div class="note">Verification credits left: '+esc(st.mv_credits!=null?st.mv_credits:'?')+'</div></div>'
-    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">7 plain-text emails (business days 0, 2, 4, 6, 8, 11, 14), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only.</div></div></div>';
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">7 plain-text emails (business days 0, 2, 4, 6, 8, 11, 14), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only. New people start their emails at most '+esc(cfg.intake_per_day!=null?cfg.intake_per_day:0)+' a day (follow-ups are on top).</div></div></div>';
   h+='<div class="card sec-b" style="margin-top:12px;padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:8px 12px">Inbox</th><th style="padding:8px 12px">Today</th><th style="padding:8px 12px">Sent (30d)</th><th style="padding:8px 12px">Replies</th><th style="padding:8px 12px">Bounces</th><th style="padding:8px 12px">Next send</th><th style="padding:8px 12px">Status</th></tr></thead><tbody>'
     +(((st.inboxes&&st.inboxes.length?st.inboxes:(E.inboxes||[]).map(b=>({addr:b.addr,paused:b.paused,paused_reason:b.paused_reason,has_password:true,last_error:b.last_error,next_send_at:b.next_send_at,sent_today:0,sent_30d:0,replies_30d:0,bounces_30d:0,bounce_pct:0})))).map(b=>'<tr style="border-top:1px solid var(--line)"><td style="padding:8px 12px"><b>'+esc(b.addr)+'</b></td><td style="padding:8px 12px">'+b.sent_today+'/'+esc(cap.cap!=null?cap.cap:5)+'</td><td style="padding:8px 12px">'+b.sent_30d+'</td><td style="padding:8px 12px">'+b.replies_30d+'</td><td style="padding:8px 12px">'+b.bounces_30d+(b.sent_30d?' ('+b.bounce_pct+'%)':'')+'</td><td style="padding:8px 12px">'+(b.next_send_at&&ms(b.next_send_at)>Date.now()?'in '+esc(emIn(b.next_send_at)):'—')+'</td><td style="padding:8px 12px">'
       +(b.paused?'<span style="color:var(--bad)">Paused: '+esc(b.paused_reason||'')+'</span> '+(canEdit()?btn('Resume',()=>AK.emCall('resume_inbox',{addr:b.addr}),'sm'):''):!b.has_password?'<span style="color:var(--warn)">App password not set</span>':b.last_error?'<span style="color:var(--warn)" title="'+esc(b.last_error)+'">Check: '+esc(b.last_error.slice(0,40))+'</span>':'<span style="color:#1F8A4C">Ready</span>')+'</td></tr>').join('')||'<tr><td colspan="7" class="note" style="padding:12px">Loading…</td></tr>')+'</tbody></table></div>';
-  h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we contact on LinkedIn also lands here with a verified work email and seven drafts</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
-  h+='<div class="board2">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f);return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div><div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?cs.map(emCard).join(''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
+  h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we send a LinkedIn invite or an X DM to lands in the first column; Approve and the bot finds and verifies their email, then runs the seven emails</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
+  const sel=Object.keys(V.emSel||{}).filter(id=>rows.some(r=>r.id===id&&r.stage==='candidate'));
+  h+='<div class="board2">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f),shown=id==='cand'?cs.slice(0,80):cs;
+    const tools=id==='cand'&&cs.length&&canEdit()?'<div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px 0">'+btn(sel.length?'Clear':'Select all',()=>{V.emSel=sel.length?{}:Object.fromEntries(shown.map(r=>[r.id,1]));schedule();},'sm ghost')+(sel.length?btn('Approve '+sel.length+' selected',()=>{if(confirm('Approve '+sel.length+' people? Their emails are looked up and verified, then email 1 goes out over the next days at the daily start limit.'))AK.emCall('approve_many',{ids:sel}).then(x=>{if(x){V.emSel={};L.toast('Approved '+x.approved+(x.failed&&x.failed.length?' · '+x.failed.length+' could not be approved':'')+'.');}});},'pri sm'):'')+'</div>':'';
+    return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div>'+tools+'<div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?shown.map(emCard).join('')+(cs.length>shown.length?'<div class="note" style="text-align:center">+ '+(cs.length-shown.length)+' older, approve some to see more</div>':''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
   return h;
 }
 function emDetail(r){
@@ -4576,7 +4581,7 @@ function emDetail(r){
     +'<div><span class="note">Person</span><div><b>'+esc(r.name)+'</b> · '+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'+(r.linkedin?'<a href="'+esc(r.linkedin)+'" target="_blank" rel="noopener">LinkedIn ↗</a>':'')+'</div>'
     +'<div><span class="note">Email</span><div>'+esc(r.email||'not found yet')+'</div><div class="note">'+(r.verify_result==='ok'?'✓ verified by MillionVerifier':esc(r.verify_result?'Verification: '+r.verify_result:'not verified'))+(r.email_source?' · found via '+esc(r.email_source):'')+'</div></div>'
     +'<div><span class="note">Sending</span><div>'+esc(r.inbox||'inbox chosen at approval')+'</div><div class="note">Time zone '+esc(r.tz||'')+' · country '+esc(r.country||'')+'</div></div></div>'
-    +'<div><span class="note">What we already said on '+esc(r.channel==='x'?'X':'LinkedIn')+' ('+esc(emDay(r.first_touch_at))+') — the emails must not repeat it</span><div style="white-space:pre-wrap;background:var(--sunk);border-radius:8px;padding:8px 10px;margin-top:4px">'+esc(r.first_touch_text||'(not recorded)')+'</div></div>';
+    +'<div><span class="note">What we already said on '+esc(r.via||(r.channel==='x'?'X':'LinkedIn'))+' ('+esc(emDay(r.first_touch_at))+') — the emails must not repeat it</span><div style="white-space:pre-wrap;background:var(--sunk);border-radius:8px;padding:8px 10px;margin-top:4px">'+esc(r.first_touch_text||'(not recorded)')+'</div></div>';
   if((r.warnings||[]).length&&r.stage==='ready')h+='<div style="color:var(--warn);font-size:13px">'+r.warnings.map(w=>'⚠ '+esc(w)).join('<br>')+'</div>';
   if(r.error&&!/^(stopped|skipped)$/.test(r.stage))h+='<div class="note" style="color:var(--bad)">'+esc(r.error)+'</div>';
   if(r.stage==='replied')h+='<div style="border:1px solid #F5C2BC;border-radius:10px;padding:10px 12px;background:#FFF5F4"><b>They replied '+esc(emDay(r.replied_at))+'</b><div style="white-space:pre-wrap;margin-top:4px">“'+esc(r.reply_text||'')+'”</div><div class="note" style="margin-top:4px">All three channels have stopped. Answer them from '+esc(r.inbox||'the inbox')+'.</div></div>';
@@ -4593,6 +4598,7 @@ function emDetail(r){
     h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
     if(editable&&X)h+=btn('Save changes',()=>AK.emCall('edit',{id:r.id,draft:{subject:X.subject,...X.d}}).then(x=>{if(x){V.emE=null;L.toast(x.voided?'Saved. The approval was cleared: approve again.':'Saved.');}}),'pri sm')+btn('Cancel',()=>{V.emE=null;schedule();},'sm');
     else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:Object.fromEntries(N.map(n=>['e'+n,(r.draft||{})['e'+n]]))};schedule();},'sm');
+    if(r.stage==='candidate')h+=btn('Approve: find their email and start the emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 is queued once their address is verified.');V.emOpen=null;schedule();}}),'pri sm');
     if(r.stage==='ready'&&!X)h+=btn('Approve all seven emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
     if(!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=btn(r.e1_at?'Stop the sequence':'Skip this person',()=>{if(confirm(r.e1_at?'Stop the remaining emails to '+r.name+'?':'Skip '+r.name+'? No email will be sent.'))AK.emCall('skip',{id:r.id}).then(x=>{if(x){V.emOpen=null;schedule();}});},'sm ghost');
     h+='</div>';
