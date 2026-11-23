@@ -74,7 +74,7 @@ export function dropItems(leads: any[], max = 2): string[] {
   const out: string[] = [];
   for (const l of leads ?? []) {
     let name = String(l.opener ?? "").match(/\b(?:saw|noticed)\s+(.{2,40}?)\s+(?:is|are|just|has|raised|posted|announced|launched)\b/i)?.[1]?.trim() || String(l.company ?? "").trim();
-    name = name.replace(/^that\s+/i, "");
+    name = cleanCompany(name.replace(/^that\s+/i, ""));   // "Mecka.ai" reads as a link to a spam filter
     if (!name || name.length > 40) continue;
     const job = l.channel === "jobs" ? String(l.quote ?? "").match(/^(.{4,60}?)\s+at\s/i)?.[1]?.trim() : "";
     out.push((out.length + 1) + ". " + name + (job ? ", hiring " + (/^[aeiou]/i.test(job) ? "an " : "a ") + job : ""));

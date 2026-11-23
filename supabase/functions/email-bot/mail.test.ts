@@ -39,6 +39,7 @@ Deno.test("lead page companies become clean list lines", () => {
   assertEquals(M.dropItems(leads), ["1. AtriCure, hiring an Accounts Payable Specialist", "2. DV Trading, hiring a Procurement Lead"]);
   assertEquals(M.dropItems([{ company: "Northpass", opener: "", channel: "post", quote: "" }, { company: "Corelane", opener: "", channel: "post" }]), ["1. Northpass", "2. Corelane"]);
   assertEquals(M.dropItems([]), []);
+  assertEquals(M.dropItems([{ company: "Mecka.ai", opener: "", channel: "post" }, { company: "Verne", opener: "", channel: "post" }]), ["1. Mecka", "2. Verne"]);
 });
 Deno.test("a template with {fact} uses a real fact, falls back to what they build, and flags a missing one", () => {
   const T = { ...M.DEFAULT_TEMPLATES, e1: "Hi {first},\n\n{fact}. {channel_line}\n\nWorth a call?" };
