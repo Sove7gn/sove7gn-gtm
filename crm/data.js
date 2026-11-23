@@ -1327,6 +1327,28 @@ async function xgRun(){
   finally{XG.running=false;await xgLoad()}
 }
 /* LinkedIn bot (11 Nov): the Chrome extension's queue (crm_li_tasks). Approve, edit or skip here; the extension sends. */
+/* Email pipeline (23 Nov). Reads crm_email_leads / crm_email_inboxes / crm_email_events (team read-only); every change goes through the
+   email-bot function (approve, edit, skip, pause, resume). Nothing here sends: the bot sends only what is approved, while not paused. */
+const EM={leads:[],inboxes:[],events:[],stats:null,cfg:null,loaded:false,loading:false,missing:false,err:"",at:0};
+async function emLoad(){
+  if(!sb||!session||!member||EM.loading)return;EM.loading=true;
+  try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(600);
+    if(a.error){EM.missing=/does not exist|schema cache|relation/i.test(a.error.message||"");EM.err=a.error.message||String(a.error);}
+    else{EM.missing=false;EM.err="";EM.leads=a.data||[];
+      const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),sb.from("crm_email_events").select("id,email_lead_id,at,kind,inbox,step,detail").order("at",{ascending:false}).limit(400),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
+      EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;
+      try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error)EM.stats=s.data;}catch(e){}}
+  }catch(e){EM.err=String(e&&e.message||e);}
+  EM.loaded=true;EM.loading=false;EM.at=Date.now();emit();
+}
+async function emCall(action,body){
+  if(!sb||!canEdit()){toast("Sign in to change the email pipeline.",true);return null;}
+  try{const {data,error}=await sb.functions.invoke("email-bot",{body:{...(body||{}),action}});
+    if(error){let m=error.message||String(error);try{const j=await error.context.json();if(j&&j.error)m=j.error}catch(_){}throw new Error(m)}
+    if(data&&data.error){toast(data.error,true);return null;}
+    await emLoad();return data;
+  }catch(e){toast("Email: "+(e.message||e),true);return null;}
+}
 const LBT={rows:[],loaded:false,running:false,at:0};
 async function lbtLoad(){
   if(!sb||!session||!member)return;
@@ -1828,7 +1850,7 @@ window.AK={
   num,fmtK,safeUrl,xUrl,host,parseDate,cellDate,sheetSerial,fmtSerial,ago,plain,firstName,norm,median,weekStart,sameDay,dayWord,folderUrl,
   bucket,fundKind,sendable,messages,statusCells,undoCells,write,canEdit,canRestore,BRAND,signOut,mediaThumb,mediaOpen,
   postStage,minutesOf,linkKey,originalFor,copiesOf,rate,ourEng,isNew,newPosts,markSeen,ourPostLink,
-  NT,ntLoad,ntDesk,CA,compAnalyze,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
+  NT,ntLoad,ntDesk,CA,compAnalyze,savePosted,saveScheduled,saveMessaged,restorePost,restoreMessaged,dmsPaused,savePaused,saveTpl,addTpl,XJ,xRun,engagerToPipeline,importLiConnections,liStep,addLikers,LIS,lisSet,lisRun,XG,xgSet,xgRun,xgLoad,xgDraft,LBT,lbtSet,lbtRun,EM,emLoad,emCall,liBrief,liTips,liFunding,liSignal,sigAct,liInmail,liInmailTest,BR,briefLoad,briefRun,XT,xtLoad,xtQueue,xtCancel,xtSet,botCall,xtActive,xtLast,xtPause,deletePost,undeletePost,addPost,movePosts,calNew,calSave,calUpload,mediaIds,saveEngager,
   typeStats,copyNext,founderAsks,trackedPosts,whyFor,patterns,weekGrid,dmResults,viewsOf,bigFirst,compFor,
   liTracked,liState,liLoad,liMove,liKey,liAdd,liPeople,SOC,socialRun,setPersonFit,personToLead,igRun,igToLead,
   leadsLoad,leadsState,leadSetting,leadCreate,leadSave,leadArchive,RM,rmLoad,removePerson,restorePerson,isRemoved,leadNote,leadNoteDelete,leadSettingSave,leadRename,LD,

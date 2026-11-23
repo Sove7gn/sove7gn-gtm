@@ -991,7 +991,7 @@ root.GTM={CONTENT_ST,contentOf,commentsOn,normPost,isLiPost,STAGE_MOVERS,ICP_DEF
 })(typeof window!=='undefined'?window:globalThis);
 
 </script>
-<script src="../data.js?v=4f22aa5377"></script>
+<script src="../data.js?v=344996c194"></script>
 <script>
 /* The CRM page logic: the Claude Design component (design/CRM.dc.html), with its sample data replaced by
    the sheet data from data.js (window.AK) and its actions wired to the real saves. Returns the Component class. */
@@ -4365,7 +4365,7 @@ const scoreC=n=>{n=parseFloat(n);return n>=8?['#047857','#D1FAE5']:n>=5?['#B4530
 function pgPipeline(){
   const cur=V.f.pipe||'LinkedIn';const P=L.allPeople();const min=+(V.f.min||0);
   let h=head('Pipelines','Every channel has its own board. Approve right on the cards; click a card for everything about them.',cur==='Table'&&canEdit()?btn('Export CSV',()=>exportCsv(),'sm'):'');
-  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email'],['Table','Everyone (table)']]);
+  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email',(AK.EM.leads||[]).filter(r=>r.stage==='ready').length||null],['Table','Everyone (table)']]);
   const fbar=(note)=>'<div class="bar" style="margin-top:12px"><span class="note">'+esc(note||'')+'</span><span class="sp"></span>'
     +(cur!=='Instagram'?'<div class="chips">'+[[0,'Any fit'],[5,'5+'],[7,'7+'],[8,'8+']].map(([v,l])=>'<button type="button" class="chip'+(min===v?' on':'')+'"'+act(()=>{V.f.min=v;schedule();})+'>'+l+'</button>').join('')+'</div>':'')
     +'<input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>';
@@ -4376,7 +4376,7 @@ function pgPipeline(){
     h+='<div class="chips" style="margin-top:12px">'+(B.boards||[]).map(([k,l,n])=>'<button type="button" class="chip'+(xb===k?' on':'')+'"'+act(()=>{V.f.xboard=k;schedule();})+'>'+esc(l)+' <span class="faint">'+n+'</span></button>').join('')+'</div>';
     h+=fbar(xb==='old'?'People already on the X sales sequence: follow-ups on day 3, 5, 8 and 12 go out on their own':'A/B first DMs wait in To approve; one nudge on day 4')+board(B,'x');}
   else if(cur==='Instagram')h+=fbar('Instagram DMs, read every hour')+board(igBoard(),'ig');
-  else if(cur==='Email')h+='<div class="soonbox" style="margin-top:16px"><h2>Email isn’t set up yet</h2><div>Its own pipeline shows here once email outreach starts.</div></div>';
+  else if(cur==='Email')h+=pgEmail();
   else{const L2=leadsOpen().filter(l=>matchQ('tbl',l.name,l.company,l.source,l.stage));
     h+='<div class="bar" style="margin-top:12px"><span class="note">'+L2.length+' people</span><span class="sp"></span><input class="in search" placeholder="Search" value="'+esc(V.q.tbl||'')+'"'+inp(e=>{V.q.tbl=e.target.value;})+chg(()=>schedule())+'></div>';
     h+=table('tbl',[['Who','minmax(0,2fr)'],['Stage','170px'],['Latest','minmax(0,2fr)'],['Last touch','100px']],
@@ -4518,6 +4518,88 @@ const rmOfContact=c=>{if(!c)return null;const ld=leadForContact(c);return {...(l
 const rmFor=id=>{const l=leadById(id);if(l)return rmOfLead(l);const c=contactByKey(id);return c?rmOfContact(c):null;};
 const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
+/* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 3 emails once you Approve ---------- */
+const EM_COLS=[['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Ready to approve','#A86200',r=>r.stage==='ready'],['approved','Approved · queued','#6D28D9',r=>r.stage==='approved'],
+  ['e1','Email 1 sent','#3B6FD8',r=>r.stage==='active'&&r.next_step===2],['e2','Email 2 sent','#3B6FD8',r=>r.stage==='active'&&r.next_step===3],['done','Finished','#2F8F5B',r=>r.stage==='done'],
+  ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
+const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
+const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
+function emNext(r){
+  if(r.stage==='new'||r.stage==='found')return 'Looking up and verifying their email';
+  if(r.stage==='ready')return (r.warnings||[]).length?'Needs an edit before you can approve':'Needs your OK';
+  if(r.stage==='approved')return 'Email 1 goes from '+(r.inbox||'an inbox')+' in the next window';
+  if(r.stage==='active')return 'Next: email '+r.next_step+' · '+emDay(r.next_due);
+  if(r.stage==='done')return 'All three sent';
+  if(r.stage==='replied')return 'They replied: answer them';
+  return r.stop_reason||r.error||'';
+}
+function emCard(r){
+  const tone=r.stage==='ready'?['#FFFBEB','#B45309','#FDE68A']:r.stage==='replied'?['#FCE7E4','#C2392F','#F5C2BC']:['#ECFDF5','#047857','#A7F3D0'];
+  const timer=/^(approved|active)$/.test(r.stage)&&r.next_due?'<span class="eta" style="background:'+tone[0]+';color:'+tone[1]+';border-color:'+tone[2]+'" title="'+esc(new Date(r.next_due).toLocaleString())+'">⏱ '+esc(emIn(r.next_due))+'</span>':'';
+  return '<div class="kc"'+act(()=>{V.emOpen=r.id;V.emE=null;schedule();})+'><div class="kc-t"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</b>'+timer+'</div>'
+    +'<div class="meta note">'+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'
+    +(r.email?'<div class="meta note">'+esc(r.email)+(r.verify_result==='ok'?' · <span style="color:#1F8A4C">✓ verified</span>':'')+'</div>':'')
+    +'<div class="kc-one">'+esc(emNext(r))+'</div>'
+    +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
+    +'<div class="note" style="font-size:11.5px;margin-top:2px">via '+esc(r.channel==='x'?'X':'LinkedIn')+' · '+esc(emDay(r.first_touch_at))+'</div></div>';
+}
+function pgEmail(){
+  const E=AK.EM;if(!E.loaded&&!E.loading)AK.emLoad();else if(E.loaded&&!E.loading&&Date.now()-E.at>60000)AK.emLoad();
+  let h='';
+  if(E.loaded&&E.missing)return '<div class="card" style="padding:16px;margin-top:12px"><b>The email tables aren’t set up yet.</b><div class="note">Apply supabase/migrations/20261123000001_email_pipeline.sql.</div></div>';
+  if(E.err&&E.loaded)return '<div class="card" style="padding:16px;margin-top:12px;color:var(--bad)">Couldn’t load the email pipeline: '+esc(E.err)+'</div>';
+  if(!E.loaded)return '<div class="empty" style="padding:60px 0">Loading the email pipeline…</div>';
+  const rows=E.leads||[],open=V.emOpen&&rows.find(r=>r.id===V.emOpen),st=E.stats||{},cfg=E.cfg||{},paused=cfg.paused!==false;
+  if(open)return emDetail(open);
+  const cap=(st.cap||{});
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px">'
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:6px"><b>Email sending</b><div>'+(paused?'<span class="pill" style="background:#FDF1DE;color:#A86200">■ Paused: nothing sends</span>':'<span class="pill" style="background:#E5F5EB;color:#1F8A4C">● Running</span>')+'</div>'
+      +'<div class="note">Only people you Approve get emails. '+esc(st.window||'Mon to Fri, 8:00 to 17:00 in their time zone')+', 10 to 20 minutes apart per inbox.</div>'
+      +(canEdit()?'<div>'+(paused?btn('Resume sending',()=>{if(confirm('Start sending approved emails from the 4 Emily inboxes?'))AK.emCall('resume',{}).then(r=>{if(r)L.toast('Email sending is on.');});},'pri sm'):btn('Pause sending',()=>AK.emCall('pause',{}).then(r=>{if(r)L.toast('Email sending paused.');}),'sm'))+'</div>':'')+'</div>'
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px"><b>Daily limit per inbox</b><div style="font-size:22px;font-weight:600">'+esc(cap.cap!=null?cap.cap:(cfg.cap_steps||[5])[0])+' <span class="note" style="font-weight:400">a day each · '+esc(((cap.cap||(cfg.cap_steps||[5])[0])*4))+' in total</span></div>'
+      +'<div class="note">Ramp: '+esc((cfg.cap_steps||[5,10,15,20,25]).join(' → '))+', a step every '+esc(cfg.step_days||4)+' days from the first send'+(cap.held?'. <b style="color:var(--warn)">Held a step back: '+esc(cap.why)+'.</b>':'. '+esc(cap.why||''))+'</div>'
+      +'<div class="note">Verification credits left: '+esc(st.mv_credits!=null?st.mv_credits:'?')+'</div></div>'
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">3 plain-text emails (day 0, 3, 7 business days), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only.</div></div></div>';
+  h+='<div class="card sec-b" style="margin-top:12px;padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:8px 12px">Inbox</th><th style="padding:8px 12px">Today</th><th style="padding:8px 12px">Sent (30d)</th><th style="padding:8px 12px">Replies</th><th style="padding:8px 12px">Bounces</th><th style="padding:8px 12px">Next send</th><th style="padding:8px 12px">Status</th></tr></thead><tbody>'
+    +(((st.inboxes&&st.inboxes.length?st.inboxes:(E.inboxes||[]).map(b=>({addr:b.addr,paused:b.paused,paused_reason:b.paused_reason,has_password:true,last_error:b.last_error,next_send_at:b.next_send_at,sent_today:0,sent_30d:0,replies_30d:0,bounces_30d:0,bounce_pct:0})))).map(b=>'<tr style="border-top:1px solid var(--line)"><td style="padding:8px 12px"><b>'+esc(b.addr)+'</b></td><td style="padding:8px 12px">'+b.sent_today+'/'+esc(cap.cap!=null?cap.cap:5)+'</td><td style="padding:8px 12px">'+b.sent_30d+'</td><td style="padding:8px 12px">'+b.replies_30d+'</td><td style="padding:8px 12px">'+b.bounces_30d+(b.sent_30d?' ('+b.bounce_pct+'%)':'')+'</td><td style="padding:8px 12px">'+(b.next_send_at&&ms(b.next_send_at)>Date.now()?'in '+esc(emIn(b.next_send_at)):'—')+'</td><td style="padding:8px 12px">'
+      +(b.paused?'<span style="color:var(--bad)">Paused: '+esc(b.paused_reason||'')+'</span> '+(canEdit()?btn('Resume',()=>AK.emCall('resume_inbox',{addr:b.addr}),'sm'):''):!b.has_password?'<span style="color:var(--warn)">App password not set</span>':b.last_error?'<span style="color:var(--warn)" title="'+esc(b.last_error)+'">Check: '+esc(b.last_error.slice(0,40))+'</span>':'<span style="color:#1F8A4C">Ready</span>')+'</td></tr>').join('')||'<tr><td colspan="7" class="note" style="padding:12px">Loading…</td></tr>')+'</tbody></table></div>';
+  h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we contact on LinkedIn also lands here with a verified work email and three drafts</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
+  h+='<div class="board2">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f);return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div><div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?cs.map(emCard).join(''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
+  return h;
+}
+function emDetail(r){
+  const E=AK.EM,ed=r.stage==='ready'||r.stage==='approved',editable=ed&&!r.e1_at,X=V.emE&&V.emE.id===r.id?V.emE:null,d=X?X.d:(r.draft||{});
+  const evs=(E.events||[]).filter(e=>e.email_lead_id===r.id);
+  let h='<div class="bar" style="margin-top:12px">'+btn('← Back to the email board',()=>{V.emOpen=null;V.emE=null;schedule();},'sm')+'<b style="margin-left:8px">'+esc(r.name)+'</b><span class="sp"></span><span class="note">'+esc((EM_COLS.find(c=>c[3](r))||[,'Stopped'])[1])+'</span></div>';
+  h+='<div class="card" style="padding:14px 16px;margin-top:8px;display:flex;flex-direction:column;gap:10px">'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;font-size:13px">'
+    +'<div><span class="note">Person</span><div><b>'+esc(r.name)+'</b> · '+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'+(r.linkedin?'<a href="'+esc(r.linkedin)+'" target="_blank" rel="noopener">LinkedIn ↗</a>':'')+'</div>'
+    +'<div><span class="note">Email</span><div>'+esc(r.email||'not found yet')+'</div><div class="note">'+(r.verify_result==='ok'?'✓ verified by MillionVerifier':esc(r.verify_result?'Verification: '+r.verify_result:'not verified'))+(r.email_source?' · found via '+esc(r.email_source):'')+'</div></div>'
+    +'<div><span class="note">Sending</span><div>'+esc(r.inbox||'inbox chosen at approval')+'</div><div class="note">Time zone '+esc(r.tz||'')+' · country '+esc(r.country||'')+'</div></div></div>'
+    +'<div><span class="note">What we already said on '+esc(r.channel==='x'?'X':'LinkedIn')+' ('+esc(emDay(r.first_touch_at))+') — the emails must not repeat it</span><div style="white-space:pre-wrap;background:var(--sunk);border-radius:8px;padding:8px 10px;margin-top:4px">'+esc(r.first_touch_text||'(not recorded)')+'</div></div>';
+  if((r.warnings||[]).length&&r.stage==='ready')h+='<div style="color:var(--warn);font-size:13px">'+r.warnings.map(w=>'⚠ '+esc(w)).join('<br>')+'</div>';
+  if(r.error&&!/^(stopped|skipped)$/.test(r.stage))h+='<div class="note" style="color:var(--bad)">'+esc(r.error)+'</div>';
+  if(r.stage==='replied')h+='<div style="border:1px solid #F5C2BC;border-radius:10px;padding:10px 12px;background:#FFF5F4"><b>They replied '+esc(emDay(r.replied_at))+'</b><div style="white-space:pre-wrap;margin-top:4px">“'+esc(r.reply_text||'')+'”</div><div class="note" style="margin-top:4px">All three channels have stopped. Answer them from '+esc(r.inbox||'the inbox')+'.</div></div>';
+  if(r.stop_reason&&/^(stopped|skipped)$/.test(r.stage))h+='<div class="note">Stopped: '+esc(r.stop_reason)+'</div>';
+  const sentAt={1:r.e1_at,2:r.e2_at,3:r.e3_at},when={1:'Day 0',2:'Day 3 (business days)',3:'Day 7 (business days)'};
+  const subj=n=>n===1?(X?X.subject:r.subject):'Re: '+(X?X.subject:r.subject);
+  if(r.draft&&(r.draft.e1||X)){
+    if(editable&&X)h+='<label style="display:flex;flex-direction:column;gap:3px"><span class="note">Subject (emails 2 and 3 are “Re: …” in the same thread)</span><input class="in" value="'+esc(X.subject)+'"'+inp(e=>{X.subject=e.target.value;})+'></label>';
+    h+=[1,2,3].map(n=>'<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline"><b>Email '+n+'</b><span class="note">'+when[n]+' · subject: '+esc(subj(n))+'</span><span style="flex:1"></span>'
+      +(sentAt[n]?'<span class="pill" style="background:#E5F5EB;color:#1F8A4C">✓ sent '+esc(new Date(sentAt[n]).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</span>':(r.stage==='active'&&r.next_step===n&&r.next_due?'<span class="pill">⏱ '+esc(emIn(r.next_due))+'</span>':''))+'</div>'
+      +(editable&&X?'<textarea class="in" rows="9" style="width:100%;box-sizing:border-box;margin-top:6px;font-family:var(--mono);font-size:12.5px"'+inp(e=>{X.d['e'+n]=e.target.value;})+'>'+esc(d['e'+n]||'')+'</textarea>':'<div style="white-space:pre-wrap;margin-top:6px;background:var(--sunk);border-radius:8px;padding:8px 10px">'+esc(d['e'+n]||'')+'</div>')+'</div>').join('');
+  }
+  if(canEdit()){
+    h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">';
+    if(editable&&X)h+=btn('Save changes',()=>AK.emCall('edit',{id:r.id,draft:{subject:X.subject,e1:X.d.e1,e2:X.d.e2,e3:X.d.e3}}).then(x=>{if(x){V.emE=null;L.toast(x.voided?'Saved. The approval was cleared: approve again.':'Saved.');}}),'pri sm')+btn('Cancel',()=>{V.emE=null;schedule();},'sm');
+    else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:{e1:(r.draft||{}).e1,e2:(r.draft||{}).e2,e3:(r.draft||{}).e3}};schedule();},'sm');
+    if(r.stage==='ready'&&!X)h+=btn('Approve all three emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
+    if(!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=btn(r.e1_at?'Stop the sequence':'Skip this person',()=>{if(confirm(r.e1_at?'Stop the remaining emails to '+r.name+'?':'Skip '+r.name+'? No email will be sent.'))AK.emCall('skip',{id:r.id}).then(x=>{if(x){V.emOpen=null;schedule();}});},'sm ghost');
+    h+='</div>';
+  }
+  h+='<div><b>History</b>'+(evs.length?evs.map(e=>'<div style="display:flex;flex-wrap:wrap;gap:4px 10px;font-size:13px;border-top:1px solid var(--line);padding:5px 0"><span style="font-family:var(--mono);min-width:130px">'+esc(new Date(e.at).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))+'</span><b style="min-width:90px">'+esc(e.kind)+(e.step?' '+e.step:'')+'</b><span class="note">'+esc(e.inbox||'')+' '+esc(e.detail&&e.detail.result?e.detail.result:e.detail&&e.detail.why?e.detail.why:'')+'</span></div>').join(''):'<div class="note">Nothing yet.</div>')+'</div>';
+  return h+'</div>';
+}
 function pgTrash(){
   const R=(AK.RM.rows||[]);let h=head('Trash','People you removed. The bots and the CRM don’t touch them. Restore puts them back where they were.');
   h+='<div style="margin-top:12px">'+table('trash',[['Who','minmax(0,1.6fr)'],['Removed','minmax(0,1fr)'],['How we knew them','minmax(0,1.6fr)'],['','auto']],
