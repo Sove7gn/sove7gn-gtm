@@ -404,8 +404,15 @@ const wk=()=>Date.now()-7*D;
 /* ---------- Pipelines: one board per channel ---------- */
 function igBoard(){
   const ST=(AK.leadSetting('stages')||[]);const L2=leadsOpen().filter(l=>l.source==='Instagram'&&matchQ('pipe',l.name,l.instagram,l.company));
-  return{cols:ST.map(s=>{const cards=L2.filter(l=>l.stage===s.name).sort((a,b)=>ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at))
-    .map(l=>({id:l.id,name:l.name||('@'+String(l.instagram||'').replace(/^@/,'')),sub:[l.instagram?'@'+String(l.instagram).replace(/^@/,''):'',l.company].filter(Boolean).join(' · '),one:l.next_step||'',status:'Last touch '+whenTxt(l.last_touch||l.created_at),open:()=>L.openLead(l.id)}));
+  // 24 Nov: every chat is read for buying intent (ig-sync / _research/ig_qualify.mjs). Buyers first, by score; the card shows
+  // their own words as the reason. Job seekers and value-takers are already off Leads (Filtered out).
+  const igS=l=>+((l.fields||{}).ig_score||0);
+  return{cols:ST.map(s=>{const cards=L2.filter(l=>l.stage===s.name).sort((a,b)=>igS(b)-igS(a)||ms(b.last_touch||b.created_at)-ms(a.last_touch||a.created_at))
+    .map(l=>{const f=l.fields||{},sc=igS(l),buyer=f.ig_intent==='buyer'&&sc>=6,maybe=!buyer&&(f.ig_intent==='buyer'||f.ig_intent==='maybe')&&sc>=3;
+      const why=[f.ig_evidence?'“'+String(f.ig_evidence).slice(0,140)+'”':'',f.ig_who||''].filter(Boolean).join(' · ');
+      return{id:l.id,name:l.name||('@'+String(l.instagram||'').replace(/^@/,'')),sub:[l.instagram?'@'+String(l.instagram).replace(/^@/,''):'',l.company].filter(Boolean).join(' · '),
+        score:f.ig_score!=null&&(buyer||maybe)?sc:'',src:buyer?'💰 Buyer':maybe?'Maybe a buyer':'',bFg:buyer?'#047857':'#B45309',bBg:buyer?'#ECFDF5':'#FFFBEB',
+        one:why||l.next_step||'',next:f.ig_ai_next&&(buyer||maybe)?'Next: '+f.ig_ai_next:'',status:'Last touch '+whenTxt(l.last_touch||l.created_at),open:()=>L.openLead(l.id)};});
     return{id:s.name,name:s.name,n:String(cards.length),dot:s.color,cards};}).filter(c=>c.cards.length||!/cold|lost/i.test(c.name))};
 }
 

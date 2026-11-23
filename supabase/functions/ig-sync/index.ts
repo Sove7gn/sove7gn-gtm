@@ -19,6 +19,13 @@ const BUDGET_MS = 80_000;    // the schedule waits 150 s; a last lookup (up to 4
 // the ones that matter are read further (25 messages each, 6 at a time).
 const LIST_FIELDS = "id,updated_time,participants,messages.limit(5){message,from,created_time}";
 const PAGE = 15, BATCH = 6, HISTORY = 25, SUMMARIES = 12;
+// 24 Nov: our sales replies (Calendly, our numbers, the service explainer) vs a reply that carries no intent of its own
+// (a phone number, a link, a voice note or photo, the automation button, a greeting, a short portfolio note).
+const IG_SALES = /calendly\.com|8800506622|8708856875|here[’']?s what we do|what is clipping|we take your existing content|break it down/i;
+const igTrivial = (t: string) => { const s = t.replace(/^@[\w.]+:\s*/, "").trim();
+  return !s || /^(click only if interested|sent a (photo|voice note|photo or voice note|video|reel|post|attachment)|hi+|hello|hey|ok(ay)?|sure|done|thanks?( you)?|ty|yes|no|👍|🙏|❤️)[.!\s]*$/i.test(s)
+    || /^[+\d\s()\-.]{8,}$/.test(s) || /^(my )?(whats ?app|wa|number|no\.?|contact)\b[^a-z]{0,6}[+\d\s()\-.]{8,}/i.test(s) || /^https?:\/\/\S+$/i.test(s)
+    || (/portfolio/i.test(s) && s.length < 120 && !/(we|our|my) (brand|company|business|podcast|channel)/i.test(s)); };
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
@@ -231,19 +238,31 @@ async function syncInstagram() {
     const { data: more } = await db.from("crm_leads").select("id,name,source_detail,stage").in("id", due.map((l) => l.id));
     const info = new Map((more ?? []).map((l) => [l.id, l]));
     const today = dayLabel(Date.now());
-    const items = due.map((l) => {
+    // 24 Nov (Reyansh): most DMs come from his automations and are people taking value, not clients. Someone who only answered
+    // the "share your portfolio and whatsapp number" ask (a number, a link, a voice note) and never got our sales replies is a
+    // job applicant, no AI needed; everyone else is read by the AI knowing what our automations are (same rules as
+    // _research/ig_qualify.mjs, which re-read all 1,000+ chats that day).
+    const ruled = new Map<string, any>();
+    const items = due.flatMap((l) => {
       const i: any = info.get(l.id) ?? {}, acct = String(i.source_detail ?? "").match(/@([\w.]+)/)?.[1] ?? "our account";
-      const convo = (ev ?? []).filter((e) => e.lead_id === l.id).slice(-30).map((e) => e.text).join("\n");
-      return { id: l.id, prompt: "You help a founder keep track of Instagram DM leads for SOVE7GN, which sells clipping and done-for-you GTM services. " +
+      const m = (ev ?? []).filter((e) => e.lead_id === l.id), ours = m.filter((e) => !String(e.by_email).endsWith("@ig-contact")).map((e) => String(e.text)), theirs = m.filter((e) => String(e.by_email).endsWith("@ig-contact")).map((e) => String(e.text));
+      if (!ours.some((t) => IG_SALES.test(t)) && theirs.length && theirs.every(igTrivial)) {
+        ruled.set(l.id, { intent: "job", score: 0, who: "replied to the portfolio ask", evidence: (theirs.find((t) => !/click only if interested/i.test(t)) || theirs[0]).replace(/^@[\w.]+:\s*/, "").slice(0, 120),
+          summary: "Answered the portfolio and WhatsApp ask (hiring funnel) and said nothing about a business of their own.", next: "Nothing", stage: "Waiting", by: "rule" });
+        return [];
+      }
+      const convo = m.slice(-30).map((e) => e.text).join("\n");
+      return [{ id: l.id, prompt: "You qualify Instagram DM leads for SOVE7GN. SOVE7GN sells two things: (1) clipping: we turn a creator's or brand's long content (podcasts, talks, videos) into short clips posted across many accounts for views and reach; (2) done-for-you GTM and lead generation for B2B founders.\n" +
+        "Reyansh runs Instagram automations on @reyanshbuilds and @sove7gn that mostly attract people who want something FROM him, not clients:\n" +
+        "- A hiring funnel: people tap \"Click only if interested\" and get the auto-reply \"Please share your portfolio and whatsapp number. Will reach out\". Anyone answering that with a number, portfolio, reel link or voice note is an editor or clipper applying for work.\n" +
+        "- Content and giveaway flows: people asking for the free guide, template or tips are taking value.\n" +
+        "A BUYER could pay us: a founder, business owner, brand, agency, or a creator, coach or podcaster with their own audience, who wants clips, views, reach, content, growth, leads, customers or marketing for THEIR OWN business or brand, or asks what we charge or how it would work for them, or wants a call about it.\n" +
+        "NOT buyers: editors, clippers and job seekers, students, people who want to learn clipping or start their own agency, people after free resources, people pitching their own services to us.\n" +
         "Messages from @" + acct + " are us; the other person is " + (i.name || l.instagram) + " (" + l.instagram + "), " + (l.fields?.ig_followers ?? "unknown") + " followers, now in our stage “" + i.stage + "”. Today is " + today + ".\n" +
-        "Write JSON only: {\"summary\": at most 2 short sentences, under 220 characters: who they are and what they want, what we did (shared our number, sent the Calendly link, …) and where it stands, " +
-        "\"next\": what we should do now in 2 to 4 words, e.g. \"Reply to them\", \"Follow up\", \"Wait for reply\", \"Prepare for the call\", \"Nothing, it's closed\", " +
-        "\"stage\": exactly one of \"Call booked\" (a call or meeting is agreed, scheduled, or already happened), \"In talks\" (they are actively talking with us), " +
-        "\"Waiting\" (we are waiting for them to reply), \"Not interested\" (they said no), " +
-        "\"intent\": exactly one of \"buyer\" (a brand, creator, business or agency that might pay us for clipping, marketing, GTM or campaigns, or bring us paying clients; " +
-        "a creator or brand who wants views, reach, growth, distribution or clipping is a buyer even if price hasn't come up), " +
-        "\"job\" (wants to work for us, be hired, intern, work for free, become a clipper or editor, or earn money from us), " +
-        "\"learn\" (only wants to learn the skill to do it themselves, or career advice or mentorship for themselves; someone asking what our service is, how it works or what it costs is a buyer, not learn), \"other\"}.\n\nConversation (oldest first):\n" + convo };
+        "Reply with JSON only: {\"intent\": \"buyer\"|\"maybe\"|\"job\"|\"learn\"|\"value\"|\"other\", \"score\": 0-10 (how likely they pay us in the next 3 months), " +
+        "\"evidence\": a short exact quote of THEIR words that shows it, or \"\", \"who\": what they are in at most 8 words, " +
+        "\"summary\": under 200 characters: who they are, what they want, what we did and where it stands, \"next\": what we should do now in 2 to 4 words, " +
+        "\"stage\": exactly one of \"Call booked\" (a call is agreed, scheduled or happened), \"In talks\" (actively talking with us), \"Waiting\" (we wait for their reply), \"Not interested\" (they said no)}.\n\nConversation (oldest first):\n" + convo }];
     });
     const payload = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(items))));
     const code = ["import json, base64", "from concurrent.futures import ThreadPoolExecutor",
@@ -251,22 +270,26 @@ async function syncInstagram() {
       "def one(x):", "    r, e = invoke_llm(x['prompt'])", "    return x['id'], (r if not e else '')",
       "with ThreadPoolExecutor(6) as ex: res = dict(ex.map(one, items))",
       "print('@@' + json.dumps(res))"].join("\n");
-    const outp = await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Summarise Instagram DM leads for the CRM" });
-    const res = JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}");
+    const outp = items.length ? await mcp("COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: code, thought: "Summarise Instagram DM leads for the CRM" }) : null;
+    const res = items.length ? JSON.parse(String(outp?.data?.stdout ?? "").split("@@").pop() || "{}") : {};
     let n = 0, moves = 0, removed = 0;
     for (const l of due) {
       let s: any = null;
-      try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
+      if (ruled.has(l.id)) s = ruled.get(l.id);
+      else try { s = JSON.parse(String(res[l.id] ?? "").replace(/^```(json)?|```$/g, "").trim()); } catch { continue; }
       if (!s?.summary) continue;
-      const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_intent: String(s.intent ?? ""), ig_sum_at: l.fields.ig_last_at };
+      const fields = { ...l.fields, ig_summary: clip(String(s.summary), 300), ig_ai_next: clip(String(s.next ?? ""), 40), ig_intent: String(s.intent ?? ""), ig_sum_at: l.fields.ig_last_at,
+        ig_score: +s.score || 0, ig_evidence: clip(String(s.evidence ?? ""), 200), ig_who: clip(String(s.who ?? ""), 80), ig_qual_by: s.by ?? "ai", ig_qual_at: new Date().toISOString() };
       const { error } = await db.from("crm_leads").update({ fields }).eq("id", l.id);
       if (!error) { l.fields = fields; n++; }
       // Not a buyer (after a job, advice or to learn): off Leads (archived) and onto the Filtered out list, unless someone on the
       // team added them back by hand.
       const intent = String(s.intent ?? "").toLowerCase();
       const byHand = [...threads.values()].some((t) => t.lead_id === l.id && t.status_by && t.status_by !== "auto");
-      if ((intent === "job" || intent === "learn") && !byHand) {
-        const why = (intent === "job" ? "Wants to work for us, not to buy" : "Wants advice or to learn, not to buy") + ": " + clip(String(s.summary), 160);
+      const keep = (intent === "buyer" || intent === "maybe") && (+s.score || 0) >= 3;
+      if (!keep && !byHand && !["Call booked", "Proposal sent", "Won"].includes(String(l.stage))) {
+        const why = (intent === "job" ? "Wants work, not to buy" : intent === "learn" ? "Wants to learn, not to buy" : intent === "value" ? "Taking value, not buying" : "No buying signal") +
+          ": " + (s.evidence ? "“" + clip(String(s.evidence), 120) + "” " : "") + "(" + clip(String(s.who || s.summary || ""), 80) + ")";
         const { error: e3 } = await db.from("crm_leads").update({ archived: true }).eq("id", l.id);
         if (!e3) {
           l.archived = true; removed++;
