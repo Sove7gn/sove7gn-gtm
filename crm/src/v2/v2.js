@@ -741,8 +741,8 @@ const rmFor=id=>{const l=leadById(id);if(l)return rmOfLead(l);const c=contactByK
 const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
 /* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 7 emails once you Approve ---------- */
-const EM_COLS=[['cand','Contacted · approve to email','#0E7490',r=>r.stage==='candidate'],['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Needs a look','#A86200',r=>r.stage==='ready'],['approved','Approved · queued','#6D28D9',r=>r.stage==='approved'],
-  ['seq','In the sequence','#3B6FD8',r=>r.stage==='active'],['done','Finished','#2F8F5B',r=>r.stage==='done'],
+const EM_COLS=[['cand','Contacted · approve to email','#0E7490',r=>r.stage==='candidate'],['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Needs a look','#A86200',r=>r.stage==='ready'],['approved','Approved · email 1 next','#6D28D9',r=>r.stage==='approved'],
+  ...[2,3,4,5,6,7].map(k=>['seq'+k,'Email '+(k-1)+' sent · '+k+' next',['#3B6FD8','#3F73DB','#4A7AE0','#5C86E3','#6F93E6','#82A0E9'][k-2],r=>r.stage==='active'&&r.next_step===k]),['done','Finished · all 7 sent','#2F8F5B',r=>r.stage==='done'],
   ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
 const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
 const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
@@ -762,10 +762,12 @@ function emCard(r){
   const timer=/^(approved|active)$/.test(r.stage)&&r.next_due?'<span class="eta" style="background:'+tone[0]+';color:'+tone[1]+';border-color:'+tone[2]+'" title="'+esc(new Date(r.next_due).toLocaleString())+'">⏱ '+esc(emIn(r.next_due))+'</span>':'';
   return '<div class="kc"'+act(()=>{V.emOpen=r.id;V.emE=null;schedule();})+'><div class="kc-t"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</b>'+timer+'</div>'
     +'<div class="meta note">'+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'
+    +(r.stage==='candidate'||r.stage==='ready'?(r.funding?'<div style="font-size:12.5px;margin-top:2px">💰 <b>'+esc(r.funding)+'</b></div>':'')+(r.one_liner?'<div class="note" style="font-size:12px">'+esc(String(r.one_liner).slice(0,140))+(String(r.one_liner).length>140?'…':'')+'</div>':''):'')
     +(r.email?'<div class="meta note">'+esc(r.email)+(r.verify_result==='ok'?' · <span style="color:#1F8A4C">✓ verified</span>':'')+'</div>':'')
     +'<div class="kc-one">'+esc(emHold(r)?'✋ On hold: you took them over by hand. No email goes out until you resume.':emNext(r))+'</div>'
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
     +'<div class="note" style="font-size:11.5px;margin-top:2px">'+esc(r.via||('via '+(r.channel==='x'?'X':'LinkedIn')))+' · '+esc(emDay(r.first_touch_at))+'</div>'
+    +(r.stage==='candidate'&&r.first_touch_text?'<details class="bc-msg" onclick="event.stopPropagation()"><summary>What we said</summary><div class="msgbox">'+esc(r.first_touch_text)+'</div></details>':'')
     +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x)L.toast('Approved. Finding '+r.name.split(' ')[0]+'’s email now; email 1 is queued once it is verified.');}),'pri sm')+'</div>':'')+'</div>';
 }
 function pgEmail(){
