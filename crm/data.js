@@ -1329,25 +1329,38 @@ async function xgRun(){
 /* LinkedIn bot (11 Nov): the Chrome extension's queue (crm_li_tasks). Approve, edit or skip here; the extension sends. */
 /* Email pipeline (23 Nov). Reads crm_email_leads / crm_email_inboxes / crm_email_events (team read-only); every change goes through the
    email-bot function (approve, edit, skip, pause, resume). Nothing here sends: the bot sends only what is approved, while not paused. */
-const EM={leads:[],inboxes:[],events:[],stats:null,cfg:null,loaded:false,loading:false,missing:false,err:"",at:0};
+// pend (24 Nov): cards moved by Approve before the bot has written the new stage. A load that started before the click
+// still reads the old stage, which made the card jump back for ~10s; while pending (max 60s) the local stage wins.
+const EM={leads:[],inboxes:[],events:[],stats:null,cfg:null,loaded:false,loading:false,again:false,pend:{},missing:false,err:"",at:0};
 async function emLoad(fast){
-  if(!sb||!session||!member||EM.loading)return;EM.loading=true;
+  if(!sb||!session||!member)return;
+  if(EM.loading){EM.again=true;return;}   // a load is already running with older data: run another one right after it
+  EM.loading=true;
   try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(1500);
     if(a.error){EM.missing=/does not exist|schema cache|relation/i.test(a.error.message||"");EM.err=a.error.message||String(a.error);}
     else{EM.missing=false;EM.err="";EM.leads=a.data||[];
+      for(const r of EM.leads){const p=EM.pend[r.id];if(!p)continue;
+        if(r.stage===p.from&&Date.now()<p.until){r.stage=p.stage;r.pre_approved=p.pa;}else delete EM.pend[r.id];}
       const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),sb.from("crm_email_events").select("id,email_lead_id,at,kind,inbox,step,detail").order("at",{ascending:false}).limit(400),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
       EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;
       if(!fast)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error)EM.stats=s.data;}catch(e){}}
   }catch(e){EM.err=String(e&&e.message||e);}
   EM.loaded=true;EM.loading=false;EM.at=Date.now();emit();
+  if(EM.again){EM.again=false;emLoad(true);}
 }
 async function emCall(action,body){
   if(!sb||!canEdit()){toast("Sign in to change the email pipeline.",true);return null;}
-  try{const {data,error}=await sb.functions.invoke("email-bot",{body:{...(body||{}),action}});
-    if(error){let m=error.message||String(error);try{const j=await error.context.json();if(j&&j.error)m=j.error}catch(_){}throw new Error(m)}
-    if(data&&data.error){toast(data.error,true);return null;}
-    await emLoad();return data;
-  }catch(e){toast("Email: "+(e.message||e),true);return null;}
+  // A dropped connection gets one retry; the bot's own refusals (data.error) are shown, never retried.
+  for(let i=0;i<2;i++){
+    try{const {data,error}=await sb.functions.invoke("email-bot",{body:{...(body||{}),action}});
+      if(error){let m=error.message||String(error),own=false;try{const j=await error.context.json();if(j&&j.error){m=j.error;own=true}}catch(_){}
+        if(!own&&i===0){await new Promise(r=>setTimeout(r,800));continue;}throw new Error(m)}
+      if(data&&data.error){toast(data.error,true);return null;}
+      emLoad(true);return data;
+    }catch(e){if(i===0&&/fetch|network|Failed to send/i.test(String(e&&e.message||e))){await new Promise(r=>setTimeout(r,800));continue;}
+      toast("Email: "+(e.message||e),true);return null;}
+  }
+  return null;
 }
 const LBT={rows:[],loaded:false,running:false,at:0};
 async function lbtLoad(){

@@ -761,8 +761,9 @@ const emBin=r=>/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage
 /* Approve moves the card at once (before the bot answers); if the bot refuses, it goes back. */
 function emApprove(ids){
   const E=AK.EM,prev=E.leads.filter(r=>ids.includes(r.id)).map(r=>[r,r.stage,r.pre_approved]);
-  prev.forEach(([r,st])=>{if(st==='candidate'){r.stage='new';r.pre_approved=true;}else if(st==='ready')r.stage='approved';});V.emSel={};schedule();
-  return AK.emCall(ids.length>1?'approve_many':'approve',ids.length>1?{ids}:{id:ids[0]}).then(x=>{if(!x||(x.failed&&x.failed.length&&!x.approved)){prev.forEach(([r,st,pa])=>{r.stage=st;r.pre_approved=pa;});schedule();}
+  const P=E.pend||(E.pend={}),until=Date.now()+60000;   // keeps the move through refreshes that started before the click
+  prev.forEach(([r,st])=>{if(st==='candidate'){r.stage='new';r.pre_approved=true;P[r.id]={from:st,stage:'new',pa:true,until};}else if(st==='ready'){r.stage='approved';P[r.id]={from:st,stage:'approved',pa:r.pre_approved,until};}});V.emSel={};schedule();
+  return AK.emCall(ids.length>1?'approve_many':'approve',ids.length>1?{ids}:{id:ids[0]}).then(x=>{if(!x||(x.failed&&x.failed.length&&!x.approved)){prev.forEach(([r,st,pa])=>{delete P[r.id];const cur=E.leads.find(q=>q.id===r.id)||r;cur.stage=st;cur.pre_approved=pa;});schedule();}
     else if(x.failed&&x.failed.length)L.toast(x.failed.length+' could not be approved: '+x.failed[0],true);return x;});
 }
 function emCard(r){
