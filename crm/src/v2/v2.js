@@ -756,13 +756,14 @@ function emNext(r){
   if(r.stage==='replied')return 'They replied: answer them';
   return r.stop_reason||r.error||'';
 }
+const emHold=r=>{const l=leadById(r.lead_id);return !!l&&isHandLi(l)&&/^(approved|active|new|found|ready)$/.test(r.stage);};
 function emCard(r){
   const tone=r.stage==='ready'?['#FFFBEB','#B45309','#FDE68A']:r.stage==='replied'?['#FCE7E4','#C2392F','#F5C2BC']:['#ECFDF5','#047857','#A7F3D0'];
   const timer=/^(approved|active)$/.test(r.stage)&&r.next_due?'<span class="eta" style="background:'+tone[0]+';color:'+tone[1]+';border-color:'+tone[2]+'" title="'+esc(new Date(r.next_due).toLocaleString())+'">⏱ '+esc(emIn(r.next_due))+'</span>':'';
   return '<div class="kc"'+act(()=>{V.emOpen=r.id;V.emE=null;schedule();})+'><div class="kc-t"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</b>'+timer+'</div>'
     +'<div class="meta note">'+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'
     +(r.email?'<div class="meta note">'+esc(r.email)+(r.verify_result==='ok'?' · <span style="color:#1F8A4C">✓ verified</span>':'')+'</div>':'')
-    +'<div class="kc-one">'+esc(emNext(r))+'</div>'
+    +'<div class="kc-one">'+esc(emHold(r)?'✋ On hold: you took them over by hand. No email goes out until you resume.':emNext(r))+'</div>'
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
     +'<div class="note" style="font-size:11.5px;margin-top:2px">'+esc(r.via||('via '+(r.channel==='x'?'X':'LinkedIn')))+' · '+esc(emDay(r.first_touch_at))+'</div>'
     +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x)L.toast('Approved. Finding '+r.name.split(' ')[0]+'’s email now; email 1 is queued once it is verified.');}),'pri sm')+'</div>':'')+'</div>';
@@ -822,6 +823,7 @@ function emDetail(r){
     else if(editable)h+=btn('Edit the emails',()=>{V.emE={id:r.id,subject:r.subject,d:Object.fromEntries(N.map(n=>['e'+n,(r.draft||{})['e'+n]]))};schedule();},'sm');
     if(r.stage==='candidate')h+=btn('Approve: find their email and start the emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 is queued once their address is verified.');V.emOpen=null;schedule();}}),'pri sm');
     if(r.stage==='ready'&&!X)h+=btn('Approve all seven emails',()=>AK.emCall('approve',{id:r.id}).then(x=>{if(x){L.toast('Approved. Email 1 goes from '+x.inbox+' in the next sending window.');V.emOpen=null;schedule();}}),'pri sm');
+    const ld=leadById(r.lead_id);if(ld&&!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=handBtn(isHandLi(ld),()=>{handLi(ld,!isHandLi(ld));setTimeout(schedule,400);});
     if(!/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage))h+=btn(r.e1_at?'Stop the sequence':'Skip this person',()=>{if(confirm(r.e1_at?'Stop the remaining emails to '+r.name+'?':'Skip '+r.name+'? No email will be sent.'))AK.emCall('skip',{id:r.id}).then(x=>{if(x){V.emOpen=null;schedule();}});},'sm ghost');
     h+='</div>';
   }
@@ -1008,7 +1010,8 @@ function handLi(l,on){if(!l||!canEdit())return;const x={...LIo(l)};const extra={
   AK.leadNote(l.id,'note',on?'Taken over by hand: the bots stopped.':'Follow-ups resumed: handed back to the bots.');}
 function handX(c,on){if(!c||!canEdit())return;const cur=String(c['DM result']||'');const next=on?('By hand'+(cur&&!/^by hand/i.test(cur)?' · '+cur:'')):cur.replace(/^By hand( · you messaged them)?( · )?/i,'');
   AK.write(c,{'DM result':next},on?'Handling '+(c.Name||'them')+' by hand':'Follow-ups resumed for '+(c.Name||'them'),{quiet:true}).then(ok=>ok&&L.toast(on?'You’re handling '+(c.Name||'them')+'. The X bot won’t message them.':'Follow-ups resumed for '+(c.Name||'them')+' on X.'));
-  if(on){const ids=(AK.XT.rows||[]).filter(t=>t.row===c._row&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.xtSet(ids,{status:'skipped'});}}
+  if(on){const ids=(AK.XT.rows||[]).filter(t=>t.row===c._row&&['review','ready'].includes(t.status)).map(t=>t.id);if(ids.length)AK.xtSet(ids,{status:'skipped'});}
+  const ld=leadForContact(c);if(ld&&isHandLi(ld)!==on)handLi(ld,on);}   /* the email bot reads the CRM lead: one switch stops X, LinkedIn and email */
 
 /* live activity: every message the bots sent and every reply, newest first, for the people on this page */
 const ACT_KIND=[['all','Everything'],['reply','They replied'],['answer','We answered'],['fu','Follow-ups'],['first','First messages'],['req','Requests'],['hand','You took over']];

@@ -297,6 +297,7 @@ async function pickDue(addr: string, c: Cfg) {
     if (r.next_step === 1 && (started ?? 0) >= c.intake_per_day) continue;   // intake_per_day = how many new people start their sequence each day (0 holds all new starts)
     const tz = M.validTz(r.tz, c.default_tz); if (!M.inWindow(new Date(), tz, c.window_from, c.window_to, c.holidays)) continue;
     const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {}, xr = !!(l?.fields as any)?.x?.replied;
+    if (l && !l.archived && li.stop === "by hand") continue;   // "Take over by hand" = on hold: nothing sends, and it carries on if you hand them back
     const why = !l || l.archived ? "Removed from the CRM" : li.replied || xr || li.stop === "replied" ? "They replied on LinkedIn or X" : li.stop === "by hand" ? "You took them over by hand" : DONE_LEAD.test(l.stage ?? "") ? "They are now " + l.stage : "";
     if (why) { await db.from("crm_email_leads").update({ stage: li.replied || xr ? "replied" : "stopped", stop_reason: why, next_due: null }).eq("id", r.id); await ev(r.id, "stop", addr, { why }); continue; }
     if (await isDnc(r.email)) { await db.from("crm_email_leads").update({ stage: "stopped", stop_reason: "On the do-not-contact list", next_due: null }).eq("id", r.id); continue; }
