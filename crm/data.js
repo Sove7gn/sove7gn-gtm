@@ -1343,7 +1343,8 @@ async function emLoad(fast){
         if(r.stage===p.from&&Date.now()<p.until){r.stage=p.stage;r.pre_approved=p.pa;}else delete EM.pend[r.id];}
       if(!fast||!EM.cfg){const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),incLoad("crm_email_events","at",r=>r.id,{cols:"id,email_lead_id,at,kind,inbox,step,detail"}).then(x=>({data:x.rows.sort((p,q)=>String(q.at).localeCompare(String(p.at))).slice(0,400)})),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
         EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;}
-      if(!fast&&Date.now()-(EM.statsAt||0)>5*6e4)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error){EM.stats=s.data;EM.statsAt=Date.now();}}catch(e){}}
+      if(!fast&&Date.now()-(EM.statsAt||0)>5*6e4)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error){EM.stats=s.data;EM.statsAt=Date.now();}}catch(e){}
+      if(!fast&&Date.now()-(EM.monthAt||0)>15*6e4)try{const m=await sb.rpc("crm_email_monthly",{months:12});if(!m.error){EM.monthly=m.data||[];EM.monthAt=Date.now();}}catch(e){}}
   }catch(e){EM.err=String(e&&e.message||e);}
   EM.loaded=true;EM.loading=false;EM.at=Date.now();emit();
   if(EM.again){EM.again=false;emLoad(true);}
