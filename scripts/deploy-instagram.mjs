@@ -53,7 +53,7 @@ try {
   const call = "select net.http_post(url := 'https://" + ref + ".supabase.co/functions/v1/ig-sync', " +
     "headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), " +
     "body := '{}'::jsonb, timeout_milliseconds := 150000)";
-  await sql`select cron.schedule('ig-sync', '15 * * * *', ${call})`;
+  await sql`select cron.schedule('ig-sync', '15 */3 * * *', ${call})`;
   console.log("schedule: every hour at :15");
 } finally { await sql.end(); }
 

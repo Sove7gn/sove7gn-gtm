@@ -784,7 +784,7 @@ const emBin=r=>/^(replied|stopped|skipped|done|no_email|rejected)$/.test(r.stage
 function emApprove(ids){
   const E=AK.EM,prev=E.leads.filter(r=>ids.includes(r.id)).map(r=>[r,r.stage,r.pre_approved]);
   const P=E.pend||(E.pend={}),until=Date.now()+60000;   // keeps the move through refreshes that started before the click
-  prev.forEach(([r,st])=>{if(st==='candidate'){r.stage='new';r.pre_approved=true;P[r.id]={from:st,stage:'new',pa:true,until};}else if(st==='ready'){r.stage='approved';P[r.id]={from:st,stage:'approved',pa:r.pre_approved,until};}});V.emSel={};schedule();
+  prev.forEach(([r,st])=>{if(st==='candidate'){r.stage='new';r.pre_approved=true;P[r.id]={from:st,stage:'new',pa:true,until};}else if(st==='ready'){r.stage='approved';P[r.id]={from:st,stage:'approved',pa:r.pre_approved,until};}});V.emSel={};V.emFastUntil=Date.now()+18e4;schedule();
   return AK.emCall(ids.length>1?'approve_many':'approve',ids.length>1?{ids}:{id:ids[0]}).then(x=>{if(!x||(x.failed&&x.failed.length&&!x.approved)){prev.forEach(([r,st,pa])=>{delete P[r.id];const cur=E.leads.find(q=>q.id===r.id)||r;cur.stage=st;cur.pre_approved=pa;});schedule();}
     else if(x.failed&&x.failed.length)L.toast(x.failed.length+' could not be approved: '+x.failed[0],true);return x;});
 }
@@ -812,12 +812,12 @@ function emCard(r){
     +(r.stage==='candidate'&&canEdit()?'<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><label'+act(()=>{})+' style="display:flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" '+((V.emSel||{})[r.id]?'checked ':'')+inp(e=>{V.emSel=V.emSel||{};if(e.target.checked)V.emSel[r.id]=1;else delete V.emSel[r.id];schedule();})+'> Select</label><span style="flex:1"></span>'+btn('Approve',()=>emApprove([r.id]),'pri sm')+'</div>':'')+'</div>';
 }
 function pgEmail(){
-  const E=AK.EM;if(!E.loaded&&!E.loading)AK.emLoad();else if(E.loaded&&!E.loading&&Date.now()-E.at>60000)AK.emLoad();
+  const E=AK.EM;if(!E.loaded&&!E.loading)AK.emLoad();else if(E.loaded&&!E.loading&&Date.now()-E.at>120000&&!document.hidden)AK.emLoad();
   let h='';
   if(E.loaded&&E.missing)return '<div class="card" style="padding:16px;margin-top:12px"><b>The email tables aren’t set up yet.</b><div class="note">Apply supabase/migrations/20261123000001_email_pipeline.sql.</div></div>';
   if(E.err&&E.loaded)return '<div class="card" style="padding:16px;margin-top:12px;color:var(--bad)">Couldn’t load the email pipeline: '+esc(E.err)+'</div>';
   if(!E.loaded)return '<div class="empty" style="padding:60px 0">Loading the email pipeline…</div>';
-  if(E.loaded&&!E.loading&&(E.leads||[]).some(r=>/^(new|found)$/.test(r.stage))){const el=Date.now()-E.at;if(el>2500)AK.emLoad(true);else setTimeout(schedule,2600-el);}   /* people being looked up: refresh every ~3s so they move the moment the bot is done */
+  if(E.loaded&&!E.loading&&Date.now()<(V.emFastUntil||0)&&(E.leads||[]).some(r=>/^(new|found)$/.test(r.stage))){const el=Date.now()-E.at;if(el>4000)AK.emLoad(true);else setTimeout(schedule,4100-el);}   /* (25 Nov, egress) quick refresh only for 3 minutes after an Approve, changed rows only */   /* people being looked up: refresh every ~3s so they move the moment the bot is done */
   const rows=E.leads||[],open=V.emOpen&&rows.find(r=>r.id===V.emOpen),st=E.stats||{},cfg=E.cfg||{},paused=cfg.paused!==false;
   if(open)return emDetail(open);
   const cap=(st.cap||{});

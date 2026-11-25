@@ -298,7 +298,7 @@ async function fetchRangeFallback(key,r){
 let sb=null,session=null,member=null,started=false;
 /* Bandwidth (13 Nov, Supabase free plan): every table the page reads has an updated_at that moves on each change, so after
    the first load only changed rows come down. A full reload every 30 minutes (and on a manual Refresh) catches rows removed. */
-const INC={};const FULL_EVERY=30*60e3;
+const INC={};const FULL_EVERY=4*3600e3;   // (25 Nov) was 30 min: a full re-download of leads, events and the sheet every half hour per open tab ate the Supabase egress quota
 async function incLoad(table,col,keyOf,opt={}){
   const st=INC[table]||(INC[table]={since:"",map:new Map(),full:0});
   const full=opt.full||!st.since||Date.now()-st.full>FULL_EVERY;
@@ -417,9 +417,9 @@ async function publicLoad(){
 /* Live read (29 Oct): the published copy lags about 5 minutes, so Refresh and every save read the sheet live through the
    Apps Script ("read") and keep doing so every 20 seconds for 6 minutes; after that it's the published copy every minute. */
 async function liveLoad(){await publicLoad()}
-const goLive=()=>{S.liveUntil=Date.now()+36e4;return liveLoad().catch(()=>publicLoad())};
+const goLive=()=>{S.liveUntil=Date.now()+12e4;return liveLoad().catch(()=>publicLoad())};
 let ticks=0;
-function poll(){if(typeof document!=="undefined"&&document.hidden)return;ticks++;if(Date.now()<(S.liveUntil||0))return liveLoad().catch(()=>{});if(ticks%3===0)return publicLoad()}
+function poll(){if(typeof document!=="undefined"&&document.hidden)return;ticks++;if(Date.now()<(S.liveUntil||0)){if(ticks%2===0)return liveLoad().catch(()=>{});return}if(ticks%6===0)return publicLoad()}   // (25 Nov, egress) every 2 min; every 40s for 2 min after a save
 // A hidden tab doesn't poll (13 Nov, bandwidth); when it comes back after a minute or more it loads what changed meanwhile.
 if(typeof document!=="undefined")document.addEventListener("visibilitychange",()=>{if(!document.hidden&&session&&member&&Date.now()-(S.lastLoad||0)>6e4)publicLoad()});
 // Refresh: reload the sheet now and ask the team's computer to run the post tracker (new numbers and replies from X).
@@ -1097,7 +1097,7 @@ async function leadsLoad(){
     const desc=k=>a=>a.sort((x,y)=>String(y[k]||"")<String(x[k]||"")?-1:String(y[k]||"")>String(x[k]||"")?1:0);
     const slow=Date.now()-(LD.slowAt||0)>5*60e3;if(slow)LD.slowAt=Date.now();
     const [rows,st,events,sp,sc,sppl,seng,runs,igt,igr]=await Promise.all([incLoad("crm_leads","updated_at",r=>r.id).then(x=>desc("updated_at")(x.rows)),   // archived too, so Bring in can restore them
-      sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return r.data||[]}),incLoad("crm_lead_events","updated_at",r=>r.id).then(x=>desc("at")(x.rows)),
+      slow||!LD.settingsRows?sb.from("crm_lead_settings").select("key,value").then(r=>{if(r.error)throw r.error;return (LD.settingsRows=r.data||[])}):Promise.resolve(LD.settingsRows),incLoad("crm_lead_events","updated_at",r=>r.id).then(x=>desc("at")(x.rows)),
       incLoad("crm_social_posts","updated_at",r=>r.platform+"|"+r.post_id).then(x=>desc("posted_at")(x.rows)),incLoad("crm_social_checks","at",r=>r.platform+"|"+r.post_id+"|"+r.at).then(x=>desc("at")(x.rows)),
       incLoad("crm_social_people","updated_at",r=>r.platform+"|"+r.person_key).then(x=>desc("last_seen")(x.rows)),incLoad("crm_social_engagements","updated_at",r=>[r.platform,r.post_id,r.person_key,r.kind].join("|")).then(x=>desc("first_seen")(x.rows)),
       slow||!SOC.runs.length?sb.from("crm_sync_runs").select("*").eq("platform","linkedin").order("started_at",{ascending:false}).limit(10).then(r=>{if(r.error)throw r.error;return r.data||[]}):Promise.resolve(SOC.runs),
@@ -1336,14 +1336,14 @@ async function emLoad(fast){
   if(!sb||!session||!member)return;
   if(EM.loading){EM.again=true;return;}   // a load is already running with older data: run another one right after it
   EM.loading=true;
-  try{const a=await sb.from("crm_email_leads").select("*").order("created_at",{ascending:false}).limit(1500);
+  try{let a;try{a={data:(await incLoad("crm_email_leads","updated_at",r=>r.id)).rows.sort((x,y)=>String(y.created_at).localeCompare(String(x.created_at)))};}catch(e){a={error:e};}   // (25 Nov, egress) only changed rows come down
     if(a.error){EM.missing=/does not exist|schema cache|relation/i.test(a.error.message||"");EM.err=a.error.message||String(a.error);}
     else{EM.missing=false;EM.err="";EM.leads=a.data||[];
       for(const r of EM.leads){const p=EM.pend[r.id];if(!p)continue;
         if(r.stage===p.from&&Date.now()<p.until){r.stage=p.stage;r.pre_approved=p.pa;}else delete EM.pend[r.id];}
-      const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),sb.from("crm_email_events").select("id,email_lead_id,at,kind,inbox,step,detail").order("at",{ascending:false}).limit(400),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
-      EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;
-      if(!fast)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error)EM.stats=s.data;}catch(e){}}
+      if(!fast||!EM.cfg){const [b,c,d]=await Promise.all([sb.from("crm_email_inboxes").select("*").order("addr"),incLoad("crm_email_events","at",r=>r.id,{cols:"id,email_lead_id,at,kind,inbox,step,detail"}).then(x=>({data:x.rows.sort((p,q)=>String(q.at).localeCompare(String(p.at))).slice(0,400)})),sb.from("crm_lead_settings").select("value").eq("key","email_bot").maybeSingle()]);
+        EM.inboxes=b.data||[];EM.events=c.data||[];EM.cfg=(d.data&&d.data.value)||null;}
+      if(!fast&&Date.now()-(EM.statsAt||0)>5*6e4)try{const s=await sb.functions.invoke("email-bot",{body:{action:"stats"}});if(!s.error){EM.stats=s.data;EM.statsAt=Date.now();}}catch(e){}}
   }catch(e){EM.err=String(e&&e.message||e);}
   EM.loaded=true;EM.loading=false;EM.at=Date.now();emit();
   if(EM.again){EM.again=false;emLoad(true);}
@@ -1842,7 +1842,7 @@ async function afterAuth(){
   if(member==null){const {data,error}=await sb.from("crm_team").select("email").limit(1);member=!error&&!!(data&&data.length)}
   if(!member){showSignIn("notmember");emit();return}
   hideSignIn();
-  if(!started){started=true;setInterval(poll,20000);ntLoad();setInterval(ntLoad,30000)}
+  if(!started){started=true;setInterval(poll,20000);ntLoad();setInterval(()=>{if(typeof document==="undefined"||!document.hidden)ntLoad()},120000)}
   publicLoad();
 }
 async function signOut(){if(sb)await sb.auth.signOut()}

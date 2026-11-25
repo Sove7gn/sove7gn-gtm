@@ -68,10 +68,16 @@ async function stats(c: Cfg) {
 // ───────── 1. intake: everyone we contacted on LinkedIn (invite or DM) or X (DM) becomes a card in the first column ─────────
 // No email lookup yet (that costs credits): a person is only looked up once you approve them.
 async function intake(c: Cfg) {
+  // (25 Nov, Supabase egress) runs once an hour, reads only leads touched in the window, and only the JSON parts it needs
+  const { data: last } = await db.from("crm_lead_settings").select("value").eq("key", "email_intake_at").maybeSingle();
+  if (Date.now() - Date.parse(String((last?.value as any)?.at ?? "")) < 55 * 60e3) return { skipped: "runs hourly" };
+  await db.from("crm_lead_settings").upsert({ key: "email_intake_at", value: { at: now() } }, { onConflict: "key" });
+  const sinceIso = new Date(Date.now() - c.intake_days * 864e5).toISOString();
   const [{ data: leads }, { data: have }, { data: xt }] = await Promise.all([
-    db.from("crm_leads").select("id,name,company,role,linkedin,x_handle,stage,source,fields").eq("archived", false).or("source.eq.LinkedIn,x_handle.neq.").limit(3000),
+    db.from("crm_leads").select("id,name,company,role,linkedin,x_handle,stage,source,li:fields->li,x:fields->x,icp:fields->li_icp,hq:fields->gtm->intel->hq->v").eq("archived", false).or("source.eq.LinkedIn,x_handle.neq.").gte("updated_at", sinceIso).limit(3000),
     db.from("crm_email_leads").select("lead_id,company_key,stage"),
-    db.from("crm_x_tasks").select("handle,text,sent_at").eq("kind", "dm").eq("status", "sent").not("sent_at", "is", null).order("sent_at").limit(3000)]);
+    db.from("crm_x_tasks").select("handle,text,sent_at").eq("kind", "dm").eq("status", "sent").gte("sent_at", sinceIso).order("sent_at").limit(3000)]);
+  for (const l of (leads ?? []) as any[]) l.fields = { li: l.li ?? {}, x: l.x ?? {}, li_icp: l.icp ?? {}, gtm: { intel: { hq: { v: l.hq ?? "" } } } };
   const xdm = new Map<string, { at: number; text: string }>(); for (const t of xt ?? []) { const h = String(t.handle ?? "").replace(/^@/, "").toLowerCase(); if (h && !xdm.has(h)) xdm.set(h, { at: Date.parse(t.sent_at), text: t.text ?? "" }); }
   const known = new Set((have ?? []).map((x: any) => x.lead_id)), taken = new Set((have ?? []).filter((x: any) => !["skipped", "no_email", "rejected", "stopped"].includes(x.stage)).map((x: any) => x.company_key));
   const since = Date.now() - c.intake_days * 864e5, cand: any[] = []; let notUs = 0;
@@ -311,12 +317,12 @@ async function poll(c: Cfg, force = false) {
 // ───────── 5. send what's due ─────────
 const DONE_LEAD = /^(in talks|call booked|proposal sent|won|lost)$/i;
 async function pickDue(addr: string, c: Cfg) {
-  const { data: rows } = await db.from("crm_email_leads").select("*").eq("inbox", addr).in("stage", ["approved", "active"]).lte("next_due", now()).order("next_step", { ascending: false }).order("next_due").limit(20);
+  const { data: rows } = await db.from("crm_email_leads").select("*").eq("inbox", addr).in("stage", ["approved", "active"]).lte("next_due", now()).order("next_step", { ascending: false }).order("next_due").limit(6);
   const t0 = dayStartMs("America/New_York"), { count: started } = await db.from("crm_email_leads").select("id", { count: "exact", head: true }).eq("inbox", addr).gte("e1_at", new Date(t0).toISOString());
   for (const r of rows ?? []) {
     if (r.next_step === 1 && (started ?? 0) >= c.intake_per_day) continue;   // intake_per_day = new people each INBOX starts per day (3 x 4 inboxes = 12); 0 holds all new starts
     const tz = M.validTz(r.tz, c.default_tz); if (!M.inWindow(new Date(), tz, c.window_from, c.window_to, c.holidays)) continue;
-    const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {}, xr = !!(l?.fields as any)?.x?.replied;
+    const { data: l0 } = await db.from("crm_leads").select("archived,stage,li:fields->li,xr:fields->x->replied").eq("id", r.lead_id).maybeSingle(), l: any = l0 ? { ...l0, fields: { li: (l0 as any).li ?? {}, x: { replied: (l0 as any).xr } } } : null, li = l?.fields?.li ?? {}, xr = !!l?.fields?.x?.replied;
     if (l && !l.archived && li.stop === "by hand") continue;   // "Take over by hand" = on hold: nothing sends, and it carries on if you hand them back
     const why = !l || l.archived ? "Removed from the CRM" : li.replied || xr || li.stop === "replied" ? "They replied on LinkedIn or X" : li.stop === "by hand" ? "You took them over by hand" : DONE_LEAD.test(l.stage ?? "") ? "They are now " + l.stage : "";
     if (why) { await db.from("crm_email_leads").update({ stage: li.replied || xr ? "replied" : "stopped", stop_reason: why, next_due: null }).eq("id", r.id); await ev(r.id, "stop", addr, { why }); continue; }

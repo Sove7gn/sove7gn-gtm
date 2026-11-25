@@ -42,7 +42,7 @@ try {
   if (!process.argv.includes("--no-cron")) {
     const url = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1/lead-drop";
     await sql.unsafe(`select cron.unschedule('lead-drop') where exists (select 1 from cron.job where jobname = 'lead-drop')`);
-    await sql`select cron.schedule('lead-drop', '*/2 * * * *', ${"select net.http_post(url := '" + url + "', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"tick\"}'::jsonb, timeout_milliseconds := 150000)"})`;
+    await sql`select cron.schedule('lead-drop', '*/10 * * * *', ${"select net.http_post(url := '" + url + "', headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '" + env.CRON_SECRET + "'), body := '{\"action\":\"tick\"}'::jsonb, timeout_milliseconds := 150000)"})`;
     console.log("cron: lead-drop every 2 minutes");
   }
 } finally { await sql.end(); }

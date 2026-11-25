@@ -3252,7 +3252,9 @@ async function xAutoFollowups(): Promise<number> {
 
 async function x_plan(b: any) {
   const set = await xSettings(), now = Date.now();
-  const autoFu = await xAutoFollowups().catch(() => 0);
+  // (25 Nov, Supabase egress) the follow-up builder reads the whole DM Pipeline sheet; the extension asks every minute, so build at most every 20 minutes
+  const { data: afu } = await db.from("crm_lead_settings").select("value").eq("key", "x_autofu_at").maybeSingle();
+  let autoFu = 0; if (Date.now() - (Date.parse(String((afu?.value as any)?.at ?? "")) || 0) > 20 * 60e3) { await db.from("crm_lead_settings").upsert({ key: "x_autofu_at", value: { at: new Date().toISOString() } }, { onConflict: "key" }); autoFu = await xAutoFollowups().catch(() => 0); }
   await xStatus({ seen: new Date().toISOString(), me: b.me ?? null, version: b.version ?? "" });
   await db.from("crm_x_tasks").update({ status: "ready" }).eq("status", "sending").lt("claimed_at", new Date(now - 3600e3).toISOString());
   const dayStart = ptDayStart();
