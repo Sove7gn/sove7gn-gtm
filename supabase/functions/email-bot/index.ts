@@ -312,9 +312,9 @@ async function poll(c: Cfg, force = false) {
 const DONE_LEAD = /^(in talks|call booked|proposal sent|won|lost)$/i;
 async function pickDue(addr: string, c: Cfg) {
   const { data: rows } = await db.from("crm_email_leads").select("*").eq("inbox", addr).in("stage", ["approved", "active"]).lte("next_due", now()).order("next_step", { ascending: false }).order("next_due").limit(20);
-  const t0 = dayStartMs("America/New_York"), { count: started } = await db.from("crm_email_leads").select("id", { count: "exact", head: true }).gte("e1_at", new Date(t0).toISOString());
+  const t0 = dayStartMs("America/New_York"), { count: started } = await db.from("crm_email_leads").select("id", { count: "exact", head: true }).eq("inbox", addr).gte("e1_at", new Date(t0).toISOString());
   for (const r of rows ?? []) {
-    if (r.next_step === 1 && (started ?? 0) >= c.intake_per_day) continue;   // intake_per_day = how many new people start their sequence each day (0 holds all new starts)
+    if (r.next_step === 1 && (started ?? 0) >= c.intake_per_day) continue;   // intake_per_day = new people each INBOX starts per day (3 x 4 inboxes = 12); 0 holds all new starts
     const tz = M.validTz(r.tz, c.default_tz); if (!M.inWindow(new Date(), tz, c.window_from, c.window_to, c.holidays)) continue;
     const { data: l } = await db.from("crm_leads").select("archived,stage,fields").eq("id", r.lead_id).maybeSingle(), li = (l?.fields as any)?.li ?? {}, xr = !!(l?.fields as any)?.x?.replied;
     if (l && !l.archived && li.stop === "by hand") continue;   // "Take over by hand" = on hold: nothing sends, and it carries on if you hand them back

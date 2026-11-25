@@ -4220,7 +4220,7 @@ function botsHealth(){
     canEdit()?btn(li.mode==='auto'?'Ask me first instead':'Send on its own',()=>saveLi({mode:li.mode==='auto'?'review':'auto'}),'sm')+btn(li.paused?'Resume':'Pause',()=>saveLi({paused:!li.paused}),li.paused?'pri sm':'sm ghost'):'')
     +card('X','X bot',seen(xst.seen),xs.paused,[
       'Last checked in '+esc(since(xst.seen)||'never'),'DMs: up to <b>'+(xs.cap||40)+' a day</b>, '+(xs.gap_min||12)+'+ min apart · replies on posts: up to <b>'+(xs.reply_cap||30)+' a day</b>',
-      'Sending hours: '+esc((xs.from??8)+':00 to '+(xs.to??21)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
+      'Sending hours: '+esc(+(xs.from??8)===0&&+(xs.to??21)>=24?'any time the Chrome extension is running (your laptop on, Chrome open); 60% on weekends':(xs.from??8)+':00 to '+(xs.to??21)+':00 Pacific (US), when SF / US / Canada are online; 60% on weekends'),
       ...(ms(xs.cooldown_until)>Date.now()?['<span style="color:var(--warn)">X asked us to slow down: paused until '+esc(new Date(ms(xs.cooldown_until)).toLocaleString())+'</span>']:[]),
       ...(xst.last_error?['<span style="color:var(--bad)">Last problem: '+esc(String(xst.last_error).slice(0,140))+'</span>']:[])],
     canEdit()?btn(xs.paused?'Resume':'Pause',()=>AK.xtPause(!xs.paused),xs.paused?'pri sm':'sm ghost'):'')+'</div>';
@@ -4531,11 +4531,26 @@ const EM_COLS=[['cand','Contacted · approve to email','#0E7490',r=>r.stage==='c
   ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
 const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
 const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
+/* Why a due email hasn't gone yet (25 Nov): 'due now' alone looked broken while it was night in the US or today's limits were used. */
+function emLocal(tz,d){try{const p=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',hour:'numeric',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d||new Date());const g=k=>(p.find(x=>x.type===k)||{}).value;return {wd:g('weekday'),h:+g('hour')%24,date:g('year')+'-'+g('month')+'-'+g('day')};}catch(e){return null;}}
+function emWait(r){
+  if(!/^(approved|active)$/.test(r.stage)||!r.next_due||ms(r.next_due)>Date.now())return '';
+  const E=AK.EM,c=E.cfg||{};if(c.paused!==false)return 'Waiting: email sending is paused';
+  const L0=emLocal(r.tz||c.default_tz||'America/New_York'),from=c.window_from??8,to=c.window_to??17;
+  if(L0){if(/Sat|Sun/.test(L0.wd))return 'Waiting for Monday: no emails on weekends';
+    if((c.holidays||[]).includes(L0.date))return 'Waiting: US holiday today, goes the next business day';
+    if(L0.h<from||L0.h>=to)return 'Waiting for their business hours ('+from+':00 to '+to+':00 their time; it is '+L0.h+':00 there now)';}
+  const b=((E.stats||{}).inboxes||[]).find(x=>x.addr===r.inbox),cap=((E.stats||{}).cap||{}).cap;
+  if(b&&cap!=null&&b.sent_today>=cap)return 'Waiting: '+r.inbox+' has sent its '+cap+' for today, goes next business day';
+  if(r.next_step===1){const ny=emLocal('America/New_York').date,started=(E.leads||[]).filter(x=>x.e1_at&&x.inbox===r.inbox&&emLocal('America/New_York',new Date(x.e1_at)).date===ny).length,lim=c.intake_per_day??0;
+    if(started>=lim)return 'Waiting: '+r.inbox+' has started its '+lim+' new people for today, goes next business day';}
+  return 'Going out now: each inbox sends one every 10 to 20 minutes';
+}
 function emNext(r){
   if(r.stage==='candidate')return 'Approve to find their email and start the emails';
   if(r.stage==='new'||r.stage==='found')return r.error?r.error:'Approved: finding and verifying their email, then email 1 is queued';
   if(r.stage==='ready')return r.error?r.error:(r.warnings||[]).length?'Needs an edit before it can be queued':'Email found and verified. Waiting for your OK';
-  if(r.stage==='approved')return 'Email 1 goes from '+(r.inbox||'an inbox')+' in the next window';
+  if(r.stage==='approved')return 'Email 1 goes from '+(r.inbox||'an inbox');
   if(r.stage==='active')return 'Email '+(r.next_step-1)+' of 7 sent · next: email '+r.next_step+', '+emDay(r.next_due);
   if(r.stage==='done')return 'All seven sent';
   if(r.stage==='replied')return 'They replied: answer them';
@@ -4554,7 +4569,8 @@ function emApprove(ids){
 function emCard(r){
   const exp=!!(V.emExp||{})[r.id];
   const tone=r.stage==='ready'?['#FFFBEB','#B45309','#FDE68A']:r.stage==='replied'?['#FCE7E4','#C2392F','#F5C2BC']:['#ECFDF5','#047857','#A7F3D0'];
-  const timer=/^(approved|active)$/.test(r.stage)&&r.next_due?'<span class="eta" style="background:'+tone[0]+';color:'+tone[1]+';border-color:'+tone[2]+'" title="'+esc(new Date(r.next_due).toLocaleString())+'">⏱ '+esc(emIn(r.next_due))+'</span>':'';
+  const wait=emWait(r),held=wait&&!/^Going out/.test(wait);
+  const timer=/^(approved|active)$/.test(r.stage)&&r.next_due?'<span class="eta" style="background:'+(held?'#F3F4F6':tone[0])+';color:'+(held?'#4B5563':tone[1])+';border-color:'+(held?'#E5E7EB':tone[2])+'" title="'+esc(wait||new Date(r.next_due).toLocaleString())+'">'+(held?'⏳ waiting':'⏱ '+esc(emIn(r.next_due)))+'</span>':'';
   return '<div class="kc"'+act(()=>{V.emOpen=r.id;V.emE=null;schedule();})+'><div class="kc-t"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.name)+'</b>'+timer+'<span style="display:flex;gap:2px;margin-left:auto;flex:none">'+(canEdit()?emBin(r):'')+'<button type="button" class="hand sm" title="'+(exp?'Collapse':'Expand the card')+'"'+act(()=>{V.emExp=V.emExp||{};if(exp)delete V.emExp[r.id];else V.emExp[r.id]=1;schedule();})+'>'+(exp?'▴':'▾')+'</button></span></div>'
     +'<div class="meta note">'+esc([r.role,r.company].filter(Boolean).join(' · '))+'</div>'
     +(r.stage==='candidate'||r.stage==='ready'?(r.funding?'<div style="font-size:12.5px;margin-top:2px">💰 <b>'+esc(r.funding)+'</b></div>':'')+(r.one_liner?'<div class="note" style="font-size:12px">'+esc(String(r.one_liner).slice(0,140))+(String(r.one_liner).length>140?'…':'')+'</div>':''):'')
@@ -4566,6 +4582,7 @@ function emCard(r){
       +(r.first_touch_text?'<div class="note" style="margin-top:2px">What we said ('+esc(r.via||'')+'):</div><div style="white-space:pre-wrap;background:var(--sunk);border-radius:6px;padding:5px 7px">'+esc(r.first_touch_text)+'</div>':'')
       +(r.inbox?'<div class="note">Sends from '+esc(r.inbox)+'</div>':'')+'</div>':'')
     +'<div class="kc-one">'+esc(emHold(r)?'✋ On hold: you took them over by hand. No email goes out until you resume.':emNext(r))+'</div>'
+    +(wait&&!emHold(r)?'<div class="note" style="font-size:11.5px;color:'+(held?'#6B7280':'#047857')+'">'+esc(wait)+'</div>':'')
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
     +'<div class="note" style="font-size:11.5px;margin-top:2px">'+esc(r.via||('via '+(r.channel==='x'?'X':'LinkedIn')))+' · '+esc(emDay(r.first_touch_at))+'</div>'
     +(r.stage==='ready'&&!(r.warnings||[]).length&&canEdit()?'<div style="margin-top:4px">'+btn('Approve',()=>emApprove([r.id]),'pri sm')+'</div>':'')
@@ -4589,7 +4606,7 @@ function pgEmail(){
     +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px"><b>Daily limit per inbox</b><div style="font-size:22px;font-weight:600">'+esc(cap.cap!=null?cap.cap:(cfg.cap_steps||[5])[0])+' <span class="note" style="font-weight:400">a day each · '+esc(((cap.cap||(cfg.cap_steps||[5])[0])*4))+' in total</span></div>'
       +'<div class="note">Ramp: '+esc((cfg.cap_steps||[5,10,15,20,25]).join(' → '))+', a step every '+esc(cfg.step_days||4)+' days from the first send'+(cap.held?'. <b style="color:var(--warn)">Held a step back: '+esc(cap.why)+'.</b>':'. '+esc(cap.why||''))+'</div>'
       +'<div class="note">Verification credits left: '+esc(st.mv_credits!=null?st.mv_credits:'?')+'</div></div>'
-    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">7 plain-text emails (business days 0, 2, 4, 6, 8, 11, 14), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only. New people start their emails at most '+esc(cfg.intake_per_day!=null?cfg.intake_per_day:0)+' a day (follow-ups are on top).</div></div></div>';
+    +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px"><b>The rules</b><div class="note">7 plain-text emails (business days 0, 2, 4, 6, 8, 11, 14), same thread, same inbox. A reply on email, LinkedIn or X stops everything. A bounce or a “no” blocks the address for good. US contacts only, one person per company, verified addresses only. Each inbox starts at most '+esc(cfg.intake_per_day!=null?cfg.intake_per_day:0)+' new people a day ('+esc((cfg.intake_per_day||0)*4)+' across the 4 inboxes), and each inbox sends at most its daily limit (first emails and follow-ups together).</div></div></div>';
   h+='<div class="card sec-b" style="margin-top:12px;padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px"><thead><tr style="text-align:left;color:var(--muted)"><th style="padding:8px 12px">Inbox</th><th style="padding:8px 12px">Today</th><th style="padding:8px 12px">Sent (30d)</th><th style="padding:8px 12px">Replies</th><th style="padding:8px 12px">Bounces</th><th style="padding:8px 12px">Next send</th><th style="padding:8px 12px">Status</th></tr></thead><tbody>'
     +(((st.inboxes&&st.inboxes.length?st.inboxes:(E.inboxes||[]).map(b=>({addr:b.addr,paused:b.paused,paused_reason:b.paused_reason,has_password:true,last_error:b.last_error,next_send_at:b.next_send_at,sent_today:0,sent_30d:0,replies_30d:0,bounces_30d:0,bounce_pct:0})))).map(b=>'<tr style="border-top:1px solid var(--line)"><td style="padding:8px 12px"><b>'+esc(b.addr)+'</b></td><td style="padding:8px 12px">'+b.sent_today+'/'+esc(cap.cap!=null?cap.cap:5)+'</td><td style="padding:8px 12px">'+b.sent_30d+'</td><td style="padding:8px 12px">'+b.replies_30d+'</td><td style="padding:8px 12px">'+b.bounces_30d+(b.sent_30d?' ('+b.bounce_pct+'%)':'')+'</td><td style="padding:8px 12px">'+(b.next_send_at&&ms(b.next_send_at)>Date.now()?'in '+esc(emIn(b.next_send_at)):'—')+'</td><td style="padding:8px 12px">'
       +(b.paused?'<span style="color:var(--bad)">Paused: '+esc(b.paused_reason||'')+'</span> '+(canEdit()?btn('Resume',()=>AK.emCall('resume_inbox',{addr:b.addr}),'sm'):''):!b.has_password?'<span style="color:var(--warn)">App password not set</span>':b.last_error?'<span style="color:var(--warn)" title="'+esc(b.last_error)+'">Check: '+esc(b.last_error.slice(0,40))+'</span>':'<span style="color:#1F8A4C">Ready</span>')+'</td></tr>').join('')||'<tr><td colspan="7" class="note" style="padding:12px">Loading…</td></tr>')+'</tbody></table></div>';
