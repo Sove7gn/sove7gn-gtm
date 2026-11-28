@@ -127,7 +127,7 @@ async function apolloFind(r: any): Promise<{ email?: string; tz?: string; error?
   const txt = await res.text(); if (!res.ok) return { error: "Composio answered " + res.status };
   const line = txt.match(/^data: (.*)$/m); const j = JSON.parse(line ? line[1] : txt); if (j.error) return { error: "Composio: " + clip(j.error.message ?? j.error, 120) };
   const out = JSON.parse(j.result?.content?.[0]?.text ?? "{}"), one = out?.data?.results?.[0]?.response;
-  if (!one?.successful) return { error: clip(one?.error ?? out?.error ?? "no result", 140) };
+  if (!one?.successful) { const er = String(one?.error ?? out?.error ?? "no result"); return { error: /insufficient credits|credits/i.test(er) ? "Apollo is out of credits" : clip(er, 140) }; }
   let p = one.data?.person;
   if (!p && out?.data?.remote_file_info?.file_path) {   // a big result comes back as a file: read only the few fields we need
     const jq = "jq -c '.results[0].response.data.person | {email, email_status, time_zone}' " + out.data.remote_file_info.file_path;
@@ -142,23 +142,48 @@ async function mvCheck(email: string): Promise<{ result: string; sub: string; cr
   if (!r.ok || j.error) throw new Error("MillionVerifier: " + clip(j.error ?? r.status, 100));
   return { result: String(j.result ?? "unknown"), sub: String(j.subresult ?? ""), credits: typeof j.credits === "number" ? j.credits : null };
 }
+// (28 Nov) Apollo ran out of credits: skip it for 6 hours instead of asking again for every person, and fall back to guessing the address.
+async function apolloOut(): Promise<boolean> { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "apollo_out_at").maybeSingle(); return Date.now() - (Date.parse(String((data?.value as any)?.at ?? "")) || 0) < 6 * 36e5; }
+const markApolloOut = () => db.from("crm_lead_settings").upsert({ key: "apollo_out_at", value: { at: now() } }, { onConflict: "key" }).then(() => {}, () => {});
+/** Try first@, first.last@, flast@, firstlast@ on their company domain; only a MillionVerifier "ok" counts. A catch-all domain stops at once (rejected, same as Apollo finds). */
+async function guessFind(r: any, site: string): Promise<{ email?: string; v?: { result: string; sub: string; credits: number | null }; catchAll?: string; tried: number }> {
+  const list = M.guessEmails(r.name, site); let tried = 0;
+  for (const e of list) {
+    if (await isDnc(e)) continue;
+    const v = await mvCheck(e); tried++;
+    await ev(r.id, "verify", null, { email_src: "guess", email: e, result: v.result, sub: v.sub, credits: v.credits });
+    if (v.result === "ok") return { email: e, v, tried };
+    if (v.result === "catch_all") return { catchAll: e, tried };
+  }
+  return { tried };
+}
 const isDnc = async (email: string) => !!(await db.from("crm_email_dnc").select("email").eq("email", email).maybeSingle()).data;
 async function enrichOne(r: any, c: Cfg, tpl: M.Templates) {
   const setR = (p: Record<string, unknown>) => db.from("crm_email_leads").update(p).eq("id", r.id);
-  const { data: lead } = await db.from("crm_leads").select("email").eq("id", r.lead_id).maybeSingle();
+  const { data: lead } = await db.from("crm_leads").select("email,website").eq("id", r.lead_id).maybeSingle();
   const usable = (e?: string | null) => !!e && M.emailOk(e) && !M.isFreeMail(e) && !M.isRole(e);
-  let email: string | null = null, src = "", tz = r.tz;
+  let email: string | null = null, src = "", tz = r.tz, v: { result: string; sub: string; credits: number | null } | null = null;
   if (usable(lead?.email)) { email = M.normEmail(lead!.email); src = "crm"; }
-  else if (c.apollo) {
-    const a = await apolloFind(r);
-    if (a.email && usable(a.email)) { email = a.email; src = "apollo"; if (a.tz) tz = M.validTz(a.tz, r.tz); }
-    else if (a.email) { await setR({ stage: "no_email", error: "Found only a role or free-mail address (" + (M.isFreeMail(a.email) ? "free mail" : "role") + ")" }); return "no_email"; }
-    else if (a.error && !/no email/i.test(a.error)) { await setR({ error: "Lookup failed, will retry: " + a.error }); return "retry"; }
+  else {
+    let aErr = "";
+    if (c.apollo && !(await apolloOut())) {
+      const a = await apolloFind(r);
+      if (a.email && usable(a.email)) { email = a.email; src = "apollo"; if (a.tz) tz = M.validTz(a.tz, r.tz); }
+      else if (a.email) { await setR({ stage: "no_email", error: "Found only a role or free-mail address (" + (M.isFreeMail(a.email) ? "free mail" : "role") + ")" }); return "no_email"; }
+      else if (a.error && !/no email/i.test(a.error)) { aErr = a.error; if (/out of credits/.test(a.error)) await markApolloOut(); else { await setR({ error: "Lookup failed, will retry: " + a.error }); return "retry"; } }
+    } else if (c.apollo) aErr = "Apollo is out of credits";
+    // fallback: guess the usual patterns on their company domain (once per person), each checked by MillionVerifier
+    if (!email && r.email_source !== "guess_tried") {
+      let g; try { g = await guessFind(r, String(lead?.website ?? "")); } catch (e) { await setR({ error: "Verification failed, will retry: " + clip((e as Error).message, 100) }); return "retry"; }
+      if (g.email) { email = g.email; src = "guess"; v = g.v!; }
+      else if (g.catchAll) { await setR({ stage: "rejected", email: g.catchAll, email_source: "guess", email_found_at: now(), verify_result: "catch_all", verified_at: now(), error: "Verification: catch_all (their domain accepts every address, so none can be confirmed)" }); return "rejected"; }
+      else if (aErr) { await setR({ email_source: "guess_tried", error: aErr + (g.tried ? ": none of the usual address patterns verified" : " and their company website isn't in the CRM") + ". Looked up again automatically once Apollo has credits." }); return "retry"; }
+    } else if (!email && aErr) { await setR({ error: aErr + ". Looked up again automatically once Apollo has credits." }); return "retry"; }
   }
   if (!email) { await setR({ stage: "no_email", error: "No work email found", email_found_at: now() }); await ev(r.id, "found", null, { found: false }); return "no_email"; }
   if (await isDnc(email)) { await setR({ stage: "rejected", email, error: "On the do-not-contact list" }); return "rejected"; }
-  let v; try { v = await mvCheck(email); } catch (e) { await setR({ error: "Verification failed, will retry: " + clip((e as Error).message, 100) }); return "retry"; }
-  await ev(r.id, "verify", null, { email_src: src, result: v.result, sub: v.sub, credits: v.credits });
+  if (!v) { try { v = await mvCheck(email); } catch (e) { await setR({ error: "Verification failed, will retry: " + clip((e as Error).message, 100) }); return "retry"; }
+    await ev(r.id, "verify", null, { email_src: src, result: v.result, sub: v.sub, credits: v.credits }); }
   if (v.result !== "ok") { await setR({ stage: "rejected", email, email_source: src, email_found_at: now(), verify_result: v.result, verify_sub: v.sub, verified_at: now(), error: "Verification: " + v.result + (v.sub ? " (" + v.sub + ")" : "") }); return "rejected"; }
   const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl, new Date(), await dropFor(r));
   const draft = Object.fromEntries(KEYS.map((k) => [k, d[k]])), warn = [...d.warnings, ...lintAll(draft, r.first_touch_text)];
@@ -175,7 +200,7 @@ async function enrichClaimed(id: string, c: Cfg, tpl: M.Templates, out: Record<s
 }
 async function enrich(c: Cfg) {
   await db.from("crm_email_leads").update({ stage: "new" }).eq("stage", "found").lt("updated_at", new Date(Date.now() - 5 * 60e3).toISOString());   // a lookup that died halfway is retried
-  const tpl = await templates(), { data: rows } = await db.from("crm_email_leads").select("id").eq("stage", "new").order("created_at").limit(c.finds_per_run), out: Record<string, number> = {};
+  const tpl = await templates(), { data: rows } = await db.from("crm_email_leads").select("id").eq("stage", "new").order("updated_at").limit(c.finds_per_run), out: Record<string, number> = {};
   for (const r of rows ?? []) await enrichClaimed(r.id, c, tpl, out);
   return out;
 }
@@ -247,7 +272,10 @@ async function redraft() {
   for (const r of rows ?? []) {
     if (r.draft?.edited) continue;
     const d = M.buildDrafts({ name: r.name, company: r.company, funding: r.funding, one_liner: r.one_liner, channel: r.channel }, tpl, new Date(), await dropFor(r)), draft = Object.fromEntries(KEYS.map((k) => [k, d[k]]));
-    await db.from("crm_email_leads").update({ subject: d.subject, draft: { ...draft, has_drop: d.has_drop }, fact: d.fact, warnings: [...d.warnings, ...lintAll(draft, r.first_touch_text)] }).eq("id", r.id); n++;
+    const warn = [...d.warnings, ...lintAll(draft, r.first_touch_text)];
+    await db.from("crm_email_leads").update({ subject: d.subject, draft: { ...draft, has_drop: d.has_drop }, fact: d.fact, warnings: warn, ...(warn.length ? {} : { error: null }) }).eq("id", r.id); n++;
+    // (28 Nov) someone you already approved whose draft is now clean goes on to email 1 by itself, as it would have the first time
+    if (!warn.length && r.pre_approved) { const a = await approve({ id: r.id }, r.approved_by || "approved earlier", true); if ((a as any)?.error) await db.from("crm_email_leads").update({ error: (a as any).error }).eq("id", r.id); }
   }
   return { redrafted: n };
 }

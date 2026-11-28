@@ -11,6 +11,21 @@ export const emailOk = (e: string) => /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[a-z]{2
 export const isFreeMail = (e: string) => FREE.test(e.trim().split("@")[1] ?? "");
 export const isRole = (e: string) => ROLE.test(e.trim().split("@")[0] ?? "");
 export const normEmail = (e: string) => String(e ?? "").trim().toLowerCase();
+/** The company's email domain from its website ("https://www.acme.ai/about" -> "acme.ai"), or "" if there isn't a usable one. */
+export function siteDomain(site: string): string {
+  const d = String(site ?? "").trim().toLowerCase().replace(/^[a-z]+:\/\//, "").replace(/^www\./, "").split(/[\/?#:\s]/)[0];
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d) && !/(linkedin|twitter|x|ycombinator|crunchbase|notion|github|medium|substack|wellfound)\.(com|so|co|io)$/.test(d) ? d : "";
+}
+/** (28 Nov) Fallback when Apollo can't help: the usual founder address patterns, most common first. Every guess must still pass MillionVerifier as "ok". */
+export function guessEmails(name: string, site: string): string[] {
+  const dom = siteDomain(site); if (!dom) return [];
+  const clean = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+  const parts = String(name ?? "").replace(/\(.*?\)/g, " ").replace(/,.*$/, "").split(/\s+/).map(clean).filter(Boolean).filter((w) => !/^(dr|mr|ms|mrs|phd|mba|jr|sr)$/.test(w));
+  const f = parts[0], l = parts.length > 1 ? parts[parts.length - 1] : "";
+  if (!f || f.length < 2) return [];
+  const local = l && l.length > 1 ? [f, f + "." + l, f[0] + l, f + l] : [f];
+  return [...new Set(local)].map((x) => x + "@" + dom);
+}
 export const companyKey = (s: string) => String(s ?? "").toLowerCase().replace(/\(.*?\)/g, "").replace(/\b(inc|llc|ltd|labs?|ai|hq|co|corp|technologies|the|robotics|systems|software)\b/g, "").replace(/[^a-z0-9]/g, "").slice(0, 24);
 
 // ───────── time: prospect's working hours, business days ─────────
@@ -52,7 +67,8 @@ export const DEFAULT_TEMPLATES: Templates = {
 };
 const lowerFirst = (s: string) => /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 /** "Workmagic.io" reads as a link to a spam filter: drop the domain ending in the copy. */
-export const cleanCompany = (c: string) => c.trim().replace(/\.(io|ai|com|co|app|xyz|dev|net|org|so|gg|tech)$/i, "");
+// (28 Nov) also drops legal suffixes and stray punctuation first: "SecureX.AI, Inc," -> "SecureX" (it read as a link and held Harry Singh back)
+export const cleanCompany = (c: string) => String(c ?? "").trim().replace(/\s*\(.*?\)\s*$/, "").replace(/[,\s]+(inc|llc|ltd|corp|co|gmbh|pbc)\.?[,.\s]*$/i, "").replace(/[,.;\s]+$/, "").replace(/\.(io|ai|com|co|app|xyz|dev|net|org|so|gg|tech|inc|us|me|sh|run|health|bio)$/i, "");
 export function firstNameOf(name: string): string {
   const w = String(name ?? "").replace(/[^\p{L}\s'-]/gu, " ").replace(/\b(dr|prof|mr|mrs|ms|phd|md)\b/gi, " ").trim().split(/\s+/).filter(Boolean)[0] ?? "";
   return w.length >= 2 ? w.charAt(0).toUpperCase() + w.slice(1) : "";

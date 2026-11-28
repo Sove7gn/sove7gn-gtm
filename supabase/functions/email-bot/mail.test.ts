@@ -168,3 +168,20 @@ Deno.test("classifying bounces, auto replies and real replies", () => {
   for (const t of ["no", "No thanks", "stop", "Unsubscribe", "not interested", "Please remove me"]) assert(M.isOptOut(t), t);
   assert(!M.isOptOut("Not right now, but send it over next quarter")); assert(!M.isOptOut("Sure, tell me more"));
 });
+
+Deno.test("guessEmails: founder patterns on the company domain", () => {
+  assertEquals(M.guessEmails("Naman Bansal", "https://www.manicule.com/about"), ["naman@manicule.com", "naman.bansal@manicule.com", "nbansal@manicule.com", "namanbansal@manicule.com"]);
+  assertEquals(M.guessEmails("Robert", "mochi.ai"), ["robert@mochi.ai"]);
+  assertEquals(M.guessEmails("Jason Cornelius, PhD", "acme.io")[1], "jason.cornelius@acme.io");
+  assertEquals(M.guessEmails("Janak (Crasun) Panthi", "crasun.com")[1], "janak.panthi@crasun.com");
+  assertEquals(M.guessEmails("Sam Lee", ""), []);
+  assertEquals(M.guessEmails("Sam Lee", "linkedin.com/company/acme"), []);
+});
+
+Deno.test("cleanCompany: domain endings and legal suffixes", () => {
+  assertEquals(M.cleanCompany("SecureX.AI, Inc,"), "SecureX");
+  assertEquals(M.cleanCompany("Mecka.ai"), "Mecka");
+  assertEquals(M.cleanCompany("Acme Inc."), "Acme");
+  assertEquals(M.cleanCompany("Paradev (formerly Superset)"), "Paradev");
+  assertEquals(M.cleanCompany("Human Archive"), "Human Archive");
+});
