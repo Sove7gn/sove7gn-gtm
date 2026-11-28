@@ -22,11 +22,11 @@ const inChunks = async <T>(ids: string[], q: (part: string[]) => PromiseLike<{ d
 // ───────── settings ─────────
 type Cfg = { paused: boolean; cap_steps: number[]; step_days: number; ramp_start: string | null; ramp_hold_bounce_pct: number; window_from: number; window_to: number; default_tz: string;
   gap_min: number; gap_max: number; countries: string[]; holidays: string[]; bounce_pause_pct: number; bounce_min_sends: number; verify_max_age_days: number; steps_days: number[];
-  intake_days: number; intake_per_day: number; finds_per_run: number; apollo: boolean; test_recipients: string[] };
+  intake_days: number; intake_per_day: number; finds_per_run: number; apollo: boolean; test_recipients: string[]; alert_to: string[] };
 async function cfg(): Promise<Cfg> {
   const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_bot").maybeSingle();
   return { paused: true, cap_steps: [5, 10, 15, 20, 25], step_days: 4, ramp_start: null, ramp_hold_bounce_pct: 2, window_from: 8, window_to: 17, default_tz: "America/New_York", gap_min: 10, gap_max: 20,
-    countries: ["united states", "usa", "u.s."], holidays: [], bounce_pause_pct: 3, bounce_min_sends: 20, verify_max_age_days: 14, steps_days: [0, 2, 4, 6, 8, 11, 14], intake_days: 30, intake_per_day: 6, finds_per_run: 2, apollo: true, test_recipients: [], ...((data?.value as any) ?? {}) };
+    countries: ["united states", "usa", "u.s."], holidays: [], bounce_pause_pct: 3, bounce_min_sends: 20, verify_max_age_days: 14, steps_days: [0, 2, 4, 6, 8, 11, 14], intake_days: 30, intake_per_day: 6, finds_per_run: 2, apollo: true, test_recipients: [], alert_to: ["founders@sove7gn.org"], ...((data?.value as any) ?? {}) };
 }
 const saveCfg = async (patch: Record<string, unknown>) => { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_bot").maybeSingle(); await db.from("crm_lead_settings").upsert({ key: "email_bot", value: { ...((data?.value as any) ?? {}), ...patch } }, { onConflict: "key" }); };
 async function templates(): Promise<M.Templates> { const { data } = await db.from("crm_lead_settings").select("value").eq("key", "email_templates").maybeSingle(); return { ...M.DEFAULT_TEMPLATES, ...((data?.value as any) ?? {}) }; }
@@ -302,6 +302,18 @@ async function stopOtherChannels(r: any, reply: string, optOut: boolean) {
   await db.from("crm_li_tasks").update({ status: "skipped", error: "They replied by email" }).eq("lead_id", l.id).in("status", ["review", "ready"]);
   await db.from("crm_lead_events").insert({ lead_id: l.id, kind: "message", text: "Replied by email" + (optOut ? " (asked not to be contacted)" : "") + ": “" + clip(reply, 500) + "”", by_email: "email" });
 }
+/** (28 Nov) A real reply: email the team at once from the inbox that got it (so it reaches a phone even with the CRM closed). Settings: email_bot.alert_to. */
+async function alertReply(box: any, r: any, reply: string, optOut: boolean) {
+  const c = await cfg(), pw = pwFor(box.addr); if (!pw) return;
+  const k = r.next_step ? r.next_step - 1 : 7, who = r.name + (r.company ? " (" + r.company + ")" : "");
+  const body = [optOut ? who + " asked not to be emailed again. They are off every sequence." : who + " replied to email " + k + " of 7. All their emails, LinkedIn and X follow-ups are stopped: it's your move.",
+    "", "Their reply:", reply || "(empty, see the inbox)", "", "From: " + r.email, "To: " + box.addr + " (reply from this inbox so it stays in the same thread)", ...(r.linkedin ? ["LinkedIn: " + r.linkedin] : []),
+    "", "CRM: Pipelines > Email, the Replied column is at the top."].join(String.fromCharCode(10));
+  for (const to of (c.alert_to ?? []).map(M.normEmail).filter(M.emailOk)) {
+    const res = await M.smtpSend({ user: box.addr, pass: pw }, { from: box.addr, fromName: "SOVE7GN CRM", to, toName: "SOVE7GN team", subject: (optOut ? "Opt-out: " : "REPLY: ") + who + " answered Emily's email", body, messageId: M.newMessageId(box.addr.split("@")[1]) }).catch((e) => ({ ok: false, response: String(e) } as any));
+    await ev(r.id, "alert", box.addr, { to, ok: !!res.ok });
+  }
+}
 async function handleMessage(box: any, m: M.ImapMsg) {
   const kind = M.classify(m), from = M.addrOf(m.from), ids = [...(m.inReplyTo.match(/<[^>\s]+>/g) ?? []), ...(m.references.match(/<[^>\s]+>/g) ?? []), ...(kind.startsWith("bounce") ? (M.decodeText(m.text).match(/<[^>\s]+@[^>\s]+>/g) ?? []) : [])];
   if (kind.startsWith("bounce")) {
@@ -320,6 +332,7 @@ async function handleMessage(box: any, m: M.ImapMsg) {
     await ev(r.id, "reply", box.addr, { opt_out: optOut, text: clip(reply, 300) });
     if (optOut) await db.from("crm_email_dnc").upsert({ email: r.email, reason: "asked not to be emailed", source: "reply" }, { onConflict: "email" });
     await stopOtherChannels(r, reply, optOut);
+    await alertReply(box, r, reply, optOut).catch((e) => console.error("alert:", (e as Error).message));
   }
   return kind;
 }

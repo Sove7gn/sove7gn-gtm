@@ -1848,7 +1848,7 @@ class Component extends DCLogic {
     const dayOf=at=>{const d=new Date(at);const d0=new Date(d);d0.setHours(0,0,0,0);const diff=Math.round((T0-d0.getTime())/864e5);return diff===0?'Today':diff===1?'Yesterday':d.toLocaleDateString([], {weekday:'long',day:'numeric',month:'short'});};
     const items=[];let last='';
     for(const e of L.slice(0,n)){const day=dayOf(e.at);
-      items.push({isDay:day!==last,day,id:e.id,time:new Date(e.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),chan:e.chan,chanBg:e.chan==='X'?'#111':'#0a66c2',chanTxt:e.chan==='X'?'𝕏':'in',
+      items.push({isDay:day!==last,day,id:e.id,time:new Date(e.at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),chan:e.chan,chanBg:e.chan==='X'?'#111':e.chan==='Email'?'#C2392F':'#0a66c2',chanTxt:e.chan==='X'?'𝕏':e.chan==='Email'?'@':'in',
         what:e.what,who:e.who,sub:e.sub||'',text:clip(e.text||'',260),hasText:!!e.text,quote:clip(e.quote||'',140),hasQuote:!!e.quote,ok:e.ok,
         dot:e.ok?'var(--ok)':'var(--bad)',whatC:e.ok?'var(--ink)':'var(--bad)',hasLink:!!e.link,open:()=>{if(e.link)window.open(e.link,'_blank','noopener');},
         hasLead:!!e.lead,openLead:()=>this.openLead(e.lead)});last=day;}

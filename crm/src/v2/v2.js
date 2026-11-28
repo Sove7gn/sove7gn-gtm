@@ -594,7 +594,7 @@ const scoreC=n=>{n=parseFloat(n);return n>=8?['#047857','#D1FAE5']:n>=5?['#B4530
 function pgPipeline(){
   const cur=V.f.pipe||'LinkedIn';const P=L.allPeople();const min=+(V.f.min||0);
   let h=head('Pipelines','Every channel has its own board. Approve right on the cards; click a card for everything about them.',cur==='Table'&&canEdit()?btn('Export CSV',()=>exportCsv(),'sm'):'');
-  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email',(AK.EM.leads||[]).filter(r=>r.stage==='ready').length||null],['Table','Everyone (table)']]);
+  h+=tabsBar('pipe',[['LinkedIn','LinkedIn'],['X','X'],['Instagram','Instagram'],['Email','Email',(AK.EM.leads||[]).filter(r=>r.stage==='ready'||r.stage==='replied').length||null],['Table','Everyone (table)']]);
   const fbar=(note)=>'<div class="bar" style="margin-top:12px"><span class="note">'+esc(note||'')+'</span><span class="sp"></span>'
     +(cur!=='Instagram'?'<div class="chips">'+[[0,'Any fit'],[5,'5+'],[7,'7+'],[8,'8+']].map(([v,l])=>'<button type="button" class="chip'+(min===v?' on':'')+'"'+act(()=>{V.f.min=v;schedule();})+'>'+l+'</button>').join('')+'</div>':'')
     +'<input class="in search" placeholder="Search" value="'+esc(V.q.pipe||'')+'"'+inp(e=>{V.q.pipe=e.target.value;})+chg(()=>schedule())+'></div>';
@@ -748,9 +748,9 @@ const rmFor=id=>{const l=leadById(id);if(l)return rmOfLead(l);const c=contactByK
 const gone=rm=>!!rm&&AK.isRemoved(rm);
 const rmBig=rm=>rm&&canEdit()?'<button type="button" class="hand"'+act(()=>{if(confirm('Remove '+(rm.name||'this person')+'? The bots and the CRM won’t touch them again. You can restore them from Trash.'))AK.removePerson(rm).then(ok=>{if(ok){if(L.state.lid)L.closeLead();L.setState({cid:null});schedule();}});})+'>🗑 Remove from CRM</button>':'';
 /* ---------- Email pipeline (23 Nov): everyone contacted on LinkedIn/X also gets Emily's 7 emails once you Approve ---------- */
-const EM_COLS=[['cand','Contacted · approve to email','#0E7490',r=>r.stage==='candidate'],['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Needs a look','#A86200',r=>r.stage==='ready'],['approved','Approved · email 1 next','#6D28D9',r=>r.stage==='approved'],
+const EM_COLS=[['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['cand','Contacted · approve to email','#0E7490',r=>r.stage==='candidate'],['find','Finding email','#9A9EA7',r=>/^(new|found)$/.test(r.stage)],['ready','Needs a look','#A86200',r=>r.stage==='ready'],['approved','Approved · email 1 next','#6D28D9',r=>r.stage==='approved'],
   ...[2,3,4,5,6,7].map(k=>['seq'+k,'Email '+(k-1)+' sent · '+k+' next',['#3B6FD8','#3F73DB','#4A7AE0','#5C86E3','#6F93E6','#82A0E9'][k-2],r=>r.stage==='active'&&r.next_step===k]),['done','Finished · all 7 sent','#2F8F5B',r=>r.stage==='done'],
-  ['replied','Replied · your move','#C2392F',r=>r.stage==='replied'],['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
+  ['stopped','Stopped / no email','#9A9EA7',r=>/^(stopped|skipped|no_email|rejected)$/.test(r.stage)]];
 const emDay=x=>x?new Date(x).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}):'';
 const emIn=x=>{const d=ms(x)-Date.now();if(!ms(x))return '';if(d<=0)return 'due now';return d<36e5?Math.max(1,Math.round(d/6e4))+'m':d<48*36e5?Math.round(d/36e5)+'h':Math.round(d/864e5)+'d';};
 /* Why a due email hasn't gone yet (25 Nov): 'due now' alone looked broken while it was night in the US or today's limits were used. */
@@ -803,6 +803,7 @@ function emCard(r){
       +(r.linkedin?'<a href="'+esc(r.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">LinkedIn ↗</a>':'')+(r.x_handle?'<a href="https://x.com/'+esc(r.x_handle)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">@'+esc(r.x_handle)+' on X ↗</a>':'')
       +(r.first_touch_text?'<div class="note" style="margin-top:2px">What we said ('+esc(r.via||'')+'):</div><div style="white-space:pre-wrap;background:var(--sunk);border-radius:6px;padding:5px 7px">'+esc(r.first_touch_text)+'</div>':'')
       +(r.inbox?'<div class="note">Sends from '+esc(r.inbox)+'</div>':'')+'</div>':'')
+    +(r.stage==='replied'&&r.reply_text?'<div style="font-size:12.5px;background:#FFF5F4;border:1px solid #F5C2BC;border-radius:6px;padding:5px 7px;margin-top:3px;white-space:pre-wrap">“'+esc(String(r.reply_text).slice(0,220))+(String(r.reply_text).length>220?'…':'')+'” <span class="note">· '+esc(emDay(r.replied_at))+'</span></div>':'')
     +'<div class="kc-one">'+esc(emHold(r)?'✋ On hold: you took them over by hand. No email goes out until you resume.':emNext(r))+'</div>'
     +(wait&&!emHold(r)?'<div class="note" style="font-size:11.5px;color:'+(held?'#6B7280':'#047857')+'">'+esc(wait)+'</div>':'')
     +((r.warnings||[]).length&&r.stage==='ready'?'<div class="note" style="color:var(--warn);font-size:11.5px">⚠ '+esc(r.warnings[0])+'</div>':'')
@@ -821,6 +822,8 @@ function pgEmail(){
   const rows=E.leads||[],open=V.emOpen&&rows.find(r=>r.id===V.emOpen),st=E.stats||{},cfg=E.cfg||{},paused=cfg.paused!==false;
   if(open)return emDetail(open);
   const cap=(st.cap||{});
+  const rep=rows.filter(r=>r.stage==='replied').sort((a,b)=>String(b.replied_at||'').localeCompare(String(a.replied_at||'')));
+  if(rep.length)h+='<div class="card" style="margin-top:12px;padding:12px 14px;border:1px solid #F5C2BC;background:#FFF5F4"><b style="color:#C2392F">🔥 '+rep.length+' '+(rep.length===1?'person':'people')+' replied by email: your move</b><div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">'+rep.slice(0,8).map(r=>'<div style="cursor:pointer;font-size:13px"'+act(()=>{V.emOpen=r.id;V.emE=null;schedule();})+'><b>'+esc(r.name)+'</b>'+(r.company?' · '+esc(r.company):'')+' <span class="note">'+esc(emDay(r.replied_at))+' · to '+esc(r.inbox||'')+'</span><div class="note">“'+esc(String(r.reply_text||'').slice(0,160))+'”</div></div>').join('')+'</div></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px">'
     +'<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:6px"><b>Email sending</b><div>'+(paused?'<span class="pill" style="background:#FDF1DE;color:#A86200">■ Paused: nothing sends</span>':'<span class="pill" style="background:#E5F5EB;color:#1F8A4C">● Running</span>')+'</div>'
       +'<div class="note">Only people you Approve get emails. '+esc(st.window||'Mon to Fri, 8:00 to 17:00 in their time zone')+', 10 to 20 minutes apart per inbox.</div>'
@@ -835,7 +838,7 @@ function pgEmail(){
   h+=emMonthly(E);
   h+='<div class="bar" style="margin-top:12px"><span class="note">'+rows.length+' people · everyone we send a LinkedIn invite or an X DM to lands in the first column; Approve and the bot finds and verifies their email, then runs the seven emails</span><span class="sp"></span>'+btn('Refresh',()=>AK.emLoad(),'sm ghost')+'</div>';
   const sel=Object.keys(V.emSel||{}).filter(id=>rows.some(r=>r.id===id&&r.stage==='candidate'));
-  h+='<div class="board2" style="height:max(560px,calc(100vh - 110px))">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f),shown=id==='cand'?cs.slice(0,80):cs;
+  h+='<div class="board2" style="height:max(560px,calc(100vh - 110px))">'+EM_COLS.map(([id,name,dot,f])=>{const cs=rows.filter(f),shown=id==='cand'?cs.slice(0,80):id==='replied'?cs.slice().sort((a,b)=>String(b.replied_at||'').localeCompare(String(a.replied_at||''))):cs;
     const tools=id==='cand'&&cs.length&&canEdit()?'<div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px 0">'+btn(sel.length?'Clear':'Select all',()=>{V.emSel=sel.length?{}:Object.fromEntries(shown.map(r=>[r.id,1]));schedule();},'sm ghost')+(sel.length?btn('Approve '+sel.length+' selected',()=>{if(confirm('Approve '+sel.length+' people? Their emails are looked up and verified, then email 1 goes out over the next days at the daily start limit.'))emApprove(sel).then(x=>{if(x)L.toast('Approved '+(x.approved!=null?x.approved:sel.length)+'.');});},'pri sm'):'')+'</div>':'';
     return '<div class="bc"><div class="bc-h" style="border-top-color:'+dot+'"><b>'+esc(name)+'</b><span class="cnt">'+cs.length+'</span></div>'+tools+'<div class="bc-b" style="display:flex;flex-direction:column;gap:8px;padding:8px;overflow-y:auto">'+(cs.length?shown.map(emCard).join('')+(cs.length>shown.length?'<div class="note" style="text-align:center">+ '+(cs.length-shown.length)+' older, approve some to see more</div>':''):'<div class="kc-empty">—</div>')+'</div></div>';}).join('')+'</div>';
   return h;
